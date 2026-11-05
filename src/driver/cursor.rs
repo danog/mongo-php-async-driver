@@ -146,10 +146,32 @@ pub unsafe fn new_cursor(c: Cursor) -> sys::zval {
     zval::obj(obj::alloc(CE, c, addr_of_mut!(H_CURSOR)))
 }
 
+/// phongo_cursor_get_debug_info
+unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+    use crate::zend::hash;
+    *is_temp = 1;
+    let c = obj::data::<Cursor>(o);
+    let ht = hash::new(10);
+    let opt_str = |v: &Option<String>| v.as_ref().map_or_else(zval::null, |s| zval::string(s.as_bytes()));
+    let opt_zval = |z: &sys::zval| if zval::is(z, sys::IS_UNDEF) { zval::null() } else { zval::copy(z) };
+    hash::str_update(ht, b"database", opt_str(&c.database));
+    hash::str_update(ht, b"collection", opt_str(&c.collection));
+    hash::str_update(ht, b"query", opt_zval(&c.zquery));
+    hash::str_update(ht, b"command", opt_zval(&c.zcommand));
+    hash::str_update(ht, b"readPreference", opt_zval(&c.zread_preference));
+    hash::str_update(ht, b"session", opt_zval(&c.session));
+    hash::str_update(ht, b"isDead", zval::bool(!c.more()));
+    hash::str_update(ht, b"currentIndex", zval::long(c.current));
+    hash::str_update(ht, b"currentDocument", opt_zval(&c.zchild));
+    hash::str_update(ht, b"server", c.client.as_ref().map_or_else(zval::null, |cl| super::server::new_server(cl.clone(), c.server_id)));
+    ht
+}
+
 pub unsafe fn init_MongoDB_Driver_Cursor(c: *mut sys::zend_class_entry) {
     CE = c;
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<Cursor>(addr_of_mut!(H_CURSOR));
+    let h = obj::handlers::<Cursor>(addr_of_mut!(H_CURSOR));
+    h.get_debug_info = Some(get_debug_info);
 }
 
 fn find<'a>(d: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
@@ -459,15 +481,6 @@ impl Cursor {
     unsafe fn free_session_if_exhausted(&mut self) {
         if self.id == 0 && !zval::is(&self.session, sys::IS_UNDEF) {
             self.session = zval::undef();
-        }
-    }
-
-    pub fn set_implicit(&mut self, s: Option<ClientSession>) {
-        self.implicit = s;
-        if self.id == 0 {
-            if let (Some(c), Some(mut s)) = (self.client.clone(), self.implicit.take()) {
-                c.borrow_mut().end_session(&mut s);
-            }
         }
     }
 

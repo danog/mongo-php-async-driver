@@ -78,6 +78,19 @@ pub enum Value<'a> {
 }
 
 impl Value<'_> {
+    /// bson_iter_as_bool
+    pub fn as_bool(&self) -> bool {
+        match *self {
+            Value::Bool(b) => b,
+            Value::Double(d) => d != 0.0,
+            Value::Int64(i) => i != 0,
+            Value::Int32(i) => i != 0,
+            Value::Utf8(_) => true,
+            Value::Null | Value::Undefined => false,
+            _ => true,
+        }
+    }
+
     pub fn type_code(&self) -> u8 {
         match self {
             Value::Double(_) => T_DOUBLE,
@@ -420,6 +433,16 @@ impl<'a> Iter<'a> {
         }
         let it = Iter { raw, live: true, off: 0, key: 0, keylen: 0, d1: 0, d2: 0, d3: 0, d4: 0, next_off: 4, err_off: 0, unsupported: false };
         Ok(it.value())
+    }
+
+    /// `bson_iter_find_case` (ASCII case-insensitive, from the current position).
+    pub fn find_case(&mut self, key: &[u8]) -> bool {
+        while self.next() {
+            if self.key().eq_ignore_ascii_case(key) {
+                return true;
+            }
+        }
+        false
     }
 
     /// `bson_iter_init_find` (case-sensitive, from the current position).

@@ -19,6 +19,8 @@ const URI_DEFAULT: &str = "mongodb://127.0.0.1/";
 #[derive(Default)]
 pub struct Manager {
     pub client: Option<ClientRef>,
+    /// the URI string as given (mongoc_uri_get_string)
+    pub uri_string: String,
     /// Manager::addSubscriber registrations
     pub subscribers: super::apm::Subscribers,
 }
@@ -58,10 +60,31 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
     obj::alloc(c, Manager::default(), addr_of_mut!(H_MANAGER))
 }
 
+/// phongo_manager_get_debug_info: the URI, a Server for every known server, and the
+/// crypt_shared version (none: client-side encryption is not supported yet).
+unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+    *is_temp = 1;
+    let m = obj::data::<Manager>(o);
+    let ht = hash::new(3);
+    hash::str_update(ht, b"uri", zval::string(m.uri_string.as_bytes()));
+    let ids: Vec<u32> = m.client.as_ref().and_then(|c| c.try_borrow().ok().map(|cl| cl.td.known_servers().map(|s| s.id).collect())).unwrap_or_default();
+    let cluster = hash::new(ids.len() as u32);
+    if let Some(c) = &m.client {
+        for id in ids {
+            hash::push(cluster, super::server::new_server(c.clone(), id));
+        }
+    }
+    hash::str_update(ht, b"cluster", zval::arr(cluster));
+    hash::str_update(ht, b"cryptSharedVersion", zval::null());
+    ht
+}
+
 pub unsafe fn init_MongoDB_Driver_Manager(c: *mut sys::zend_class_entry) {
     CE = c;
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<Manager>(addr_of_mut!(H_MANAGER)).free_obj = Some(free);
+    let h = obj::handlers::<Manager>(addr_of_mut!(H_MANAGER));
+    h.free_obj = Some(free);
+    h.get_debug_info = Some(get_debug_info);
 }
 
 fn pct_encode(s: &[u8], out: &mut String) {
@@ -202,6 +225,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
         return;
     }
     let me = obj::data::<Manager>(call::this(ex));
+    me.uri_string = uri_string.clone();
     let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
     // phongo checks the option after creating the client: a client error comes first
     let api = super::serverapi::from_driver_options(driver_options);
@@ -526,8 +550,12 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     }
     if let Some(z) = zsession {
         c.session = zval::copy(z);
+    } else if let Some(s) = implicit {
+        // phongo_create_implicit_session: a Session object the cursor holds until it is
+        // exhausted (phongo_cursor_free_session_if_exhausted)
+        let drp = client_read_preference(&client.borrow().uri);
+        c.session = super::session::new_session(client.clone(), s, drp);
     }
-    c.set_implicit(implicit);
     c.database = Some(db.clone());
     c.zcommand = zval::copy(command);
     if let Some(r) = &rp {
