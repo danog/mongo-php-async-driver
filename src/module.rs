@@ -1,0 +1,157 @@
+//! The module entry: registered as `mongodb`, with ext-mongodb's version, dependencies, INI
+//! settings and phpinfo() rows (phongo.c, phongo_ini.c).
+
+use crate::zend::{self, sys};
+use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOCRYPT_VERSION, LIBMONGOC_VERSION};
+use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ptr::{addr_of, addr_of_mut, null, null_mut};
+
+const VERSION: &CStr = c"2.5.6";
+const _: () = assert!(VERSION.to_bytes().len() == EXT_VERSION.len());
+
+const MODULE_DEP_REQUIRED: u8 = 1;
+
+const fn dep(name: &'static CStr) -> sys::zend_module_dep {
+    sys::zend_module_dep { name: name.as_ptr(), rel: null(), version: null(), type_: MODULE_DEP_REQUIRED }
+}
+
+static DEPS: zend::Static<[sys::zend_module_dep; 5]> = zend::Static([
+    dep(c"date"),
+    dep(c"json"),
+    dep(c"spl"),
+    dep(c"standard"),
+    sys::zend_module_dep { name: null(), rel: null(), version: null(), type_: 0 },
+]);
+
+/// The `mongodb.debug` INI value (an empty string when unset).
+pub static mut DEBUG: *mut sys::zend_string = null_mut();
+
+unsafe extern "C" fn on_update_debug(
+    _entry: *mut sys::zend_ini_entry,
+    new_value: *mut sys::zend_string,
+    _a1: *mut c_void,
+    _a2: *mut c_void,
+    _a3: *mut c_void,
+    _stage: c_int,
+) -> sys::zend_result {
+    // the log stream itself is set up by the logging subsystem (phongo_log.c) when it is ported
+    DEBUG = new_value;
+    sys::ZEND_RESULT_CODE_SUCCESS
+}
+
+const PHP_INI_ALL: u8 = 7;
+
+static INI: zend::Static<[sys::zend_ini_entry_def; 2]> = zend::Static([
+    sys::zend_ini_entry_def {
+        name: c"mongodb.debug".as_ptr(),
+        on_modify: Some(on_update_debug),
+        mh_arg1: null_mut(),
+        mh_arg2: null_mut(),
+        mh_arg3: null_mut(),
+        value: c"".as_ptr(),
+        displayer: None,
+        value_length: 0,
+        name_length: 13,
+        modifiable: PHP_INI_ALL,
+    },
+    sys::zend_ini_entry_def {
+        name: null(),
+        on_modify: None,
+        mh_arg1: null_mut(),
+        mh_arg2: null_mut(),
+        mh_arg3: null_mut(),
+        value: null(),
+        displayer: None,
+        value_length: 0,
+        name_length: 0,
+        modifiable: 0,
+    },
+]);
+
+unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_result {
+    sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
+    sys::ZEND_RESULT_CODE_SUCCESS
+}
+
+unsafe extern "C" fn mshutdown(_type: c_int, module_number: c_int) -> sys::zend_result {
+    sys::zend_unregister_ini_entries(module_number);
+    sys::ZEND_RESULT_CODE_SUCCESS
+}
+
+unsafe extern "C" fn rinit(_type: c_int, _module_number: c_int) -> sys::zend_result {
+    sys::ZEND_RESULT_CODE_SUCCESS
+}
+
+unsafe extern "C" fn rshutdown(_type: c_int, _module_number: c_int) -> sys::zend_result {
+    sys::ZEND_RESULT_CODE_SUCCESS
+}
+
+unsafe extern "C" fn minfo(module: *mut sys::zend_module_entry) {
+    sys::php_info_print_table_start();
+    zend::php_info_print_table_header(2, c"MongoDB support".as_ptr(), c"enabled".as_ptr());
+    zend::info_row(c"MongoDB extension version", EXT_VERSION);
+    zend::info_row(c"MongoDB extension stability", EXT_STABILITY);
+    zend::info_row(c"libbson bundled version", LIBMONGOC_VERSION);
+    zend::info_row(c"libmongoc bundled version", LIBMONGOC_VERSION);
+    zend::info_row(c"libmongoc SSL", "enabled");
+    zend::info_row(c"libmongoc SSL library", "rustls");
+    zend::info_row(c"libmongoc crypto", "enabled");
+    zend::info_row(c"libmongoc crypto library", "RustCrypto");
+    zend::info_row(c"libmongoc crypto system profile", "disabled");
+    zend::info_row(c"libmongoc SASL", "enabled");
+    zend::info_row(c"libmongoc SRV", "enabled");
+    zend::info_row(c"libmongoc compression", "enabled");
+    zend::info_row(c"libmongoc compression snappy", "enabled");
+    zend::info_row(c"libmongoc compression zlib", "enabled");
+    zend::info_row(c"libmongoc compression zstd", "enabled");
+    zend::info_row(c"libmongocrypt bundled version", LIBMONGOCRYPT_VERSION);
+    zend::info_row(c"libmongocrypt crypto", "enabled");
+    zend::info_row(c"libmongocrypt crypto library", "RustCrypto");
+    zend::info_row(c"crypt_shared library version", "unknown");
+    sys::php_info_print_table_end();
+    sys::display_ini_entries(module);
+}
+
+static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
+    size: std::mem::size_of::<sys::zend_module_entry>() as u16,
+    zend_api: const_parse(env!("PHP_MODULE_API")),
+    zend_debug: 0,
+    zts: 0,
+    ini_entry: null(),
+    deps: addr_of!(DEPS.0) as *const sys::zend_module_dep,
+    name: c"mongodb".as_ptr(),
+    functions: null(),
+    module_startup_func: Some(minit),
+    module_shutdown_func: Some(mshutdown),
+    request_startup_func: Some(rinit),
+    request_shutdown_func: Some(rshutdown),
+    info_func: Some(minfo),
+    version: VERSION.as_ptr(),
+    globals_size: 0,
+    globals_ptr: null_mut(),
+    globals_ctor: None,
+    globals_dtor: None,
+    post_deactivate_func: None,
+    module_started: 0,
+    type_: 0,
+    handle: null_mut(),
+    module_number: 0,
+    build_id: concat!(env!("PHP_BUILD_ID"), "\0").as_ptr() as *const c_char,
+};
+
+const fn const_parse(s: &str) -> u32 {
+    let b = s.as_bytes();
+    let mut i = 0;
+    let mut n = 0u32;
+    while i < b.len() {
+        n = n * 10 + (b[i] - b'0') as u32;
+        i += 1;
+    }
+    n
+}
+
+/// The entry point PHP looks up when loading the extension.
+#[no_mangle]
+pub extern "C" fn get_module() -> *mut sys::zend_module_entry {
+    addr_of_mut!(MODULE)
+}

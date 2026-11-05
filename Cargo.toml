@@ -1,19 +1,23 @@
 [package]
 name = "mongo-php-async-driver"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 publish = false
 license = "Apache-2.0"
 repository = "https://github.com/danog/mongo-php-async-driver"
+description = "A pure-Rust, drop-in replacement for the PHP mongodb extension, with fiber-aware async I/O"
 
 [lib]
+# the PHP extension: mongodb.so
+name = "mongodb"
 crate-type = ["cdylib"]
 
 [dependencies]
-ext-php-rs = "0.16.3"
+mongo-core = { path = "crates/core" }
 libc = "0.2"
-zstd-safe = { version = "8.2", default-features = false }
-flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+[workspace]
+members = ["crates/core"]
 
 [profile.release]
 opt-level = 3
