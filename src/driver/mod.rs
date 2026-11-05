@@ -8,6 +8,7 @@ pub mod cursor;
 pub mod manager;
 pub mod readpref;
 pub mod server;
+pub mod writeconcern;
 
 use crate::zend::{call, class, sys, zval};
 use mongo_core::client::Client;

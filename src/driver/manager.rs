@@ -431,3 +431,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadPreference(ex: Ex, rv
         *rv = super::readpref::new_readpreference(rp);
     }
 }
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getWriteConcern(ex: Ex, rv: *mut sys::zval) {
+    if !call::none(ex) {
+        return;
+    }
+    if let Some(c) = client_of(ex) {
+        let wc = super::writeconcern::WriteConcern::from_uri(&c.borrow().uri);
+        *rv = super::writeconcern::new_writeconcern(wc);
+    }
+}
