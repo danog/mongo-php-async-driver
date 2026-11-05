@@ -270,10 +270,22 @@ fn vector_type(d: &[u8]) -> VT {
     }
 }
 
+/// The PHONGO_BSON_MAX_LENGTH (INT32_MAX) check of the BSON type constructors.
+unsafe fn len_ok(what: &str, len: usize) -> bool {
+    if len <= i32::MAX as usize {
+        return true;
+    }
+    throw(E::InvalidArgument, format!("Expected {} length to be <= {} bytes, {} given", what, i32::MAX, len));
+    false
+}
+
 impl Binary {
     unsafe fn set(&mut self, data: &[u8], ty: i64) -> bool {
         if !(0..=255).contains(&ty) {
             throw(E::InvalidArgument, format!("Expected type to be an unsigned 8-bit integer, {} given", ty));
+            return false;
+        }
+        if !len_ok("data", data.len()) {
             return false;
         }
         if (ty == 3 || ty == 4) && data.len() != 16 {
@@ -427,10 +439,9 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(ex: Ex, rv: *mut sys
         b"Float32" => {
             data.extend_from_slice(&[0x27, 0]);
             hash::each(ht, false, |_, v| {
-                let v = zval::deref(v);
+                // phongo checks Z_TYPE_P without dereferencing (a reference is rejected)
                 let f = match zval::type_of(v) as u32 {
                     sys::IS_DOUBLE => (*v).value.dval,
-                    sys::IS_LONG => (*v).value.lval as f64,
                     _ => {
                         throw(E::InvalidArgument, format!("Expected vector[{}] to be a float, {} given", i, zval::type_name(v)));
                         ok = false;
@@ -445,7 +456,6 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(ex: Ex, rv: *mut sys
         b"Int8" => {
             data.extend_from_slice(&[0x03, 0]);
             hash::each(ht, false, |_, v| {
-                let v = zval::deref(v);
                 if !zval::is(v, sys::IS_LONG) {
                     throw(E::InvalidArgument, format!("Expected vector[{}] to be an integer, {} given", i, zval::type_name(v)));
                     ok = false;
@@ -468,7 +478,6 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(ex: Ex, rv: *mut sys
             data.extend_from_slice(&[0x10, ((8 - n % 8) % 8) as u8]);
             data.resize(2 + bytes, 0);
             hash::each(ht, false, |_, v| {
-                let v = zval::deref(v);
                 let bit = match zval::type_of(v) as u32 {
                     sys::IS_TRUE => true,
                     sys::IS_FALSE => false,
@@ -569,6 +578,9 @@ impl Cls for DBPointer {
 
 impl DBPointer {
     unsafe fn set(&mut self, r: &[u8], id: &[u8]) -> bool {
+        if !len_ok("ref", r.len()) {
+            return false;
+        }
         if r.contains(&0) {
             throw(E::InvalidArgument, "Ref cannot contain null bytes");
             return false;
@@ -833,7 +845,7 @@ unsafe extern "C" fn int64_compare(a: *mut sys::zval, b: *mut sys::zval) -> i32 
     cmp_fallback(a, b).unwrap_or(0)
 }
 
-const IS_NUMBER: i32 = 20;
+const IS_NUMBER: i32 = 19; // _IS_NUMBER (zend_types.h, 8.4 and 8.5)
 const IS_BOOL: i32 = 18;
 
 unsafe extern "C" fn int64_cast(o: *mut sys::zend_object, rv: *mut sys::zval, t: i32) -> sys::zend_result {
@@ -1065,6 +1077,9 @@ impl Javascript {
         if !scope.is_null() && !zval::is(scope, sys::IS_OBJECT) && !zval::is(scope, sys::IS_ARRAY) && !zval::is(scope, sys::IS_NULL) {
             let tn = std::ffi::CStr::from_ptr(sys::zend_get_type_by_const(zval::type_of(scope) as i32)).to_string_lossy().into_owned();
             throw(E::InvalidArgument, format!("Expected scope to be array or object, {} given", tn));
+            return false;
+        }
+        if !len_ok("code", code.len()) {
             return false;
         }
         if code.contains(&0) {
@@ -1380,6 +1395,9 @@ impl Cls for Regex {
 
 impl Regex {
     unsafe fn set(&mut self, p: &[u8], f: &[u8]) -> bool {
+        if !len_ok("pattern", p.len()) || !len_ok("flags", f.len()) {
+            return false;
+        }
         if p.contains(&0) {
             throw(E::InvalidArgument, "Pattern cannot contain null bytes");
             return false;
@@ -1507,6 +1525,9 @@ impl Symbol {
     unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(s) = find_t(ht, b"symbol", sys::IS_STRING) {
             let b = zval::str_bytes(s);
+            if !len_ok("symbol", b.len()) {
+                return false;
+            }
             if b.contains(&0) {
                 throw(E::InvalidArgument, "Symbol cannot contain null bytes");
                 return false;

@@ -46,6 +46,9 @@ const LIBBSON_DIVERGENCES: &[(&str, &str)] = &[
     ("double.json: -1.2345678921232E+18: cB->cEJ", "libbson formats doubles with %.20g"),
     // CDRIVER-2223: legacy {"$date": <number>} is accepted (XFAIL in the PHPT suite too)
     ("top.json: Bad $date (number, not string or hash): bad JSON was accepted", "CDRIVER-2223"),
+    // CDRIVER-1879: $code is appended as a C string, cut at its first NUL (XFAIL in the PHPT suite too)
+    ("code.json: Embedded nulls: cEJ->BSON", "CDRIVER-1879"),
+    ("code_w_scope.json: Unicode and embedded null in code string, empty scope: cEJ->BSON", "CDRIVER-1879"),
 ];
 
 #[test]

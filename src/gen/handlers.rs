@@ -67,14 +67,14 @@ pub use crate::bson::types::zim_MongoDB_BSON_Javascript___unserialize;
 pub use crate::bson::types::zim_MongoDB_BSON_Javascript_getCode;
 pub use crate::bson::types::zim_MongoDB_BSON_Javascript_getScope;
 pub use crate::bson::types::zim_MongoDB_BSON_Javascript_jsonSerialize;
-pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey_jsonSerialize") }
+pub use crate::bson::types::zim_MongoDB_BSON_MaxKey___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_MaxKey___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_MaxKey___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_MaxKey_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_MinKey___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_MinKey___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_MinKey___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_MinKey_jsonSerialize;
 pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___construct;
 pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___serialize;
 pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___set_state;
@@ -130,11 +130,11 @@ pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime_jsonSerialize;
 pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime_toDateTime;
 pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime_toDateTimeImmutable;
 pub use crate::bson::types::zim_MongoDB_BSON_Undefined___construct;
-pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___set_state") }
+pub use crate::bson::types::zim_MongoDB_BSON_Undefined___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Undefined___set_state;
 pub use crate::bson::types::zim_MongoDB_BSON_Undefined___toString;
-pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined_jsonSerialize") }
+pub use crate::bson::types::zim_MongoDB_BSON_Undefined___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Undefined_jsonSerialize;
 pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult___construct") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount") }
@@ -394,14 +394,14 @@ pub use crate::bson::types::init_MongoDB_BSON_DBPointer;
 pub use crate::bson::types::init_MongoDB_BSON_Decimal128;
 pub use crate::bson::types::init_MongoDB_BSON_Int64;
 pub use crate::bson::types::init_MongoDB_BSON_Javascript;
-pub unsafe fn init_MongoDB_BSON_MaxKey(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_MinKey(_ce: *mut sys::zend_class_entry) {}
+pub use crate::bson::types::init_MongoDB_BSON_MaxKey;
+pub use crate::bson::types::init_MongoDB_BSON_MinKey;
 pub use crate::bson::types::init_MongoDB_BSON_ObjectId;
 pub use crate::bson::init_MongoDB_BSON_Persistable;
 pub use crate::bson::types::init_MongoDB_BSON_Regex;
 pub use crate::bson::types::init_MongoDB_BSON_Symbol;
 pub use crate::bson::types::init_MongoDB_BSON_Timestamp;
-pub unsafe fn init_MongoDB_BSON_Undefined(_ce: *mut sys::zend_class_entry) {}
+pub use crate::bson::types::init_MongoDB_BSON_Undefined;
 pub use crate::bson::types::init_MongoDB_BSON_UTCDateTime;
 pub use crate::bson::init_MongoDB_BSON_VectorType;
 pub unsafe fn init_MongoDB_Driver_CursorInterface(_ce: *mut sys::zend_class_entry) {}

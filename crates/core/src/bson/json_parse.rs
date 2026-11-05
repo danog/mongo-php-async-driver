@@ -938,9 +938,11 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
         }
         iter::T_CODE | iter::T_CODEWSCOPE => {
             let Some(code) = sp.code else { return Err("Missing $code after $scope".into()) };
+            // bson_append_code[_with_scope] takes a C string: the code ends at its first NUL (CDRIVER-1879)
+            let code = &code[..code.iter().position(|&b| b == 0).unwrap_or(code.len())];
             match sp.scope {
-                Some(s) => w.code_with_scope(key, &code, &s),
-                None => w.code(key, &code),
+                Some(s) => w.code_with_scope(key, code, &s),
+                None => w.code(key, code),
             }
         }
         iter::T_OID => w.oid(key, &sp.oid),

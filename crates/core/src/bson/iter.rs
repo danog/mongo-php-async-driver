@@ -408,6 +408,20 @@ impl<'a> Iter<'a> {
         }
     }
 
+    /// `bson_iter_value` of an initialized but never advanced iterator (all offsets 0): the
+    /// type is the document length's low byte and the value is read from offset 0. ext-mongodb
+    /// reaches this for `PackedArray::get()` with a negative index. Err(type) for a type
+    /// `bson_iter_value` leaves without a value. Every read stays in bounds: a known type byte
+    /// implies a length (mod 256) at least as long as the value read.
+    pub fn unpositioned_value(raw: &'a [u8]) -> Result<Value<'a>, u8> {
+        let t = raw[0];
+        if !matches!(t, T_DOUBLE..=T_DECIMAL128 | T_MAXKEY | T_MINKEY) || raw.len() < 16 {
+            return Err(t);
+        }
+        let it = Iter { raw, live: true, off: 0, key: 0, keylen: 0, d1: 0, d2: 0, d3: 0, d4: 0, next_off: 4, err_off: 0, unsupported: false };
+        Ok(it.value())
+    }
+
     /// `bson_iter_init_find` (case-sensitive, from the current position).
     pub fn find(&mut self, key: &[u8]) -> bool {
         while self.next() {
@@ -492,6 +506,10 @@ pub fn visit_all<'a, V: Visitor<'a>>(it: &mut Iter<'a>, v: &mut V) -> bool {
         }
     }
     if it.err_off != 0 {
+        // libbson sets *key before the type switch: the unsupported element's own key
+        if it.unsupported {
+            key = it.key();
+        }
         if it.unsupported && utf8::validate(key, false) {
             let t = it.raw[it.off];
             v.unsupported(it, key, t);

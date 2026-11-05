@@ -155,6 +155,10 @@ impl Enc {
 
     /// phongo_bson_append
     pub unsafe fn append(&mut self, w: &mut Writer, flags: u32, key: &[u8], mut z: *mut sys::zval) {
+        if key.len() > MAX_LENGTH {
+            throw(E::UnexpectedValue, format!("Expected key length to be <= {} bytes, {} given", MAX_LENGTH, key.len()));
+            return;
+        }
         self.fp.write(key);
         loop {
             match zval::type_of(z) as u32 {

@@ -1,6 +1,8 @@
 //! Port of phongo's BSON layer: decoding (phongo_bson.c), encoding (phongo_bson_encode.c) and
 //! the MongoDB\BSON classes (src/BSON/*.c).
 
+#![allow(non_snake_case)]
+
 pub mod decode;
 pub mod document;
 pub mod encode;
@@ -106,6 +108,25 @@ pub unsafe fn init_MongoDB_BSON_Serializable(ce: *mut sys::zend_class_entry) {
 }
 pub unsafe fn init_MongoDB_BSON_Unserializable(ce: *mut sys::zend_class_entry) {
     ce_mut().unserializable = ce;
+    (*ce).__bindgen_anon_2.interface_gets_implemented = Some(implement_unserializable);
+}
+
+/// phongo_implement_unserializable: enums cannot implement Unserializable (nor Persistable).
+unsafe extern "C" fn implement_unserializable(iface: *mut sys::zend_class_entry, class: *mut sys::zend_class_entry) -> i32 {
+    if (*class).ce_flags & sys::ZEND_ACC_ENUM != 0 {
+        let c = ce();
+        let mut err = iface;
+        if iface == c.unserializable && !c.persistable.is_null() && crate::zend::obj::instanceof(class, c.persistable) {
+            err = c.persistable;
+        }
+        sys::zend_error_noreturn(
+            sys::E_ERROR as i32,
+            c"Enum class %s cannot implement interface %s".as_ptr(),
+            (*(*class).name).val.as_ptr(),
+            (*(*err).name).val.as_ptr(),
+        );
+    }
+    0
 }
 pub unsafe fn init_MongoDB_BSON_Persistable(ce: *mut sys::zend_class_entry) {
     ce_mut().persistable = ce;

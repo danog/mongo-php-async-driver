@@ -417,8 +417,61 @@ unsafe fn pa<'a>(ex: Ex) -> &'a mut Bson {
     &mut this::<PackedArray>(ex).0
 }
 
+/// phongo_packedarray_get: seek_iter_to_index advances `index + 1` times (by position, not by key).
 unsafe fn pa_get(b: &[u8], index: i64, rv: *mut sys::zval, null_if_missing: bool) -> bool {
-    get(b, index.to_string().as_bytes(), rv, null_if_missing, true)
+    let Some(mut it) = Iter::new(b) else {
+        throw(E::Runtime, "Could not initialize BSON iterator");
+        return false;
+    };
+    if index < 0 {
+        // never advanced: libbson reads a value at offset 0 (see Iter::unpositioned_value)
+        return match Iter::unpositioned_value(b) {
+            Ok(v) => match decode::value_to_zval(v) {
+                Some(z) => {
+                    *rv = z;
+                    true
+                }
+                None => false,
+            },
+            Err(t) => {
+                throw(E::UnexpectedValue, format!("Detected unsupported BSON type {}", t));
+                false
+            }
+        };
+    }
+    if !seek_index(&mut it, index) {
+        if null_if_missing {
+            *rv = zval::null();
+            return true;
+        }
+        // "%d" of a zend_long: phongo's printf reads an int
+        throw(E::Runtime, format!("Could not find index \"{}\" in BSON array", index as i32));
+        return false;
+    }
+    match decode::value_to_zval(it.value()) {
+        Some(z) => {
+            *rv = z;
+            true
+        }
+        None => false,
+    }
+}
+
+/// seek_iter_to_index
+fn seek_index(it: &mut Iter, index: i64) -> bool {
+    let mut i = 0;
+    while i <= index {
+        if !it.next() {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// phongo_packedarray_has
+fn pa_has(b: &[u8], index: i64) -> bool {
+    Iter::new(b).is_some_and(|mut it| seek_index(&mut it, index))
 }
 
 unsafe fn pa_get_by_zval(b: &[u8], key: *mut sys::zval, rv: *mut sys::zval, null_if_missing: bool) -> bool {
@@ -436,7 +489,7 @@ unsafe fn pa_get_by_zval(b: &[u8], key: *mut sys::zval, rv: *mut sys::zval, null
 
 unsafe fn pa_has_by_zval(b: &[u8], key: *mut sys::zval) -> bool {
     let key = zval::deref(key);
-    zval::is(key, sys::IS_LONG) && has(b, (*key).value.lval.to_string().as_bytes())
+    zval::is(key, sys::IS_LONG) && pa_has(b, (*key).value.lval)
 }
 
 unsafe extern "C" fn pa_read_dimension(o: *mut sys::zend_object, off: *mut sys::zval, t: i32, rv: *mut sys::zval) -> *mut sys::zval {
@@ -532,7 +585,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_getIterator(ex: Ex, rv: *m
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_has(ex: Ex, rv: *mut sys::zval) {
     let Some(i) = arg_long(ex) else { return };
-    *rv = zval::bool(has(&pa(ex).bson, i.to_string().as_bytes()));
+    *rv = zval::bool(pa_has(&pa(ex).bson, i));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON(ex: Ex, rv: *mut sys::zval) {
     to_json(ex, rv, &pa(ex).bson, Mode::Canonical, true)
@@ -621,8 +674,18 @@ impl Cls for Iterator {
     fn props(&mut self) -> &mut Props {
         &mut self.props
     }
+    /// phongo_iterator_clone_object: a fresh iterator over the same BSON, at its first element.
     fn dup(&self) -> Self {
-        unreachable!("Iterator is not cloneable")
+        let mut n = Iterator::default();
+        n.is_array = self.is_array;
+        unsafe {
+            n.bson = zval::copy(&self.bson);
+            if let Some(mut it) = Iter::new(n.data()) {
+                n.valid = it.next();
+                n.it = Some(it);
+            }
+        }
+        n
     }
     unsafe fn fill(&mut self, ht: *mut sys::HashTable, _debug: bool) -> bool {
         hash::str_update(ht, b"bson", zval::copy(&self.bson));
@@ -646,7 +709,7 @@ impl Iterator {
 
 pub unsafe fn init_MongoDB_BSON_Iterator(c: *mut sys::zend_class_entry) {
     ce_mut().iterator = c;
-    setup::<Iterator>(c).clone_obj = None;
+    setup::<Iterator>(c);
 }
 
 /// phongo_iterator_init
