@@ -73,6 +73,8 @@ pub struct Client {
     pub invalid: Option<Error>,
     /// The process that owns the connections (fork detection).
     pid: u32,
+    /// The process that created the client: only it destroys the client with I/O.
+    created_pid: u32,
     /// mongoc_client_t.generation: bumped by a reset (after a fork); cursors of an older
     /// generation neither advance nor kill their server cursor.
     pub generation: u32,
@@ -80,6 +82,10 @@ pub struct Client {
     pub sessions: crate::session::Pool,
     /// mongoc_cluster_t.operation_id
     pub operation_id: i64,
+    /// mongoc_cluster_t.request_id
+    pub request_id: i32,
+    /// APM events not yet handed to the subscribers
+    pub events: Vec<crate::apm::Event>,
 }
 
 /// The error libmongoc built without TLS gives for a URI that requests TLS (the transport is
@@ -97,7 +103,7 @@ fn selection_error(msg: &str, scanner: Option<&Error>) -> Error {
     Error::new(domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE, m)
 }
 
-fn split_host_port(addr: &str) -> (String, u16) {
+pub fn split_host_port(addr: &str) -> (String, u16) {
     match addr.rsplit_once(':') {
         Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => (h.trim_start_matches('[').trim_end_matches(']').to_owned(), p.parse().unwrap_or(27017)),
         _ => (addr.to_owned(), 27017),
@@ -112,7 +118,7 @@ impl Client {
             return Err(tls_unavailable());
         }
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0 };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, events: Vec::new() };
         c.reconcile_nodes();
         Ok(c)
     }
@@ -140,6 +146,11 @@ impl Client {
         self.generation = self.generation.wrapping_add(1);
         // server sessions in use by the parent (mongoc_client_reset clears the pool)
         self.sessions.clear();
+    }
+
+    /// Whether this is the process that created the client (phongo_pclient_destroy).
+    pub fn in_creating_process(&self) -> bool {
+        self.created_pid == std::process::id()
     }
 
     /// Whether the client is in the process that created its connections.

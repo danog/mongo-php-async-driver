@@ -131,3 +131,22 @@ pub fn has_label(reply: &[u8], label: &str) -> bool {
     }
     false
 }
+
+/// _mongoc_parse_wc_err: the error of a reply's writeConcernError.
+pub fn parse_wc_error(reply: &[u8]) -> Option<crate::error::Error> {
+    let Some(Value::Document(w)) = find(reply, b"writeConcernError") else { return None };
+    let (mut code, mut msg) = (0u32, String::new());
+    let mut i = Iter::new(w)?;
+    while i.next() {
+        match i.key() {
+            b"code" => code = crate::sdam::as_i64(&i.value()) as u32,
+            b"errmsg" => {
+                if let Value::Utf8(s) = i.value() {
+                    msg = String::from_utf8_lossy(s).into_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(crate::error::Error::new(crate::error::domain::WRITE_CONCERN, code, format!("Write Concern error: {msg}")))
+}

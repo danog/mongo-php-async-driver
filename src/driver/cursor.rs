@@ -60,6 +60,8 @@ pub struct Cursor {
     pub session: sys::zval,
     /// libmongoc's implicit session of a find cursor
     implicit: Option<ClientSession>,
+    /// the selection read preference (a retried find selects with it)
+    pub retry_prefs: Option<mongo_core::topology::ReadPrefs>,
     /// phongo's database/collection/query/command/readPreference (debug info)
     pub database: Option<String>,
     pub collection: Option<String>,
@@ -92,6 +94,7 @@ impl Default for Cursor {
             read_concern: Vec::new(),
             session: zval::undef(),
             implicit: None,
+            retry_prefs: None,
             database: None,
             collection: None,
             zquery: zval::undef(),
@@ -122,6 +125,7 @@ impl Drop for Cursor {
                     cl.end_session(&mut s);
                 }
             }
+            unsafe { super::apm::flush(&c) };
         }
         unsafe {
             for z in [&mut self.session, &mut self.zquery, &mut self.zcommand, &mut self.zread_preference] {
@@ -293,36 +297,31 @@ impl Cursor {
         parts.read_prefs = self.read_prefs.clone();
         parts.read_concern = self.read_concern.clone();
         let has_obj = unsafe { !zval::is(&self.session, sys::IS_UNDEF) };
-        if !has_obj && self.implicit.is_none() {
-            // an implicit session for the cursor's lifetime (not causally consistent)
-            if cl.td.session_timeout_minutes != mongo_core::sdam::NO_SESSIONS || cl.td.ty == mongo_core::topology::TopologyType::LoadBalanced {
-                self.implicit = cl.start_session(false, false).ok();
-            }
+        if !has_obj && self.implicit.is_none() && cl.sessions_supported() {
+            // an implicit session for the cursor's lifetime
+            self.implicit = cl.start_session(true, false).ok();
         }
-        parts.session = if has_obj {
-            Some(unsafe { super::with_session(&mut self.session, |s| s.info()) })
-        } else {
-            self.implicit.as_ref().map(ClientSession::info)
+        let rc_obj = if has_obj { Some(unsafe { super::session_rc(&mut self.session) }) } else { None };
+        let mut guard = rc_obj.as_ref().map(|r| r.borrow_mut());
+        let mut sess: Option<&mut ClientSession> = match guard.as_deref_mut() {
+            Some(g) => Some(g),
+            None => self.implicit.as_mut(),
         };
-        let mut cmd = cl.assemble(parts, self.server_id, false)?;
-        let r = cl.run_cmd(&mut cmd, None);
-        let (Ok(rep) | Err(Failure { reply: rep, .. })) = &r;
-        let network = r.as_ref().is_err_and(|f| f.error.is_network());
-        if has_obj {
-            unsafe {
-                super::with_session(&mut self.session, |s| {
-                    s.handle_reply(true, rep);
-                    if network {
-                        s.mark_dirty();
-                    }
-                })
-            };
-        } else if let Some(s) = self.implicit.as_mut() {
-            s.handle_reply(true, rep);
-            if network {
-                s.mark_dirty();
-            }
+        let is_get_more = matches!(mongo_core::cmdparts::command_name(body).as_deref(), Some("getMore" | "killCursors"));
+        if !is_get_more {
+            cl.check_server_for_session(self.server_id, sess.as_deref_mut())?;
         }
+        parts.session = sess.as_deref_mut();
+        let mut cmd = cl.assemble(parts, self.server_id, false)?;
+        cmd.read_prefs = self.retry_prefs.clone();
+        let r = if is_get_more {
+            cl.run_monitored(&mut cmd, None, sess)
+        } else {
+            let el = cl.read_eligibility(&cmd, false, true);
+            cl.run_retryable_read(&mut cmd, sess, el)
+        };
+        self.server_id = cmd.server_id;
+        cl.release_temp_session(&mut cmd);
         r
     }
 
@@ -333,6 +332,7 @@ impl Cursor {
             let mut cl = c.borrow_mut();
             self.run(&mut cl, &body)
         };
+        unsafe { super::apm::flush(&c) };
         match r {
             Ok(reply) => {
                 if self.read_response(&reply) {

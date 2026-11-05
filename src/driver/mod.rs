@@ -3,6 +3,7 @@
 
 #![allow(non_snake_case)]
 
+pub mod apm;
 pub mod bulkwrite;
 pub mod command;
 pub mod cursor;
@@ -45,12 +46,17 @@ pub fn persistent_client(key: &str, make: impl FnOnce() -> Result<Client, Error>
     })
 }
 
-unsafe fn lookup(n: &CStr) -> *mut sys::zend_class_entry {
+/// Whether `c` is one of the persistent clients.
+pub fn is_persistent(c: &ClientRef) -> bool {
+    CLIENTS.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, c)))
+}
+
+pub(crate) unsafe fn lookup(n: &CStr) -> *mut sys::zend_class_entry {
     class::lookup(n)
 }
 
 /// phongo_exception_from_mongoc_domain
-unsafe fn exception_ce(e: &Error) -> *mut sys::zend_class_entry {
+pub(crate) unsafe fn exception_ce(e: &Error) -> *mut sys::zend_class_entry {
     let n: &CStr = match (e.domain, e.code) {
         (domain::CLIENT, code::CLIENT_AUTHENTICATE) => c"mongodb\\driver\\exception\\authenticationexception",
         (domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_ARG) => c"mongodb\\driver\\exception\\invalidargumentexception",
@@ -162,6 +168,14 @@ pub unsafe fn to_zval(doc: &[u8], tm: &crate::bson::decode::TypeMap) -> Option<s
     crate::bson::decode::to_zval(doc, &st)
 }
 
+/// Decodes `doc` with the default type map and no ODM (PHONGO_BSON_INIT_NO_ODM_STATE).
+pub unsafe fn to_zval_no_odm(doc: &[u8]) -> Option<sys::zval> {
+    let tm = crate::bson::decode::TypeMap::default();
+    let mut st = crate::bson::decode::State::new(&tm);
+    st.skip_odm = true;
+    crate::bson::decode::to_zval(doc, &st)
+}
+
 pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_CommandException_getResultDocument(ex: call::Ex, rv: *mut sys::zval) {
     if !call::none(ex) {
         return;
@@ -228,6 +242,11 @@ unsafe fn session_belongs_to(z: *mut sys::zval, client: &ClientRef) -> bool {
 /// The server a Session is pinned to (0: none).
 pub unsafe fn session_server_id(z: *mut sys::zval) -> u32 {
     session::of(z).cs.as_ref().map_or(0, |c| c.borrow().pinned_server_id)
+}
+
+/// The client session of the Session object `z` (an ended one: a fresh, empty state).
+pub unsafe fn session_rc(z: *mut sys::zval) -> Rc<RefCell<mongo_core::session::ClientSession>> {
+    session::of(z).cs.clone().unwrap_or_default()
 }
 
 /// Runs `f` with the client session of the Session object `z`.

@@ -7,8 +7,8 @@ use crate::bson::writer::Writer;
 use crate::client::Client;
 use crate::error::{code, domain, Error};
 use crate::sdam::ServerType;
-use crate::session::ServerSession;
-use crate::topology::TopologyType;
+use crate::session::{ClientSession, ServerSession, TxnState};
+use crate::topology::{OpType, TopologyType};
 use crate::uri::ReadMode;
 
 /// The command and what is assembled into it (mongoc_cmd_parts_t).
@@ -32,7 +32,9 @@ pub struct Parts<'a> {
     pub allow_txn_number: Option<bool>,
     pub prohibit_lsid: bool,
     /// An explicit session (None: an implicit session is used when possible).
-    pub session: Option<crate::session::SessionInfo>,
+    pub session: Option<&'a mut ClientSession>,
+    /// MONGOC_CMD_RAW (mongoc_client_command_with_opts)
+    pub is_raw: bool,
 }
 
 impl<'a> Parts<'a> {
@@ -55,9 +57,14 @@ pub struct Cmd {
     pub is_acknowledged: bool,
     pub is_retryable_write: bool,
     pub is_retryable_read: bool,
+    pub is_txn_finish: bool,
     pub server_id: u32,
     /// the implicit session (returned to the pool after the command)
     pub temp_session: Option<ServerSession>,
+    /// mongoc_cmd_t.operation_id
+    pub operation_id: i64,
+    /// the read preference used for selection (a read retry selects with it)
+    pub read_prefs: Option<crate::topology::ReadPrefs>,
 }
 
 /// A failed command: the error and the server's reply (empty for client-side errors).
@@ -99,7 +106,8 @@ pub fn validate_db_name(db: &str) -> Result<(), Error> {
 }
 
 impl Client {
-    /// mongoc_cmd_parts_assemble (OP_MSG): the command for `server_id`.
+    /// mongoc_cmd_parts_assemble (OP_MSG): the command for `server_id`. A transaction's state
+    /// advances here (_mongoc_client_session_append_txn).
     pub fn assemble(&mut self, mut parts: Parts, server_id: u32, must_use_primary: bool) -> Result<Cmd, Error> {
         let sd = self.handshake_description(server_id).or_else(|| self.td.server(server_id)).cloned();
         let Some(sd) = sd else {
@@ -114,6 +122,7 @@ impl Client {
             return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Empty command document"));
         };
         let is_get_more = name == "getMore";
+        let is_txn_finish = name == "commitTransaction" || name == "abortTransaction";
         let topo = self.td.ty;
         // primary reads on a direct connection become primaryPreferred
         let (mode, rp_doc) = match &parts.read_prefs {
@@ -137,9 +146,10 @@ impl Client {
         if !has_field(parts.body, b"$db") {
             extra.utf8(b"$db", parts.db.as_bytes());
         }
-        let in_txn = parts.session.as_ref().is_some_and(|s| s.in_txn());
+        let mut cs = if parts.prohibit_lsid { None } else { parts.session.take() };
+        let in_txn = cs.as_ref().is_some_and(|s| s.in_txn());
         if in_txn {
-            if mode != ReadMode::Primary && !parts.is_write {
+            if cs.as_ref().is_some_and(|s| s.txn.read_primary == Some(false)) && !parts.is_write {
                 return Err(Error::new(domain::TRANSACTION, code::TRANSACTION_INVALID_STATE, "Read preference in a transaction must be primary"));
             }
         } else if mode != ReadMode::Primary && sd.ty != ServerType::Standalone {
@@ -148,31 +158,31 @@ impl Client {
             }
         }
         out.append_raw_elements(&extra.finish());
-        // lsid: the explicit session's, or an implicit one when acknowledged
+        // an implicit session when acknowledged and none was given
         let mut temp_session = None;
-        let mut cluster_time = parts.session.as_ref().and_then(|s| s.cluster_time.clone());
-        let lsid = if parts.prohibit_lsid {
-            None
-        } else if let Some(s) = &parts.session {
-            Some(s.lsid.clone())
-        } else if parts.is_acknowledged && self.td.session_timeout_minutes != crate::sdam::NO_SESSIONS {
-            let s = self.pop_server_session();
-            let l = s.lsid.clone();
-            temp_session = Some(s);
-            Some(l)
-        } else {
-            None
-        };
-        if let Some(l) = &lsid {
+        if cs.is_none() && !parts.prohibit_lsid && parts.is_acknowledged && self.sessions_supported() {
+            temp_session = Some(self.pop_server_session());
+        }
+        let mut cluster_time = None;
+        if let Some(s) = cs.as_deref_mut() {
             if !parts.is_acknowledged {
                 return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Cannot use client session with unacknowledged command"));
             }
-            out.document(b"lsid", l);
+            out.document(b"lsid", s.lsid());
+            if let Some(ss) = s.server_session.as_mut() {
+                ss.last_used_usec = crate::sdam::monotonic_usec();
+            }
+            cluster_time = s.cluster_time.clone();
+        } else if let Some(t) = temp_session.as_mut() {
+            out.document(b"lsid", &t.lsid);
+            t.last_used_usec = crate::sdam::monotonic_usec();
         }
-        if parts.is_write && parts.allow_txn_number.is_none() {
+        let has_session = cs.is_some() || temp_session.is_some();
+        let txn_in_progress = cs.as_ref().is_some_and(|s| s.txn_state == TxnState::InProgress);
+        if !txn_in_progress && parts.is_write && parts.allow_txn_number.is_none() {
             parts.allow_txn_number = Some(parts.is_acknowledged && name.eq_ignore_ascii_case("findandmodify"));
         }
-        let is_retryable_write = lsid.is_some()
+        let is_retryable_write = has_session
             && parts.is_write
             && parts.allow_txn_number == Some(true)
             && sd.ty != ServerType::Standalone
@@ -203,17 +213,20 @@ impl Client {
             }
         }
         if !is_get_more {
-            let rc_given = !parts.read_concern.is_empty() && !crate::bson::iter::is_empty(&parts.read_concern);
-            if let (Some(s), true) = (&parts.session, lsid.is_some()) {
-                if let Some(rc) = s.read_concern(&parts.read_concern, parts.is_read, parts.is_write, &name) {
-                    out.document(b"readConcern", &rc);
+            if let Some(s) = cs.as_deref() {
+                if s.snapshot && sd.max_wire_version < WIRE_VERSION_SNAPSHOT_READS {
+                    return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Snapshot reads require MongoDB 5.0 or later"));
                 }
-            } else if rc_given {
+                s.append_read_concern(&parts.read_concern, parts.is_read, parts.is_write, &name, &mut out);
+            } else if !parts.read_concern.is_empty() && !crate::bson::iter::is_empty(&parts.read_concern) {
                 out.document(b"readConcern", &parts.read_concern);
             }
         }
-        if !parts.write_concern.is_empty() && !crate::bson::iter::is_empty(&parts.write_concern) {
+        if (is_txn_finish || !in_txn) && !parts.write_concern.is_empty() && !crate::bson::iter::is_empty(&parts.write_concern) {
             out.document(b"writeConcern", &parts.write_concern);
+        }
+        if let Some(s) = cs {
+            s.append_txn(&mut out, &name);
         }
         Ok(Cmd {
             name,
@@ -222,9 +235,17 @@ impl Client {
             is_acknowledged: parts.is_acknowledged,
             is_retryable_write,
             is_retryable_read,
+            is_txn_finish,
             server_id,
             temp_session,
+            operation_id: self.operation_id,
+            read_prefs: None,
         })
+    }
+
+    /// Whether the deployment supports sessions (implicit sessions are used then).
+    pub fn sessions_supported(&self) -> bool {
+        self.td.session_timeout_minutes != crate::sdam::NO_SESSIONS || self.td.ty == TopologyType::LoadBalanced
     }
 
     /// Pops a server session for an implicit session.
@@ -244,30 +265,512 @@ impl Client {
     /// Runs an assembled command (with an optional document sequence) and releases its
     /// implicit session: the reply, or the error with the reply (empty for network errors).
     pub fn run_cmd(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>) -> Result<Vec<u8>, Failure> {
-        let r = self.run_cmd_keep_session(cmd, payload);
-        if let Some(mut s) = cmd.temp_session.take() {
-            if r.as_ref().is_err_and(|f| f.error.is_network()) {
-                s.dirty = true;
-            }
+        let r = self.run_monitored(cmd, payload, None);
+        self.release_temp_session(cmd);
+        r
+    }
+
+    /// Returns the command's implicit session to the pool.
+    pub fn release_temp_session(&mut self, cmd: &mut Cmd) {
+        if let Some(s) = cmd.temp_session.take() {
             self.push_server_session(s);
         }
-        r
     }
 
     /// Runs an assembled command without releasing its implicit session.
     pub fn run_cmd_keep_session(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>) -> Result<Vec<u8>, Failure> {
-        if let Some(s) = cmd.temp_session.as_mut() {
-            s.last_used_usec = crate::sdam::monotonic_usec();
-        }
-        let reply = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, &cmd.body, payload, cmd.is_acknowledged)?;
-        let Some(reply) = reply else { return Ok(Vec::new()) };
-        self.td.update_cluster_time(&reply);
-        if let Err(e) = crate::cmd::check_ok(&reply) {
-            self.handle_command_error(cmd.server_id, &reply);
-            return Err(Failure { error: e.into_error(), reply });
-        }
-        Ok(reply)
+        self.run_monitored(cmd, payload, None)
     }
+
+    /// mongoc_cluster_run_command_monitored (+ _private): runs `cmd`, feeds the reply to the
+    /// session, applies the network-error and transaction rules. The failure's reply carries
+    /// the error labels added here.
+    pub fn run_monitored(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>, mut session: Option<&mut ClientSession>) -> Result<Vec<u8>, Failure> {
+        let request_id = self.next_request_id();
+        let started = std::time::Instant::now();
+        let info = crate::apm::enabled().then(|| self.command_info(cmd, request_id));
+        if let Some(info) = &info {
+            let command = if crate::apm::is_sensitive(&cmd.name, &cmd.body) { vec![5, 0, 0, 0, 0] } else { command_with_payload(&cmd.body, payload) };
+            self.events.push(crate::apm::Event::CommandStarted { info: info.clone(), command });
+        }
+        let r = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, &cmd.body, payload, cmd.is_acknowledged);
+        let result = match r {
+            Err(e) => {
+                let mut reply = Vec::new();
+                if let Some(t) = cmd.temp_session.as_mut() {
+                    t.dirty = true;
+                }
+                if let Some(s) = session.as_deref_mut() {
+                    s.mark_dirty();
+                    if s.in_txn() {
+                        add_error_label(&mut reply, "TransientTransactionError");
+                        s.unpin();
+                    }
+                }
+                Err(Failure { error: e, reply })
+            }
+            Ok(None) => Ok(Vec::new()),
+            Ok(Some(reply)) => {
+                self.td.update_cluster_time(&reply);
+                let ok = crate::cmd::check_ok(&reply);
+                if let Some(s) = session.as_deref_mut() {
+                    s.handle_reply(cmd.is_acknowledged, &cmd.name, &reply);
+                }
+                match ok {
+                    Ok(()) => Ok(reply),
+                    Err(e) => Err(Failure { error: e.into_error(), reply }),
+                }
+            }
+        };
+        if let Some(info) = info {
+            let duration_us = started.elapsed().as_micros() as i64;
+            let redact = crate::apm::is_sensitive(&cmd.name, &cmd.body);
+            let empty = || vec![5u8, 0, 0, 0, 0];
+            self.events.push(match &result {
+                Ok(r) => {
+                    // unacknowledged writes report {ok: 1}
+                    let reply = if !cmd.is_acknowledged {
+                        let mut w = Writer::with_capacity(16);
+                        w.int32(b"ok", 1);
+                        w.finish()
+                    } else if redact || crate::apm::is_sensitive(&cmd.name, r) {
+                        empty()
+                    } else {
+                        r.clone()
+                    };
+                    crate::apm::Event::CommandSucceeded { info, duration_us, reply }
+                }
+                Err(f) => {
+                    let reply = if f.reply.is_empty() || redact || crate::apm::is_sensitive(&cmd.name, &f.reply) { empty() } else { f.reply.clone() };
+                    crate::apm::Event::CommandFailed { info, duration_us, error: f.error.clone(), reply }
+                }
+            });
+        }
+        let mut result = result;
+        if let Err(f) = &result {
+            if !f.reply.is_empty() && !f.error.is_network() {
+                self.handle_command_error(cmd.server_id, &f.reply);
+            }
+        }
+        if cmd.is_txn_finish {
+            let max_wire = self.stream_description(cmd.server_id).map_or(0, |d| d.max_wire_version);
+            let mongos = self.stream_description(cmd.server_id).is_some_and(|d| d.ty == ServerType::Mongos);
+            match &mut result {
+                Ok(r) => write_error_handle_labels(None, r, max_wire, mongos),
+                Err(f) => write_error_handle_labels(Some(&f.error), &mut f.reply, max_wire, mongos),
+            }
+        }
+        if let (Ok(reply), Some(s)) = (&result, session.as_deref_mut()) {
+            if s.in_txn_or_ending() && matches!(self.td.ty, TopologyType::Sharded | TopologyType::LoadBalanced) {
+                if let Some(v) = find(reply, b"recoveryToken") {
+                    s.recovery_token = match v {
+                        Value::Document(d) => Some(d.to_vec()),
+                        _ => None,
+                    };
+                }
+            }
+        }
+        result
+    }
+
+    /// mongoc_cluster_run_retryable_write: runs a write once, then once more on a retryable
+    /// error (overload retries apart). Returns the outcome and the server of a retry.
+    pub fn run_retryable_write(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>, mut session: Option<&mut ClientSession>) -> (Result<Vec<u8>, Failure>, Option<u32>) {
+        if cmd.is_retryable_write {
+            let n = match (session.as_deref_mut(), cmd.temp_session.as_mut()) {
+                (Some(s), _) => s.next_txn_number(),
+                (None, Some(t)) => {
+                    t.txn_number += 1;
+                    t.txn_number
+                }
+                _ => 0,
+            };
+            crate::bulk::set_txn_number(&mut cmd.body, n);
+        }
+        let eligibility = if cmd.is_retryable_write {
+            Eligibility::RetryableWrite
+        } else if self.uri.get_bool("retrywrites", true) {
+            Eligibility::OverloadOnly
+        } else {
+            Eligibility::None
+        };
+        let mut kept: Option<Result<Vec<u8>, Failure>> = None;
+        let mut retry_server = None;
+        let mut attempt = 0;
+        let mut allowed = if eligibility == Eligibility::OverloadOnly { 0 } else { 1 };
+        let mut deprioritized: Vec<u32> = Vec::new();
+        let mut backoff = Backoff::default();
+        loop {
+            let mut r = self.run_monitored(cmd, payload, session.as_deref_mut());
+            if eligibility == Eligibility::RetryableWrite {
+                let max_wire = self.stream_description(cmd.server_id).map_or(0, |d| d.max_wire_version);
+                let mongos = self.stream_description(cmd.server_id).is_some_and(|d| d.ty == ServerType::Mongos);
+                match &mut r {
+                    Ok(rep) => write_error_handle_labels(None, rep, max_wire, mongos),
+                    Err(f) => {
+                        write_error_handle_labels(Some(&f.error), &mut f.reply, max_wire, mongos);
+                        update_if_unsupported_storage_engine(f);
+                    }
+                }
+            }
+            let reply = match &r {
+                Ok(rep) | Err(Failure { reply: rep, .. }) => rep.clone(),
+            };
+            let ok = r.is_ok();
+            let is_retryable_write = eligibility == Eligibility::RetryableWrite && write_error_type(&reply) == WriteErr::Retry;
+            let (is_overload, overload_retryable) = overload(&reply, eligibility);
+            let keep_previous = kept.is_some() && crate::cmd::has_label(&reply, "NoWritesPerformed");
+            if !keep_previous {
+                kept = Some(r);
+            }
+            if !(is_retryable_write || overload_retryable) {
+                break;
+            }
+            let _ = ok;
+            attempt += 1;
+            if is_overload {
+                allowed = self.max_adaptive_retries();
+            }
+            if attempt > allowed {
+                break;
+            }
+            if self.td.server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
+                deprioritized.push(cmd.server_id);
+            }
+            backoff.wait(is_overload, &reply);
+            let sel = self.select_for_session(OpType::Write, None, session.as_deref_mut(), &deprioritized);
+            let Ok((sid, _)) = sel else { break };
+            cmd.server_id = sid;
+            retry_server = Some(sid);
+        }
+        (kept.expect("at least one attempt"), retry_server)
+    }
+
+    /// _mongoc_client_retryable_read_command_with_stream: runs a read once, then once more
+    /// on a retryable error.
+    pub fn run_retryable_read(&mut self, cmd: &mut Cmd, mut session: Option<&mut ClientSession>, eligibility: Eligibility) -> Result<Vec<u8>, Failure> {
+        let mut attempt = 0;
+        let mut allowed = if eligibility == Eligibility::OverloadOnly { 0 } else { 1 };
+        let mut deprioritized: Vec<u32> = Vec::new();
+        let mut backoff = Backoff::default();
+        loop {
+            let r = self.run_monitored(cmd, None, session.as_deref_mut());
+            let (reply, err) = match &r {
+                Ok(rep) => (rep.as_slice(), None),
+                Err(f) => (f.reply.as_slice(), Some(&f.error)),
+            };
+            let is_retryable_read = eligibility == Eligibility::RetryableRead && read_error_is_retryable(err, reply);
+            let (is_overload, overload_retryable) = overload(reply, eligibility);
+            if !(is_retryable_read || overload_retryable) {
+                return r;
+            }
+            attempt += 1;
+            if is_overload {
+                allowed = self.max_adaptive_retries();
+            }
+            if attempt > allowed {
+                return r;
+            }
+            if self.td.server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
+                deprioritized.push(cmd.server_id);
+            }
+            let reply = reply.to_vec();
+            backoff.wait(is_overload, &reply);
+            let prefs = cmd.read_prefs.clone();
+            let sel = self.select_for_session(OpType::Read, prefs.as_ref(), session.as_deref_mut(), &deprioritized);
+            let Ok((sid, _)) = sel else { return r };
+            cmd.server_id = sid;
+        }
+    }
+
+    /// The retry eligibility of a read (or raw) command.
+    pub fn read_eligibility(&self, cmd: &Cmd, is_raw: bool, is_read: bool) -> Eligibility {
+        if cmd.is_retryable_read {
+            return Eligibility::RetryableRead;
+        }
+        let rr = self.uri.get_bool("retryreads", true);
+        if (is_raw && (!rr || !self.uri.get_bool("retrywrites", true))) || (is_read && !rr) {
+            return Eligibility::None;
+        }
+        Eligibility::OverloadOnly
+    }
+
+    /// _mongoc_uri_get_max_adaptive_retries
+    fn max_adaptive_retries(&self) -> i32 {
+        match self.uri.options.get("maxadaptiveretries") {
+            Some(crate::uri::OptVal::Int32(v)) => *v,
+            _ => DEFAULT_MAX_ADAPTIVE_RETRIES,
+        }
+    }
+
+    /// _mongoc_cluster_select_server_id: server selection that honours (and maintains) a
+    /// sharded transaction's pinned server.
+    pub fn select_for_session(&mut self, optype: OpType, rp: Option<&crate::topology::ReadPrefs>, cs: Option<&mut ClientSession>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
+        let sharded_txn = cs.as_ref().is_some_and(|s| s.in_txn_or_ending()) && self.td.ty == TopologyType::Sharded;
+        match cs {
+            Some(s) if sharded_txn => {
+                if s.pinned_server_id != 0 {
+                    return Ok((s.pinned_server_id, false));
+                }
+                let r = self.select_server_id(optype, rp, deprioritized)?;
+                s.pinned_server_id = r.0;
+                Ok(r)
+            }
+            cs => {
+                let r = self.select_server_id(optype, rp, deprioritized)?;
+                if let Some(s) = cs {
+                    if !s.in_txn_or_ending() {
+                        s.unpin();
+                    }
+                }
+                Ok(r)
+            }
+        }
+    }
+
+    /// mongoc_cluster_stream_for_server's session rules: a pinned session only runs on its
+    /// server; a sharded transaction pins, other operations unpin.
+    pub fn check_server_for_session(&mut self, server_id: u32, cs: Option<&mut ClientSession>) -> Result<(), Error> {
+        let Some(s) = cs else { return Ok(()) };
+        if s.pinned_server_id != 0 && s.pinned_server_id != server_id {
+            return Err(Error::new(domain::COMMAND, code::SERVER_SELECTION_INVALID_ID, "Requested server id does not matched pinned server id"));
+        }
+        if s.in_txn_or_ending() && self.td.ty == TopologyType::Sharded {
+            s.pinned_server_id = server_id;
+        } else if !s.in_txn_or_ending() {
+            s.unpin();
+        }
+        Ok(())
+    }
+
+    /// The event fields of `cmd` (mongoc_apm_command_started_init_with_cmd).
+    fn command_info(&self, cmd: &Cmd, request_id: i32) -> crate::apm::CommandInfo {
+        let sd = self.stream_description(cmd.server_id);
+        let addr = sd.map_or(String::new(), |d| d.addr.clone());
+        let (host, port) = crate::client::split_host_port(&addr);
+        let service_id = sd.map(|d| d.service_id).filter(|s| *s != crate::sdam::ZERO_OID);
+        crate::apm::CommandInfo {
+            command_name: cmd.name.clone(),
+            database_name: cmd.db.clone(),
+            request_id: request_id as i64,
+            operation_id: cmd.operation_id,
+            host,
+            port,
+            server_id: cmd.server_id,
+            service_id,
+            server_connection_id: sd.map_or(-1, |d| d.connection_id),
+        }
+    }
+
+    fn next_request_id(&mut self) -> i32 {
+        self.request_id = self.request_id.wrapping_add(1);
+        self.request_id
+    }
+}
+
+/// The command with its document sequence appended as an array (_mongoc_cmd_append_payload_as_array).
+fn command_with_payload(body: &[u8], payload: Option<(&str, &[u8])>) -> Vec<u8> {
+    let Some((field, docs)) = payload else { return body.to_vec() };
+    let mut w = Writer::with_capacity(body.len() + docs.len() + 64);
+    w.concat(body);
+    let a = w.begin(4, field.as_bytes());
+    let mut buf = crate::bson::writer::itoa_buf::Buf::default();
+    let mut pos = 0usize;
+    let mut i = 0usize;
+    while pos + 4 <= docs.len() {
+        let len = i32::from_le_bytes(docs[pos..pos + 4].try_into().unwrap()) as usize;
+        if len < 5 || pos + len > docs.len() {
+            break;
+        }
+        w.document(crate::bson::writer::index_key(i, &mut buf), &docs[pos..pos + len]);
+        pos += len;
+        i += 1;
+    }
+    w.end(a);
+    w.finish()
+}
+
+/// MONGOC_DEFAULT_MAXADAPTIVERETRIES
+pub const DEFAULT_MAX_ADAPTIVE_RETRIES: i32 = 2;
+/// WIRE_VERSION_SNAPSHOT_READS
+pub const WIRE_VERSION_SNAPSHOT_READS: i32 = 13;
+/// WIRE_VERSION_ERROR_LABEL_RETRYABLEWRITEERROR
+const WIRE_VERSION_ERROR_LABEL_RETRYABLE_WRITE_ERROR: i32 = 9;
+
+/// mongoc_retry_eligibility_t
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Eligibility {
+    None,
+    OverloadOnly,
+    RetryableRead,
+    RetryableWrite,
+}
+
+/// The overload labels of a reply: (SystemOverloadedError, and retryable as such).
+fn overload(reply: &[u8], e: Eligibility) -> (bool, bool) {
+    let o = crate::cmd::has_label(reply, "SystemOverloadedError");
+    (o, o && crate::cmd::has_label(reply, "RetryableError") && e != Eligibility::None)
+}
+
+/// The exponential backoff of overload retries (mongoc-retry-backoff-generator.c: base
+/// 100 ms or the reply's baseBackoffMS, growth 2, max 10 s, full jitter).
+#[derive(Default)]
+struct Backoff {
+    attempt: u32,
+}
+
+impl Backoff {
+    fn wait(&mut self, is_overload: bool, reply: &[u8]) {
+        let n = self.attempt;
+        self.attempt += 1;
+        if !is_overload {
+            return;
+        }
+        let base_ms = match find(reply, b"baseBackoffMS") {
+            Some(v @ (Value::Int32(_) | Value::Int64(_))) => crate::sdam::as_i64(&v),
+            _ => 0,
+        };
+        let base = if base_ms > 0 { base_ms as f64 } else { 100.0 };
+        let max = (base * 2f64.powi(n as i32)).min(10_000.0);
+        let r = u32::from_le_bytes(crate::bson::oid::random_bytes(4)[..4].try_into().unwrap()) as f64 / u32::MAX as f64;
+        std::thread::sleep(std::time::Duration::from_micros((max * r * 1000.0) as u64));
+    }
+}
+
+/// mongoc_write_err_type_t
+#[derive(PartialEq, Eq)]
+pub enum WriteErr {
+    None,
+    Retry,
+    WriteConcern,
+    Other,
+}
+
+/// _mongoc_write_error_get_type
+pub fn write_error_type(reply: &[u8]) -> WriteErr {
+    if crate::cmd::has_label(reply, "RetryableWriteError") {
+        return WriteErr::Retry;
+    }
+    match crate::cmd::check_ok_no_wce(reply) {
+        Ok(()) => WriteErr::None,
+        Err(e) if e.code == 64 => WriteErr::WriteConcern,
+        Err(_) => WriteErr::Other,
+    }
+}
+
+/// _mongoc_write_error_is_retryable (server codes)
+fn write_code_is_retryable(c: u32) -> bool {
+    matches!(c, 6 | 7 | 89 | 91 | 189 | 262 | 9001 | 10107 | 11600 | 11602 | 13435 | 13436)
+}
+
+/// _mongoc_read_error_get_type == MONGOC_READ_ERR_RETRY
+pub fn read_error_is_retryable(err: Option<&Error>, reply: &[u8]) -> bool {
+    if err.is_some_and(|e| e.is_network()) {
+        return true;
+    }
+    match crate::cmd::check_ok_no_wce(reply) {
+        Ok(()) => false,
+        Err(e) => matches!(e.code, 262 | 11600 | 11602 | 10107 | 13435 | 13436 | 189 | 134 | 91 | 7 | 6 | 89 | 9001) || e.message.contains("not master") || e.message.contains("node is recovering"),
+    }
+}
+
+/// _mongoc_write_error_handle_labels: RetryableWriteError on network errors (and, for
+/// servers before 4.4, on retryable server errors).
+fn write_error_handle_labels(err: Option<&Error>, reply: &mut Vec<u8>, max_wire: i32, mongos: bool) {
+    if err.is_some_and(|e| e.is_network()) {
+        append_retryable_label(reply);
+        return;
+    }
+    if max_wire >= WIRE_VERSION_ERROR_LABEL_RETRYABLE_WRITE_ERROR {
+        return;
+    }
+    let r = if mongos { crate::cmd::check_ok(reply) } else { crate::cmd::check_ok_no_wce(reply) };
+    if let Err(e) = r {
+        if write_code_is_retryable(e.code) {
+            append_retryable_label(reply);
+        }
+    }
+}
+
+/// _mongoc_write_error_update_if_unsupported_storage_engine
+fn update_if_unsupported_storage_engine(f: &mut Failure) {
+    let Err(e) = crate::cmd::check_ok_no_wce(&f.reply) else { return };
+    if e.code == 20 && e.message.starts_with("Transaction numbers") {
+        const M: &str = "This MongoDB deployment does not support retryable writes. Please add retryWrites=false to your connection string.";
+        f.error.message = M.to_owned();
+        let mut w = Writer::with_capacity(f.reply.len() + 64);
+        if let Some(mut it) = Iter::new(&f.reply) {
+            while it.next() {
+                if it.key() != b"errmsg" {
+                    w.element_from(None, &it);
+                }
+            }
+        }
+        w.utf8(b"errmsg", M.as_bytes());
+        f.reply = w.finish();
+    }
+}
+
+/// The labels of `reply` (strings of its errorLabels array).
+fn labels_of(reply: &[u8]) -> Vec<Vec<u8>> {
+    let mut v = Vec::new();
+    if let Some(Value::Array(a)) = find(reply, b"errorLabels") {
+        if let Some(mut it) = Iter::new(a) {
+            while it.next() {
+                if let Value::Utf8(s) = it.value() {
+                    v.push(s.to_vec());
+                }
+            }
+        }
+    }
+    v
+}
+
+/// `reply` without errorLabels, then errorLabels = `labels`.
+fn with_labels(reply: &[u8], labels: &[Vec<u8>]) -> Vec<u8> {
+    let mut w = Writer::with_capacity(reply.len() + 64);
+    if let Some(mut it) = Iter::new(reply) {
+        while it.next() {
+            if it.key() != b"errorLabels" {
+                w.element_from(None, &it);
+            }
+        }
+    }
+    let mut a = Writer::with_capacity(64);
+    let mut buf = crate::bson::writer::itoa_buf::Buf::default();
+    for (i, l) in labels.iter().enumerate() {
+        a.utf8(crate::bson::writer::index_key(i, &mut buf), l);
+    }
+    w.array(b"errorLabels", &a.finish());
+    w.finish()
+}
+
+/// _mongoc_add_error_label (an empty `reply` is an empty document)
+pub fn add_error_label(reply: &mut Vec<u8>, label: &str) {
+    let mut labels = Vec::new();
+    for l in labels_of(reply) {
+        if !labels.contains(&l) {
+            labels.push(l);
+        }
+    }
+    if !labels.iter().any(|l| l == label.as_bytes()) {
+        labels.push(label.as_bytes().to_vec());
+    }
+    let base = if reply.is_empty() { vec![5, 0, 0, 0, 0] } else { std::mem::take(reply) };
+    *reply = with_labels(&base, &labels);
+}
+
+/// _mongoc_error_copy_labels_and_upsert onto the reply itself: `label` first, then the others.
+pub fn upsert_label_first(reply: &mut Vec<u8>, label: &str) {
+    let mut labels = vec![label.as_bytes().to_vec()];
+    labels.extend(labels_of(reply).into_iter().filter(|l| l != label.as_bytes()));
+    let base = if reply.is_empty() { vec![5, 0, 0, 0, 0] } else { std::mem::take(reply) };
+    *reply = with_labels(&base, &labels);
+}
+
+/// _mongoc_write_error_append_retryable_label
+fn append_retryable_label(reply: &mut Vec<u8>) {
+    upsert_label_first(reply, "RetryableWriteError");
 }
 
 /// A server reply's field.
@@ -277,13 +780,19 @@ pub fn find<'a>(doc: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
 }
 
 impl Client {
-    /// mongoc_client_start_session (_mongoc_topology_pop_server_session)
-    pub fn start_session(&mut self, causal_consistency: bool, snapshot: bool) -> Result<crate::session::ClientSession, Error> {
+    /// mongoc_client_start_session (_mongoc_topology_pop_server_session). The session's
+    /// default transaction options are the client's, overridden by `default_txn`.
+    pub fn start_session(&mut self, causal_consistency: bool, snapshot: bool) -> Result<ClientSession, Error> {
+        self.start_session_with(causal_consistency, snapshot, None)
+    }
+
+    pub fn start_session_with(&mut self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>) -> Result<ClientSession, Error> {
+        self.check_fork();
         let lb = self.td.ty == TopologyType::LoadBalanced;
         if !lb && self.td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
             let has_data = self.td.has_data_node();
             if !has_data {
-                self.select_server_id(crate::topology::OpType::Read, None, &[])?;
+                self.select_server_id(OpType::Read, None, &[])?;
             }
             if self.td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
                 return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Server does not support sessions"));
@@ -293,23 +802,238 @@ impl Client {
             return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Only one of causal consistency and snapshot can be enabled."));
         }
         let ss = self.pop_server_session();
-        Ok(crate::session::ClientSession {
+        let mut d = crate::session::TxnOpts {
+            read_concern: Some(crate::concern::ReadConcern::from_uri(&self.uri)),
+            write_concern: Some(crate::concern::WriteConcern::from_uri(&self.uri)),
+            read_primary: Some(self.uri.read_mode == ReadMode::Primary),
+            max_commit_time_ms: crate::session::DEFAULT_MAX_COMMIT_TIME_MS,
+        };
+        if let Some(o) = default_txn {
+            d.set(o);
+        }
+        Ok(ClientSession {
             server_session: Some(ss),
             causal_consistency,
             snapshot,
+            default_txn: d,
             client_generation: self.generation,
             ..Default::default()
         })
     }
 
-    /// mongoc_client_session_destroy: the server session goes back to the pool (unless the
-    /// client was reset since: it belongs to the parent process then).
-    pub fn end_session(&mut self, cs: &mut crate::session::ClientSession) {
+    /// mongoc_client_session_destroy: a running transaction is aborted, the server session
+    /// goes back to the pool (unless the client was reset since: it belongs to the parent
+    /// process then, and is dropped without any I/O).
+    pub fn end_session(&mut self, cs: &mut ClientSession) {
         self.check_fork();
-        if let Some(ss) = cs.server_session.take() {
-            if cs.client_generation == self.generation {
+        if cs.server_session.is_none() {
+            return;
+        }
+        if cs.client_generation == self.generation {
+            if cs.in_txn() {
+                let _ = self.abort_transaction(cs);
+            }
+            if let Some(ss) = cs.server_session.take() {
                 self.push_server_session(ss);
             }
+        } else {
+            cs.server_session = None;
+        }
+    }
+
+    /// mongoc_client_session_start_transaction
+    pub fn start_transaction(&mut self, cs: &mut ClientSession, opts: Option<&crate::session::TxnOpts>) -> Result<(), Error> {
+        self.select_for_session(OpType::Write, None, Some(cs), &[])?;
+        cs.start_transaction(opts)
+    }
+
+    /// mongoc_client_session_commit_transaction: Ok(reply) or the error with the reply.
+    pub fn commit_transaction(&mut self, cs: &mut ClientSession) -> Result<Vec<u8>, Failure> {
+        let invalid = |m: &str| Err(Failure { error: Error::new(domain::TRANSACTION, code::TRANSACTION_INVALID_STATE, m), reply: vec![5, 0, 0, 0, 0] });
+        match cs.txn_state {
+            TxnState::None => invalid("No transaction started"),
+            TxnState::Starting | TxnState::CommittedEmpty => {
+                cs.txn_state = TxnState::CommittedEmpty;
+                Ok(vec![5, 0, 0, 0, 0])
+            }
+            TxnState::Committed | TxnState::InProgress => {
+                let explicitly_retrying = cs.txn_state == TxnState::Committed;
+                cs.txn_state = TxnState::Ending;
+                let r = self.txn_commit(cs, explicitly_retrying);
+                cs.txn_state = TxnState::Committed;
+                r
+            }
+            TxnState::Ending => invalid("No transaction started"),
+            TxnState::Aborted => invalid("Cannot call commitTransaction after calling abortTransaction"),
+        }
+    }
+
+    /// mongoc_client_session_abort_transaction (errors of the command itself are ignored).
+    pub fn abort_transaction(&mut self, cs: &mut ClientSession) -> Result<(), Error> {
+        let invalid = |m: &str| Err(Error::new(domain::TRANSACTION, code::TRANSACTION_INVALID_STATE, m));
+        match cs.txn_state {
+            TxnState::Starting => {
+                cs.txn_state = TxnState::Aborted;
+                cs.unpin();
+                cs.txn.cleanup();
+                Ok(())
+            }
+            TxnState::InProgress => {
+                cs.txn_state = TxnState::Ending;
+                self.txn_abort(cs);
+                cs.txn_state = TxnState::Aborted;
+                cs.unpin();
+                Ok(())
+            }
+            TxnState::Committed | TxnState::CommittedEmpty => invalid("Cannot call abortTransaction after calling commitTransaction"),
+            TxnState::Aborted => invalid("Cannot call abortTransaction twice"),
+            TxnState::Ending | TxnState::None => invalid("No transaction started"),
+        }
+    }
+
+    fn txn_finish_command(name: &[u8], cs: &ClientSession) -> Vec<u8> {
+        let mut w = Writer::with_capacity(64);
+        w.int32(name, 1);
+        if let Some(t) = &cs.recovery_token {
+            w.document(b"recoveryToken", t);
+        }
+        w.finish()
+    }
+
+    /// txn_abort
+    fn txn_abort(&mut self, cs: &mut ClientSession) {
+        let body = Self::txn_finish_command(b"abortTransaction", cs);
+        let wc = cs.txn.write_concern.clone();
+        let r = self.write_command_in_session(&body, wc.as_ref(), None, cs);
+        let retry = match &r {
+            Ok(rep) | Err(Failure { reply: rep, .. }) => crate::cmd::has_label(rep, "RetryableWriteError"),
+        };
+        let r = if retry {
+            cs.unpin();
+            self.write_command_in_session(&body, wc.as_ref(), None, cs)
+        } else {
+            r
+        };
+        if r.is_err() {
+            cs.unpin();
+        }
+    }
+
+    /// txn_commit
+    fn txn_commit(&mut self, cs: &mut ClientSession, explicitly_retrying: bool) -> Result<Vec<u8>, Failure> {
+        let body = Self::txn_finish_command(b"commitTransaction", cs);
+        let max_time = (cs.txn.max_commit_time_ms != crate::session::DEFAULT_MAX_COMMIT_TIME_MS).then_some(cs.txn.max_commit_time_ms);
+        let retry_wc = |cs: &ClientSession, client: &Client| {
+            let mut wc = cs.txn.write_concern.clone().unwrap_or_else(|| crate::concern::WriteConcern::from_uri(&client.uri));
+            if wc.wtimeout <= 0 {
+                wc.set_wtimeout(MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY);
+            }
+            wc.set_w(crate::uri::W_MAJORITY);
+            wc
+        };
+        let mut retrying_after_error = false;
+        let mut wc = if explicitly_retrying { Some(retry_wc(cs, self)) } else { cs.txn.write_concern.clone() };
+        let mut r;
+        loop {
+            r = self.write_command_in_session(&body, wc.as_ref(), max_time, cs);
+            let reply = match &r {
+                Ok(rep) | Err(Failure { reply: rep, .. }) => rep.as_slice(),
+            };
+            if !retrying_after_error && write_error_type(reply) == WriteErr::Retry {
+                retrying_after_error = true;
+                cs.unpin();
+                wc = Some(retry_wc(cs, self));
+                continue;
+            }
+            break;
+        }
+        if let Err(f) = &mut r {
+            let ty = write_error_type(&f.reply);
+            if f.error.domain == domain::SERVER_SELECTION || ty == WriteErr::Retry || ty == WriteErr::WriteConcern || f.error.code == code::MAX_TIME_MS_EXPIRED {
+                cs.unpin();
+                upsert_label_first(&mut f.reply, "UnknownTransactionCommitResult");
+            }
+        }
+        r
+    }
+
+    /// mongoc_client_write_command_with_opts("admin", body, {session, writeConcern, maxTimeMS})
+    /// for the transaction commands.
+    fn write_command_in_session(&mut self, body: &[u8], wc: Option<&crate::concern::WriteConcern>, max_time_ms: Option<i64>, cs: &mut ClientSession) -> Result<Vec<u8>, Failure> {
+        let sid = match self.select_for_session(OpType::Write, None, Some(cs), &[]) {
+            Ok((s, _)) => s,
+            Err(e) => {
+                let mut reply = Vec::new();
+                if cs.in_txn() {
+                    add_error_label(&mut reply, "TransientTransactionError");
+                }
+                return Err(Failure { error: e, reply: if reply.is_empty() { vec![5, 0, 0, 0, 0] } else { reply } });
+            }
+        };
+        let mut parts = Parts::new("admin", body);
+        parts.is_write = true;
+        if let Some(t) = max_time_ms {
+            parts.extra.int64(b"maxTimeMS", t);
+        }
+        match wc {
+            Some(w) => parts.set_write_concern(w),
+            None => {
+                let cw = crate::concern::WriteConcern::from_uri(&self.uri);
+                if !cw.is_default {
+                    parts.set_write_concern(&cw);
+                }
+            }
+        }
+        parts.session = Some(&mut *cs);
+        self.operation_id += 1;
+        let mut cmd = self.assemble(parts, sid, false)?;
+        let (r, _) = self.run_retryable_write(&mut cmd, None, Some(cs));
+        self.release_temp_session(&mut cmd);
+        match r {
+            Ok(reply) => match crate::cmd::parse_wc_error(&reply) {
+                Some(e) => Err(Failure { error: e, reply }),
+                None => Ok(reply),
+            },
+            Err(f) => Err(f),
         }
     }
 }
+
+impl Client {
+    /// _mongoc_client_end_sessions (mongoc_client_destroy): endSessions for the pooled
+    /// server sessions, in batches of 10000, on a primaryPreferred server. Never after a
+    /// fork: those sessions belong to the parent.
+    pub fn end_pooled_sessions(&mut self) {
+        if !self.in_creating_process() || !self.same_process() {
+            return;
+        }
+        let rp = crate::topology::ReadPrefs { mode: ReadMode::PrimaryPreferred, ..Default::default() };
+        loop {
+            let lsids: Vec<Vec<u8>> = self.sessions.lsids().take(10_000).map(<[u8]>::to_vec).collect();
+            if lsids.is_empty() {
+                return;
+            }
+            let Ok((sid, _)) = self.select_server_id(OpType::Read, Some(&rp), &[]) else { return };
+            let mut w = Writer::with_capacity(64 + lsids.len() * 40);
+            let a = w.begin(4, b"endSessions");
+            let mut buf = crate::bson::writer::itoa_buf::Buf::default();
+            for (i, l) in lsids.iter().enumerate() {
+                w.document(crate::bson::writer::index_key(i, &mut buf), l);
+            }
+            w.end(a);
+            let body = w.finish();
+            self.sessions.drop_first(lsids.len());
+            if self.stream_for_server(sid, false).is_err() {
+                return;
+            }
+            let mut parts = Parts::new("admin", &body);
+            parts.prohibit_lsid = true;
+            self.operation_id += 1;
+            let Ok(mut cmd) = self.assemble(parts, sid, false) else { return };
+            let _ = self.run_monitored(&mut cmd, None, None);
+        }
+    }
+}
+
+/// MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY
+pub const MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY: i64 = 10_000;

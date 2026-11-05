@@ -89,6 +89,7 @@ unsafe extern "C" fn rinit(_type: c_int, _module_number: c_int) -> sys::zend_res
 }
 
 unsafe extern "C" fn rshutdown(_type: c_int, _module_number: c_int) -> sys::zend_result {
+    crate::driver::apm::rshutdown();
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 

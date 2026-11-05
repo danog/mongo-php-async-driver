@@ -4,7 +4,7 @@
 use crate::bson::iter::{Iter, Value};
 use crate::bson::writer::Writer;
 use crate::client::Client;
-use crate::cmdparts::{find, Failure, Parts};
+use crate::cmdparts::{find, Parts};
 use crate::concern::WriteConcern;
 use crate::error::{code, domain, Category, Error};
 use crate::topology::OpType;
@@ -509,9 +509,9 @@ impl BulkOperation {
         let mut offset = 0u32;
         for i in 0..self.commands.len() {
             let sel = if self.server_id != 0 {
-                client.stream_for_server(self.server_id, true).map(|_| (self.server_id, false))
+                client.stream_for_server(self.server_id, true).map(|_| self.server_id).and_then(|s| client.check_server_for_session(s, session.as_deref_mut()).map(|_| (s, false)))
             } else {
-                client.select_server_id(OpType::Write, None, &[])
+                client.select_for_session(OpType::Write, None, session.as_deref_mut(), &[])
             };
             let sid = match sel {
                 Ok((s, _)) => s,
@@ -591,10 +591,9 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
     parts.set_write_concern(wc);
     parts.allow_txn_number = Some(!(command.flags.has_multi_write || !acked));
     parts.extra.concat(&command.cmd_opts);
-    if let Some(s) = &session {
-        if acked {
-            parts.session = Some(s.info());
-        }
+    let mut session = session;
+    if acked {
+        parts.session = session.as_deref_mut();
     }
     let mut cmd = match client.assemble(parts, server_id, false) {
         Ok(c) => c,
@@ -604,7 +603,7 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
     let data = &command.payload;
     let (mut batch_size, mut total_offset, mut doc_count) = (0usize, 0usize, 0i64);
     let mut ok = false;
-    let mut session = session;
+    let mut retry_server = None;
     while total_offset < data.len() && !result.must_stop {
         let at = total_offset + batch_size;
         let len = i32::from_le_bytes(data[at..at + 4].try_into().unwrap()) as i64;
@@ -621,26 +620,10 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
             ship = true;
         }
         if ship {
-            let txn = if cmd.is_retryable_write {
-                let n = match (cmd.temp_session.as_mut(), session.as_deref_mut()) {
-                    (Some(t), _) => {
-                        t.txn_number += 1;
-                        t.txn_number
-                    }
-                    (None, Some(s)) => s.next_txn_number(),
-                    _ => 0,
-                };
-                set_txn_number(&mut cmd.body, n);
-                n
-            } else {
-                0
-            };
-            let _ = txn;
             let payload = &data[total_offset..total_offset + batch_size];
-            let r = client.run_cmd_keep_session(&mut cmd, Some((command.kind.field(), payload)));
-            if let Some(s) = session.as_deref_mut() {
-                let (Ok(rep) | Err(Failure { reply: rep, .. })) = &r;
-                s.handle_reply(cmd.is_acknowledged, rep);
+            let (r, retry) = client.run_retryable_write(&mut cmd, Some((command.kind.field(), payload)), session.as_deref_mut());
+            if let Some(rs) = retry {
+                retry_server = Some(rs);
             }
             total_offset += batch_size;
             batch_size = 0;
@@ -655,14 +638,6 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
                     if command.flags.ordered || f.error.is_network() {
                         result.must_stop = true;
                     }
-                    if f.error.is_network() {
-                        if let Some(t) = cmd.temp_session.as_mut() {
-                            t.dirty = true;
-                        }
-                        if let Some(s) = session.as_deref_mut() {
-                            s.mark_dirty();
-                        }
-                    }
                     result.error = f.error;
                     f.reply
                 }
@@ -672,8 +647,9 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
             doc_count = 0;
         }
     }
-    if let Some(s) = cmd.temp_session.take() {
-        client.push_server_session(s);
+    client.release_temp_session(&mut cmd);
+    if let (Some(rs), true) = (retry_server, ok) {
+        result.retry_server_id = rs;
     }
     if ok {
         result.error = Error::default();
