@@ -1,7 +1,21 @@
 //! zval constructors and accessors (ports of the ZVAL_* / Z_* macros of zend_types.h).
+//!
+//! Ownership follows ext-php-rs: `sys::zval` is ext-php-rs's `Zval`, whose `Drop` releases the
+//! value. A `sys::zval` held by value is therefore always *owned* (one reference). The rules:
+//! - borrowed engine zvals are only handled through `*mut`/`*const sys::zval` (or `&Zval`); an owned
+//!   copy of one is made with [`copy`] (addref), never by bit-copying;
+//! - out-parameters (`return_value`, handler results, uninitialised slots) are filled with
+//!   [`write`] (ZVAL_COPY_VALUE: the old bytes are not released);
+//! - a value handed over to the engine (hash insert, property default, ...) goes through
+//!   [`into_raw`], so it is not released here as well;
+//! - a non-owning view of an engine value (no addref) is a `ManuallyDrop` ([`borrowed_obj`]).
 
 use super::sys;
+use std::mem::ManuallyDrop;
 use std::ptr::addr_of;
+
+/// ext-php-rs's owned zval (`Drop` = zval_ptr_dtor).
+pub type Zval = sys::zval;
 
 #[inline]
 pub fn undef() -> sys::zval {
@@ -122,16 +136,44 @@ pub unsafe fn addref(z: *const sys::zval) {
     }
 }
 
-/// ZVAL_COPY (value + addref)
+/// ZVAL_COPY: an owned copy (value + addref) of a borrowed zval.
 #[inline]
 pub unsafe fn copy(z: *const sys::zval) -> sys::zval {
     addref(z);
-    *z
+    std::ptr::read(z)
 }
 
+/// ZVAL_COPY_VALUE into an out-parameter or an empty slot: `dst` is uninitialised or holds
+/// nothing that needs releasing (the old bytes are not dropped). Ownership of `v` moves to `dst`.
+#[inline]
+pub unsafe fn write(dst: *mut sys::zval, v: sys::zval) {
+    std::ptr::write(dst, v);
+}
+
+/// Hands `v` over to the engine (which now owns its reference): the result is never dropped here.
+#[inline]
+pub fn into_raw(v: sys::zval) -> ManuallyDrop<sys::zval> {
+    ManuallyDrop::new(v)
+}
+
+/// A non-owning view (no addref) of an engine object: never released.
+#[inline]
+pub unsafe fn borrowed_obj(o: *mut sys::zend_object) -> ManuallyDrop<sys::zval> {
+    ManuallyDrop::new(obj(o))
+}
+
+/// Transitional: zval_ptr_dtor that leaves the zval UNDEF, so the owned value's own Drop is a
+/// no-op afterwards (removed once every module follows the ownership rules above).
 #[inline]
 pub unsafe fn dtor(z: *mut sys::zval) {
+    release(z);
+}
+
+/// zval_ptr_dtor on an engine-owned slot, which is left UNDEF (so nothing can release it again).
+#[inline]
+pub unsafe fn release(z: *mut sys::zval) {
     sys::zval_ptr_dtor(z);
+    (*z).u1.type_info = sys::IS_UNDEF;
 }
 
 /// zend_zval_type_name

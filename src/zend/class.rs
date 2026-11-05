@@ -62,8 +62,10 @@ pub unsafe fn lookup(lcname: &CStr) -> *mut sys::zend_class_entry {
     (*z).value.ptr as *mut sys::zend_class_entry
 }
 
-unsafe fn declare_const(ce: *mut sys::zend_class_entry, name: &CStr, mut value: sys::zval, flags: u32) {
-    sys::zend_declare_class_constant_ex(ce, interned(name), &mut value, flags as i32, null_mut());
+/// zend_declare_class_constant_ex: the constant takes over `value`.
+unsafe fn declare_const(ce: *mut sys::zend_class_entry, name: &CStr, value: sys::zval, flags: u32) {
+    let mut value = super::zval::into_raw(value);
+    sys::zend_declare_class_constant_ex(ce, interned(name), &mut *value, flags as i32, null_mut());
 }
 
 pub unsafe fn const_long(ce: *mut sys::zend_class_entry, name: &CStr, v: i64, flags: u32) {
@@ -87,16 +89,17 @@ const TYPE_NAME_BIT: u32 = 1 << 24;
 /// zend_declare_typed_property; `class`: the class part of the type (mask: the rest; 0 and no
 /// class = untyped).
 pub unsafe fn typed_property(ce: *mut sys::zend_class_entry, name: &CStr, class: Option<&CStr>, mask: u32, flags: u32, default: Default) {
-    let mut dv = match default {
+    // the property info takes over the default value
+    let mut dv = super::zval::into_raw(match default {
         Default::Undef => super::zval::undef(),
         Default::Null => super::zval::null(),
         Default::EmptyArray => super::zval::empty_array(),
-    };
+    });
     let ty = match class {
         Some(c) => sys::zend_type { ptr: interned(c) as *mut _, type_mask: TYPE_NAME_BIT | mask },
         None => sys::zend_type { ptr: null_mut(), type_mask: mask },
     };
-    sys::zend_declare_typed_property(ce, interned(name), &mut dv, flags as i32, null_mut(), ty);
+    sys::zend_declare_typed_property(ce, interned(name), &mut *dv, flags as i32, null_mut(), ty);
 }
 
 /// The class name of `ce`, for messages.

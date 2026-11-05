@@ -34,8 +34,12 @@ pub unsafe fn release(ht: *mut sys::HashTable) {
 
 /// add_next_index_zval (takes ownership of `v`)
 #[inline]
-pub unsafe fn push(ht: *mut sys::HashTable, mut v: sys::zval) {
-    sys::zend_hash_next_index_insert(ht, &mut v);
+pub unsafe fn push(ht: *mut sys::HashTable, v: sys::zval) {
+    let mut v = zval::into_raw(v);
+    if sys::zend_hash_next_index_insert(ht, &mut *v).is_null() {
+        // not inserted (next index taken): the value is still ours
+        std::mem::ManuallyDrop::drop(&mut v);
+    }
 }
 
 /// ZEND_HANDLE_NUMERIC_STR: the integer a key is the canonical decimal form of.
@@ -64,21 +68,30 @@ pub fn numeric_key(k: &[u8]) -> Option<i64> {
 
 /// zend_symtable_str_update (add_assoc_zval_ex): takes ownership of `v`.
 #[inline]
-pub unsafe fn sym_update(ht: *mut sys::HashTable, k: &[u8], mut v: sys::zval) {
+pub unsafe fn sym_update(ht: *mut sys::HashTable, k: &[u8], v: sys::zval) {
+    let mut v = zval::into_raw(v);
     match numeric_key(k) {
         Some(i) => {
-            sys::zend_hash_index_update(ht, i as u64, &mut v);
+            sys::zend_hash_index_update(ht, i as u64, &mut *v);
         }
         None => {
-            sys::zend_hash_str_update(ht, k.as_ptr() as *const _, k.len(), &mut v);
+            sys::zend_hash_str_update(ht, k.as_ptr() as *const _, k.len(), &mut *v);
         }
     }
 }
 
 /// zend_hash_str_update: takes ownership of `v`.
 #[inline]
-pub unsafe fn str_update(ht: *mut sys::HashTable, k: &[u8], mut v: sys::zval) {
-    sys::zend_hash_str_update(ht, k.as_ptr() as *const _, k.len(), &mut v);
+pub unsafe fn str_update(ht: *mut sys::HashTable, k: &[u8], v: sys::zval) {
+    let mut v = zval::into_raw(v);
+    sys::zend_hash_str_update(ht, k.as_ptr() as *const _, k.len(), &mut *v);
+}
+
+/// zend_hash_index_update: takes ownership of `v`.
+#[inline]
+pub unsafe fn index_update(ht: *mut sys::HashTable, i: u64, v: sys::zval) {
+    let mut v = zval::into_raw(v);
+    sys::zend_hash_index_update(ht, i, &mut *v);
 }
 
 #[inline]

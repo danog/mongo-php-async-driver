@@ -52,7 +52,7 @@ pub unsafe extern "C" fn free<T>(o: *mut sys::zend_object) {
 pub static mut STD: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
 
 unsafe extern "C" fn std_get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
-    if (*(*o).handlers).get_properties != Some(sys::zend_std_get_properties) {
+    if !(*(*o).handlers).get_properties.is_some_and(|f| std::ptr::fn_addr_eq(f, sys::zend_std_get_properties as unsafe extern "C" fn(_) -> _)) {
         *table = null_mut();
         *n = 0;
         return (*o).properties;

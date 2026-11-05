@@ -1,6 +1,7 @@
-//! Minimal Zend Engine layer: the FFI declarations (`sys`) and Rust ports of the inline helpers
-//! and macros of the PHP headers that the extension needs (zend_types.h, zend_string.h,
-//! zend_hash.h, zend_API.h, ...). NTS builds only: globals are plain symbols.
+//! Zend Engine layer: the FFI declarations (`sys` = ext-php-rs's bindings) and Rust ports of the
+//! inline helpers and macros of the PHP headers that the extension needs (zend_types.h,
+//! zend_string.h, zend_hash.h, zend_API.h, ...). zvals follow ext-php-rs's ownership (see
+//! `zval`). NTS builds only: globals are plain symbols.
 
 pub mod call;
 pub mod class;

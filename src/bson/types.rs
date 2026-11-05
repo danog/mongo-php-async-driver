@@ -988,15 +988,17 @@ unsafe fn int64_op_ex(op: u8, result: *mut sys::zval, a: *mut sys::zval, b: *mut
 }
 
 unsafe extern "C" fn int64_do_operation(op: u8, result: *mut sys::zval, mut a: *mut sys::zval, b: *mut sys::zval) -> sys::zend_result {
-    let mut copy = zval::undef();
+    // `$a op= $b` (result == op1): op1's value is moved aside (ZVAL_COPY_VALUE) and released only
+    // once the result has replaced it; on failure the engine still owns it through `result`
+    let mut copy = std::mem::ManuallyDrop::new(zval::undef());
     let copied = result == a;
     if copied {
-        copy = *a;
-        a = &mut copy;
+        copy = std::mem::ManuallyDrop::new(std::ptr::read(a));
+        a = &mut *copy;
     }
     let r = int64_op_ex(op, result, a, b);
     if r == 0 && copied {
-        zval::dtor(&mut copy);
+        std::mem::ManuallyDrop::drop(&mut copy);
     }
     r
 }

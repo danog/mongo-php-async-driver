@@ -15,9 +15,9 @@ ported yet throw an `Error`.
   `MongoDB\Driver\*` class, the same constants, `var_dump()`, serialization, exceptions and
   messages, so that [PHPLIB](https://github.com/mongodb/mongo-php-library) and ext-mongodb user
   code run unchanged.
-- **No C at all:** no libbson, libmongoc or libmongocrypt, no C dependencies, no `cc` builds. The
-  Zend Engine bindings are generated with bindgen and checked in (`src/zend/sys/`); `build.rs`
-  only asks `php-config` which ones to use.
+- **No C libraries:** no libbson, libmongoc or libmongocrypt, no OpenSSL, ring or aws-lc, no C
+  zstd. The Zend Engine layer is [ext-php-rs](https://github.com/extphprs/ext-php-rs) (its
+  bindgen-generated bindings and its small `wrapper.c` are the only C involved).
 - **I/O on the PHP thread,** through one poll set (epoll/kqueue via mio) that the extension's own
   Revolt watcher drives; connections are released as soon as the server has answered, and
   waiters queue in FIFO order, so lazily-resumed fibers cannot deadlock the pool.
@@ -38,7 +38,8 @@ cannot run here or are expected to fail, with the reason.
 ## Build
 
 ```bash
-PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
+# PHP: the php binary of the same version (ext-php-rs reads the version from it); bindgen needs libclang
+PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
 # target/release/libmongodb.so: load it with extension=/path/to/libmongodb.so instead of ext-mongodb
 ```
 

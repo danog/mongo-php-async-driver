@@ -1,7 +1,7 @@
 //! mongodb.so: a pure-Rust, drop-in replacement for ext-mongodb.
 //!
-//! - `zend`: minimal bindings to the Zend Engine (pre-generated FFI declarations plus Rust ports of
-//!   the engine's inline helpers and macros); no C is compiled.
+//! - `zend`: the Zend Engine layer on top of ext-php-rs (its FFI bindings and owned `Zval`), plus
+//!   Rust ports of the engine's inline helpers and macros the extension needs.
 //! - `module`: the module entry, lifecycle hooks, INI settings and phpinfo().
 #![allow(clippy::missing_safety_doc)]
 
