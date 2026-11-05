@@ -236,7 +236,6 @@ impl V<'_, '_> {
             let cst = State { map: st.map, skip_odm: st.skip_odm, is_visiting_array: is_arr, nesting_depth: 0 };
             let mut v = V { ht, st: &cst, fp: &mut *self.fp, odm: None, is_array: is_arr };
             if iter::visit_all(&mut it, &mut v) || it.err_off != 0 {
-                zval::dtor(&mut child);
                 return true;
             }
             odm = v.odm;
@@ -248,12 +247,12 @@ impl V<'_, '_> {
             TM::Bson => child = if is_arr { super::document::new_packedarray(d) } else { super::document::new_document(d) },
             TM::Class(c) => {
                 let c = if !is_arr { odm.unwrap_or(c) } else { c };
-                let mut o = obj::new_zval(c);
+                let o = obj::new_zval(c);
                 let mut args = [child];
-                call::method((*(&o as *const sys::zval)).value.obj, c"bsonUnserialize", &mut args);
-                zval::dtor(&mut args[0]);
+                drop(call::method(o.value.obj, c"bsonUnserialize", &mut args));
+                drop(args);
                 if call::has_exception() {
-                    zval::dtor(&mut o);
+                    drop(o);
                     self.fp.pop();
                     return true;
                 }
@@ -291,7 +290,6 @@ unsafe fn to_zval_fp(doc: &[u8], st: &State, fp: &mut FieldPath) -> Option<sys::
         if !call::has_exception() {
             throw(E::UnexpectedValue, format!("Detected corrupt BSON data for field path '{}' at offset {}", v.fp.as_string(), it.err_off));
         }
-        zval::dtor(&mut z);
         return None;
     }
     let odm = v.odm;
@@ -307,12 +305,11 @@ unsafe fn to_zval_fp(doc: &[u8], st: &State, fp: &mut FieldPath) -> Option<sys::
         TM::Array => {}
         TM::Class(c) => {
             let c = odm.unwrap_or(c);
-            let mut o = obj::new_zval(c);
+            let o = obj::new_zval(c);
             let mut args = [z];
-            call::method(o.value.obj, c"bsonUnserialize", &mut args);
-            zval::dtor(&mut args[0]);
+            drop(call::method(o.value.obj, c"bsonUnserialize", &mut args));
+            drop(args);
             if call::has_exception() {
-                zval::dtor(&mut o);
                 return None;
             }
             z = o;
@@ -330,9 +327,7 @@ pub unsafe fn data_to_zval(data: &[u8], st: &State) -> Option<sys::zval> {
     };
     let mut r = to_zval(doc, st);
     if !exhausted {
-        if let Some(z) = r.as_mut() {
-            zval::dtor(z);
-        }
+        drop(r.take());
         if !call::has_exception() {
             throw(E::UnexpectedValue, "Reading document did not exhaust input buffer");
         }

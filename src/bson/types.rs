@@ -113,12 +113,21 @@ unsafe fn serialize<T: Cls>(ex: Ex, rv: *mut sys::zval) {
     }
     let ht = hash::new(2);
     this::<T>(ex).fill(ht, false);
-    *rv = zval::arr(ht);
+    zval::write(rv, zval::arr(ht));
+}
+
+/// Whether two optional handlers are the same function.
+fn same_fn(a: Option<unsafe extern "C" fn(*mut sys::zval, *mut sys::zval) -> i32>, b: Option<unsafe extern "C" fn(*mut sys::zval, *mut sys::zval) -> i32>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => std::ptr::fn_addr_eq(x, y),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 /// ZEND_COMPARE_OBJECTS_FALLBACK: Some(result) when the std comparison applies.
 pub unsafe fn cmp_fallback(a: *mut sys::zval, b: *mut sys::zval) -> Option<i32> {
-    if !zval::is(a, sys::IS_OBJECT) || !zval::is(b, sys::IS_OBJECT) || (*(*(*a).value.obj).handlers).compare != (*(*(*b).value.obj).handlers).compare {
+    if !zval::is(a, sys::IS_OBJECT) || !zval::is(b, sys::IS_OBJECT) || !same_fn((*(*(*a).value.obj).handlers).compare, (*(*(*b).value.obj).handlers).compare) {
         return Some(sys::zend_std_compare_objects(a, b));
     }
     None
@@ -194,7 +203,7 @@ fn cname(c: *const sys::zend_class_entry) -> &'static str {
 /// __set_state: a new instance of the called class, initialized from the array.
 unsafe fn set_state<T: Cls>(ex: Ex, rv: *mut sys::zval, c: *mut sys::zend_class_entry, init: unsafe fn(&mut T, *mut sys::HashTable) -> bool) {
     let Some(ht) = arg_array(ex) else { return };
-    *rv = new(c, T::default());
+    zval::write(rv, new(c, T::default()));
     init(obj::data::<T>((*rv).value.obj), ht);
 }
 
@@ -415,7 +424,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___set_state(ex: Ex, rv: *mut sy
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(&this::<Binary>(ex).data);
+        zval::write(rv, zval::string(&this::<Binary>(ex).data));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getData(ex: Ex, rv: *mut sys::zval) {
@@ -423,7 +432,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getData(ex: Ex, rv: *mut sys::z
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getType(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::long(this::<Binary>(ex).ty as i64);
+        zval::write(rv, zval::long(this::<Binary>(ex).ty as i64));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
@@ -434,7 +443,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_jsonSerialize(ex: Ex, rv: *mut 
     let ht = hash::new(2);
     str_prop(ht, b"$binary", fmt::base64_encode(&b.data).as_bytes());
     str_prop(ht, b"$type", format!("{:02x}", b.ty).as_bytes());
-    *rv = zval::arr(ht);
+    zval::write(rv, zval::arr(ht));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___serialize(ex: Ex, rv: *mut sys::zval) {
     serialize::<Binary>(ex, rv)
@@ -443,7 +452,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___unserialize(ex: Ex, _rv: *mut
     unserialize::<Binary>(ex, Binary::from_hash)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(ex: Ex, rv: *mut sys::zval) {
-    *rv = new(ce().binary, Binary::default());
+    zval::write(rv, new(ce().binary, Binary::default()));
     let (mut ht, mut t): (*mut sys::HashTable, *mut sys::zval) = (null_mut(), null_mut());
     if sys::zend_parse_parameters(call::num_args(ex), c"hO".as_ptr(), &mut ht, &mut t, ce().vectortype) != 0 {
         return;
@@ -552,7 +561,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getVectorType(ex: Ex, rv: *mut 
     }
     let c = vector_case(t);
     (*c).gc.refcount += 1;
-    *rv = zval::obj(c);
+    zval::write(rv, zval::obj(c));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_toArray(ex: Ex, rv: *mut sys::zval) {
     if !call::none(ex) {
@@ -564,7 +573,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_toArray(ex: Ex, rv: *mut sys::z
         return;
     }
     if let Some(v) = b.vector_array() {
-        *rv = v;
+        zval::write(rv, v);
     }
 }
 
@@ -655,7 +664,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___toString(ex: Ex, rv: *mut 
         s.push(b'/');
         s.extend_from_slice(&oid::to_hex(&d.id));
         s.push(b']');
-        *rv = zval::string(&s);
+        zval::write(rv, zval::string(&s));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___set_state(ex: Ex, rv: *mut sys::zval) {
@@ -673,7 +682,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer_jsonSerialize(ex: Ex, rv: *m
     hash::sym_update(inner, b"$id", zval::arr(o));
     let ht = hash::new(1);
     hash::sym_update(ht, b"$dbPointer", zval::arr(inner));
-    *rv = zval::arr(ht);
+    zval::write(rv, zval::arr(ht));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___serialize(ex: Ex, rv: *mut sys::zval) {
     serialize::<DBPointer>(ex, rv)
@@ -759,14 +768,14 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___set_state(ex: Ex, rv: *mu
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(this::<Decimal128>(ex).dec.to_string().as_bytes());
+        zval::write(rv, zval::string(this::<Decimal128>(ex).dec.to_string().as_bytes()));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let ht = hash::new(1);
         str_prop(ht, b"$numberDecimal", this::<Decimal128>(ex).dec.to_string().as_bytes());
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___serialize(ex: Ex, rv: *mut sys::zval) {
@@ -873,10 +882,10 @@ const IS_BOOL: i32 = 18;
 unsafe extern "C" fn int64_cast(o: *mut sys::zend_object, rv: *mut sys::zval, t: i32) -> sys::zend_result {
     let v = obj::data::<Int64>(o).v;
     match t as u32 {
-        sys::IS_DOUBLE => *rv = zval::double(v as f64),
-        sys::IS_LONG => *rv = zval::long(v),
-        _ if t == IS_NUMBER => *rv = zval::long(v),
-        _ if t == IS_BOOL => *rv = zval::bool(v != 0),
+        sys::IS_DOUBLE => zval::write(rv, zval::double(v as f64)),
+        sys::IS_LONG => zval::write(rv, zval::long(v)),
+        _ if t == IS_NUMBER => zval::write(rv, zval::long(v)),
+        _ if t == IS_BOOL => zval::write(rv, zval::bool(v != 0)),
         _ => return sys::zend_std_cast_object_tostring(o, rv, t),
     }
     0
@@ -905,7 +914,7 @@ unsafe fn int64_operand(z: *mut sys::zval) -> Option<i64> {
 unsafe fn int64_op_ex(op: u8, result: *mut sys::zval, a: *mut sys::zval, b: *mut sys::zval) -> sys::zend_result {
     const FAIL: sys::zend_result = -1;
     let Some(v1) = int64_operand(a) else { return FAIL };
-    let res = |v: i64| *result = new_int64(v);
+    let res = |v: i64| zval::write(result, new_int64(v));
     if op as u32 == sys::ZEND_BW_NOT {
         res(!v1);
         return 0;
@@ -916,7 +925,7 @@ unsafe fn int64_op_ex(op: u8, result: *mut sys::zval, a: *mut sys::zval, b: *mut
         sys::ZEND_ADD => {
             let r = v1.wrapping_add(v2);
             if (v1 & SIGN) != (r & SIGN) && (v1 & SIGN) == (v2 & SIGN) {
-                *result = zval::double(v1 as f64 + v2 as f64);
+                zval::write(result, zval::double(v1 as f64 + v2 as f64));
             } else {
                 res(r);
             }
@@ -924,14 +933,14 @@ unsafe fn int64_op_ex(op: u8, result: *mut sys::zval, a: *mut sys::zval, b: *mut
         sys::ZEND_SUB => {
             let r = v1.wrapping_sub(v2);
             if (v1 & SIGN) != (r & SIGN) && (v1 & SIGN) != (v2 & SIGN) {
-                *result = zval::double(v1 as f64 - v2 as f64);
+                zval::write(result, zval::double(v1 as f64 - v2 as f64));
             } else {
                 res(r);
             }
         }
         sys::ZEND_MUL => match v1.checked_mul(v2) {
             Some(r) => res(r),
-            None => *result = zval::double(v1 as f64 * v2 as f64),
+            None => zval::write(result, zval::double(v1 as f64 * v2 as f64)),
         },
         sys::ZEND_DIV => {
             if v2 == 0 {
@@ -939,7 +948,7 @@ unsafe fn int64_op_ex(op: u8, result: *mut sys::zval, a: *mut sys::zval, b: *mut
                 return FAIL;
             }
             if (v1 == i64::MIN && v2 == -1) || v1 % v2 != 0 {
-                *result = zval::double(v1 as f64 / v2 as f64);
+                zval::write(result, zval::double(v1 as f64 / v2 as f64));
             } else {
                 res(v1 / v2);
             }
@@ -1034,7 +1043,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___construct(ex: Ex, _rv: *mut sy
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(this::<Int64>(ex).v.to_string().as_bytes());
+        zval::write(rv, zval::string(this::<Int64>(ex).v.to_string().as_bytes()));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___set_state(ex: Ex, rv: *mut sys::zval) {
@@ -1044,7 +1053,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Int64_jsonSerialize(ex: Ex, rv: *mut s
     if call::none(ex) {
         let ht = hash::new(1);
         str_prop(ht, b"$numberLong", this::<Int64>(ex).v.to_string().as_bytes());
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___serialize(ex: Ex, rv: *mut sys::zval) {
@@ -1152,8 +1161,7 @@ pub unsafe fn new_javascript(code: &[u8], scope: Option<&[u8]>, depth: usize) ->
     if let Some(s) = scope {
         let map = TypeMap::default();
         let st = State { nesting_depth: depth, ..State::new(&map) };
-        let mut z = decode::to_zval(s, &st)?;
-        zval::dtor(&mut z);
+        drop(decode::to_zval(s, &st)?);
     }
     Some(new(ce().javascript, Javascript { code: code.to_vec(), scope: scope.map(|s| s.to_vec()), init: true, props: Props::default(), retired: Default::default() }))
 }
@@ -1170,7 +1178,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___set_state(ex: Ex, rv: *mu
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(&this::<Javascript>(ex).code);
+        zval::write(rv, zval::string(&this::<Javascript>(ex).code));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_getCode(ex: Ex, rv: *mut sys::zval) {
@@ -1183,10 +1191,10 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_getScope(ex: Ex, rv: *mut s
     match &this::<Javascript>(ex).scope {
         Some(s) => {
             if let Some(z) = decode_scope(s) {
-                *rv = z;
+                zval::write(rv, z);
             }
         }
-        None => *rv = zval::null(),
+        None => zval::write(rv, zval::null()),
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
@@ -1196,7 +1204,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_jsonSerialize(ex: Ex, rv: *
     let j = this::<Javascript>(ex);
     let ht = hash::new(2);
     str_prop(ht, b"$code", &j.code);
-    *rv = zval::arr(ht);
+    zval::write(rv, zval::arr(ht));
     if let Some(s) = &j.scope {
         if let Some(z) = decode_scope(s) {
             hash::sym_update(ht, b"$scope", z);
@@ -1212,7 +1220,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___serialize(ex: Ex, rv: *mu
         hash::release(ht);
         return;
     }
-    *rv = zval::arr(ht);
+    zval::write(rv, zval::arr(ht));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___unserialize(ex: Ex, _rv: *mut sys::zval) {
     unserialize::<Javascript>(ex, Javascript::from_hash)
@@ -1250,19 +1258,19 @@ macro_rules! unit_class {
         }
         pub unsafe extern "C" fn $ss(ex: Ex, rv: *mut sys::zval) {
             if arg_array(ex).is_some() {
-                *rv = obj::new_zval(ce().$field);
+                zval::write(rv, obj::new_zval(ce().$field));
             }
         }
         pub unsafe extern "C" fn $js(ex: Ex, rv: *mut sys::zval) {
             if call::none(ex) {
                 let ht = hash::new(1);
                 hash::sym_update(ht, $jkey, $jval);
-                *rv = zval::arr(ht);
+                zval::write(rv, zval::arr(ht));
             }
         }
         pub unsafe extern "C" fn $ser(ex: Ex, rv: *mut sys::zval) {
             if call::none(ex) {
-                *rv = zval::arr(hash::new(0));
+                zval::write(rv, zval::arr(hash::new(0)));
             }
         }
         pub unsafe extern "C" fn $unser(ex: Ex, _rv: *mut sys::zval) {
@@ -1278,7 +1286,7 @@ unit_class!(Undefined, H_UNDEFINED, undefined, init_MongoDB_BSON_Undefined, zim_
 pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___construct(_ex: Ex, _rv: *mut sys::zval) {}
 pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(b"");
+        zval::write(rv, zval::string(b""));
     }
 }
 
@@ -1365,7 +1373,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___construct(ex: Ex, _rv: *mut
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId_getTimestamp(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let o = this::<ObjectId>(ex).oid;
-        *rv = zval::long(u32::from_be_bytes([o[0], o[1], o[2], o[3]]) as i64);
+        zval::write(rv, zval::long(u32::from_be_bytes([o[0], o[1], o[2], o[3]]) as i64));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___set_state(ex: Ex, rv: *mut sys::zval) {
@@ -1373,14 +1381,14 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___set_state(ex: Ex, rv: *mut 
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(&oid::to_hex(&this::<ObjectId>(ex).oid));
+        zval::write(rv, zval::string(&oid::to_hex(&this::<ObjectId>(ex).oid)));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let ht = hash::new(1);
         str_prop(ht, b"$oid", &oid::to_hex(&this::<ObjectId>(ex).oid));
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___serialize(ex: Ex, rv: *mut sys::zval) {
@@ -1483,12 +1491,12 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___construct(ex: Ex, _rv: *mut sy
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_getPattern(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(&this::<Regex>(ex).pattern);
+        zval::write(rv, zval::string(&this::<Regex>(ex).pattern));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_getFlags(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(&this::<Regex>(ex).flags);
+        zval::write(rv, zval::string(&this::<Regex>(ex).flags));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___set_state(ex: Ex, rv: *mut sys::zval) {
@@ -1501,7 +1509,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___toString(ex: Ex, rv: *mut sys:
         s.extend_from_slice(&r.pattern);
         s.push(b'/');
         s.extend_from_slice(&r.flags);
-        *rv = zval::string(&s);
+        zval::write(rv, zval::string(&s));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
@@ -1510,7 +1518,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_jsonSerialize(ex: Ex, rv: *mut s
         let ht = hash::new(2);
         hash::sym_update(ht, b"$regex", zval::string(&r.pattern));
         hash::sym_update(ht, b"$options", zval::string(&r.flags));
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___serialize(ex: Ex, rv: *mut sys::zval) {
@@ -1587,7 +1595,7 @@ pub unsafe fn new_symbol(s: &[u8]) -> sys::zval {
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___construct(_ex: Ex, _rv: *mut sys::zval) {}
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(&this::<Symbol>(ex).symbol);
+        zval::write(rv, zval::string(&this::<Symbol>(ex).symbol));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___set_state(ex: Ex, rv: *mut sys::zval) {
@@ -1597,7 +1605,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol_jsonSerialize(ex: Ex, rv: *mut 
     if call::none(ex) {
         let ht = hash::new(1);
         hash::sym_update(ht, b"$symbol", zval::string(&this::<Symbol>(ex).symbol));
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___serialize(ex: Ex, rv: *mut sys::zval) {
@@ -1723,12 +1731,12 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___construct(ex: Ex, _rv: *mu
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_getIncrement(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::long(this::<Timestamp>(ex).increment as i64);
+        zval::write(rv, zval::long(this::<Timestamp>(ex).increment as i64));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_getTimestamp(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::long(this::<Timestamp>(ex).timestamp as i64);
+        zval::write(rv, zval::long(this::<Timestamp>(ex).timestamp as i64));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___set_state(ex: Ex, rv: *mut sys::zval) {
@@ -1737,7 +1745,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___set_state(ex: Ex, rv: *mut
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let t = this::<Timestamp>(ex);
-        *rv = zval::string(format!("[{}:{}]", t.increment, t.timestamp).as_bytes());
+        zval::write(rv, zval::string(format!("[{}:{}]", t.increment, t.timestamp).as_bytes()));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
@@ -1748,7 +1756,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_jsonSerialize(ex: Ex, rv: *m
         hash::sym_update(inner, b"i", zval::long(t.increment as i64));
         let ht = hash::new(1);
         hash::sym_update(ht, b"$timestamp", zval::arr(inner));
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___serialize(ex: Ex, rv: *mut sys::zval) {
@@ -1865,7 +1873,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___set_state(ex: Ex, rv: *m
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(this::<UTCDateTime>(ex).ms.to_string().as_bytes());
+        zval::write(rv, zval::string(this::<UTCDateTime>(ex).ms.to_string().as_bytes()));
     }
 }
 unsafe fn to_php_date(ex: Ex, rv: *mut sys::zval, c: *mut sys::zend_class_entry) {
@@ -1897,7 +1905,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime_jsonSerialize(ex: Ex, rv: 
         str_prop(inner, b"$numberLong", this::<UTCDateTime>(ex).ms.to_string().as_bytes());
         let ht = hash::new(1);
         hash::sym_update(ht, b"$date", zval::arr(inner));
-        *rv = zval::arr(ht);
+        zval::write(rv, zval::arr(ht));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___serialize(ex: Ex, rv: *mut sys::zval) {

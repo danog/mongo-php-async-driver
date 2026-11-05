@@ -75,7 +75,6 @@ impl Enc {
                     let persist = obj::instanceof(oce, c.persistable);
                     if persist || !is_array(&mut data) {
                         if persist && !length_ok(class_name(oce).len(), &self.fp, "class name") {
-                            zval::dtor(&mut data);
                             return;
                         }
                         let p = w.begin(T_DOCUMENT, key);
@@ -89,7 +88,6 @@ impl Enc {
                         self.internal(&mut data, flags, w, None);
                         w.end(p);
                     }
-                    zval::dtor(&mut data);
                     return;
                 }
                 if obj::instanceof(oce, c.objectid) {
@@ -226,7 +224,8 @@ impl Enc {
     /// phongo_zval_to_bson_internal. `id_out`: receives the _id element (RETURN_ID).
     pub unsafe fn internal(&mut self, data: *mut sys::zval, mut flags: u32, w: &mut Writer, id_out: Option<&mut Option<Vec<u8>>>) {
         let c = ce();
-        let mut obj_data = zval::undef();
+        // bsonSerialize()'s result, when called (released when this returns)
+        let mut obj_data: sys::zval;
         let mut from_props = false;
         let mut skip_odm = false;
         let ht: *mut sys::HashTable;
@@ -243,7 +242,7 @@ impl Enc {
                             flags &= !ADD_ID;
                         }
                     }
-                    return self.done(flags, w, id_out, &mut obj_data);
+                    return self.done(flags, w, id_out);
                 }
                 if obj::instanceof(oce, c.packedarray) {
                     if self.fp.size == 0 && flags & ALLOW_ROOT_ARRAY == 0 {
@@ -251,14 +250,13 @@ impl Enc {
                         return;
                     }
                     copy_elements(&obj::data::<document::PackedArray>(o).0.bson, w);
-                    return self.done(flags, w, id_out, &mut obj_data);
+                    return self.done(flags, w, id_out);
                 }
                 if obj::instanceof(oce, c.serializable) {
                     let Some(d) = bson_serialize(data) else { return };
                     obj_data = d;
                     if obj::instanceof(oce, c.persistable) {
                         if !length_ok(class_name(oce).len(), &self.fp, "class name") {
-                            zval::dtor(&mut obj_data);
                             return;
                         }
                         w.binary(b"__pclass", 0x80, class_name(oce));
@@ -266,7 +264,6 @@ impl Enc {
                     }
                     if zval::is(&obj_data, sys::IS_OBJECT) && (obj::instanceof(zval::obj_ce(&obj_data), c.document) || obj::instanceof(zval::obj_ce(&obj_data), c.packedarray)) {
                         self.internal(&mut obj_data, flags, w, id_out);
-                        zval::dtor(&mut obj_data);
                         return;
                     }
                     ht = hash_of(&mut obj_data);
@@ -318,16 +315,13 @@ impl Enc {
                 true
             });
             if stop {
-                if !zval::is(&obj_data, sys::IS_UNDEF) {
-                    zval::dtor(&mut obj_data);
-                }
                 return;
             }
         }
-        self.done(flags, w, id_out, &mut obj_data)
+        self.done(flags, w, id_out);
     }
 
-    unsafe fn done(&mut self, flags: u32, w: &mut Writer, id_out: Option<&mut Option<Vec<u8>>>, obj_data: &mut sys::zval) {
+    unsafe fn done(&mut self, flags: u32, w: &mut Writer, id_out: Option<&mut Option<Vec<u8>>>) {
         if flags & ADD_ID != 0 {
             w.oid(b"_id", &oid::generate());
         }
@@ -343,9 +337,6 @@ impl Enc {
                     *out = Some(iw.finish());
                 }
             }
-        }
-        if !zval::is(obj_data, sys::IS_UNDEF) {
-            zval::dtor(obj_data);
         }
     }
 }
@@ -422,7 +413,7 @@ pub unsafe fn to_bson_value_doc(data: *mut sys::zval, key: &[u8]) -> Option<Vec<
             crate::zend::hash::str_update(ht, b"data", crate::zend::zval::copy(data));
             let mut wrapper = crate::zend::zval::arr(ht);
             let r = to_bson(&mut wrapper, NONE);
-            crate::zend::zval::dtor(&mut wrapper);
+            drop(wrapper);
             let r = r?;
             let mut it = Iter::new(&r)?;
             if !it.find(b"data") {
