@@ -12,6 +12,7 @@ pub mod query;
 pub mod readconcern;
 pub mod readpref;
 pub mod server;
+pub mod serverapi;
 pub mod session;
 pub mod writeconcern;
 pub mod writeresult;

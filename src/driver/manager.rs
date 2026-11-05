@@ -201,14 +201,33 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
     }
     let me = obj::data::<Manager>(call::this(ex));
     let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
+    // phongo checks the option after creating the client: a client error comes first
+    let api = super::serverapi::from_driver_options(driver_options);
     let make = || {
         let mut s = Settings::from_uri(&uri);
         s.metadata.driver_name = "ext-mongodb:PHP".into();
         s.metadata.driver_version = mongo_core::EXT_VERSION.into();
         s.metadata.platform = php_platform();
+        if let Ok(Some(a)) = &api {
+            s.hello.api_version = Some(a.version.clone());
+            s.hello.api_strict = a.strict;
+            s.hello.api_deprecation_errors = a.deprecation_errors;
+        }
         Client::new(uri, s)
     };
-    let r = if disable_persistence { make().map(|c| std::rc::Rc::new(std::cell::RefCell::new(c))) } else { super::persistent_client(&full, make) };
+    let r = match &api {
+        Err(msg) => {
+            if let Err(e) = make() {
+                throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message));
+            } else {
+                throw(E::InvalidArgument, msg.clone());
+            }
+            return;
+        }
+        Ok(_) if disable_persistence => make().map(|c| std::rc::Rc::new(std::cell::RefCell::new(c))),
+        // the persistent-client key covers the server API (phongo hashes all driver options)
+        Ok(a) => super::persistent_client(&format!("{full}\0{a:?}"), make),
+    };
     match r {
         Ok(c) => {
             super::apm::register_manager(call::this(ex), c.clone());

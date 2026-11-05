@@ -24,6 +24,15 @@ impl Clone for Props {
         Props(null_mut())
     }
 }
+impl Props {
+    /// The table, created (with room for `n`) on first use.
+    pub unsafe fn get_or_init(&mut self, n: u32) -> *mut sys::HashTable {
+        if self.0.is_null() {
+            self.0 = hash::new(n);
+        }
+        self.0
+    }
+}
 impl Drop for Props {
     fn drop(&mut self) {
         if !self.0.is_null() {
