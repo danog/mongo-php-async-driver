@@ -3,12 +3,15 @@
 
 #![allow(non_snake_case)]
 
+pub mod bulkwrite;
 pub mod command;
 pub mod cursor;
 pub mod manager;
 pub mod readpref;
 pub mod server;
+pub mod session;
 pub mod writeconcern;
+pub mod writeresult;
 
 use crate::zend::{call, class, sys, zval};
 use mongo_core::client::Client;
@@ -165,4 +168,103 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_CommandException_getResult
     let mut tmp = zval::undef();
     let z = sys::zend_read_property((*o).ce, o, c"resultDocument".as_ptr(), 14, true, &mut tmp);
     *rv = zval::copy(zval::deref(z));
+}
+
+/// zend_get_type_by_const(Z_TYPE_P(z))
+pub unsafe fn type_by_const(z: *const sys::zval) -> String {
+    let p = sys::zend_get_type_by_const(zval::type_of(z) as i32);
+    if p.is_null() {
+        return "unknown".into();
+    }
+    CStr::from_ptr(p).to_string_lossy().into_owned()
+}
+
+/// phongo_bson_value_to_zval_legacy: the value of the single element of `doc` (documents and
+/// arrays as stdClass / array).
+pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
+    let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
+    let mut z = to_zval(doc, &tm)?;
+    let mut r = None;
+    if zval::is(&z, sys::IS_ARRAY) {
+        crate::zend::hash::each(z.value.arr, true, |_, v| {
+            r = Some(zval::copy(v));
+            false
+        });
+    }
+    zval::dtor(&mut z);
+    r
+}
+
+/// phongo_parse_session: the "session" option (a MongoDB\Driver\Session of this client).
+pub unsafe fn parse_session(options: *mut sys::zval, client: &ClientRef) -> Result<Option<*mut sys::zval>, ()> {
+    if options.is_null() {
+        return Ok(None);
+    }
+    if !zval::is(options, sys::IS_ARRAY) {
+        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+        return Err(());
+    }
+    let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"session") else { return Ok(None) };
+    let z = zval::deref(z);
+    let ce = lookup(c"mongodb\\driver\\session");
+    if !zval::is(z, sys::IS_OBJECT) || !crate::zend::obj::instanceof((*(*z).value.obj).ce, ce) {
+        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected \"session\" option to be MongoDB\\Driver\\Session, {} given", zval::type_name(z)));
+        return Err(());
+    }
+    if !session_belongs_to(z, client) {
+        crate::bson::throw(crate::bson::E::InvalidArgument, "Cannot use Session started from a different Manager");
+        return Err(());
+    }
+    Ok(Some(z))
+}
+
+/// Whether the Session object `z` was started from `client`.
+unsafe fn session_belongs_to(z: *mut sys::zval, client: &ClientRef) -> bool {
+    session::of(z).client.as_ref().is_some_and(|c| Rc::ptr_eq(c, client))
+}
+
+/// The server a Session is pinned to (0: none).
+pub unsafe fn session_server_id(z: *mut sys::zval) -> u32 {
+    session::of(z).cs.as_ref().map_or(0, |c| c.borrow().pinned_server_id)
+}
+
+/// Runs `f` with the client session of the Session object `z`.
+pub unsafe fn with_session<R>(z: *mut sys::zval, f: impl FnOnce(&mut mongo_core::session::ClientSession) -> R) -> R {
+    let cs = session::of(z).cs.clone().unwrap_or_default();
+    let mut b = cs.borrow_mut();
+    f(&mut b)
+}
+
+/// phongo_parse_write_concern: the "writeConcern" option.
+pub unsafe fn parse_write_concern(options: *mut sys::zval) -> Result<Option<writeconcern::WriteConcern>, ()> {
+    if options.is_null() {
+        return Ok(None);
+    }
+    if !zval::is(options, sys::IS_ARRAY) {
+        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+        return Err(());
+    }
+    let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"writeConcern") else { return Ok(None) };
+    let z = zval::deref(z);
+    if !zval::is(z, sys::IS_OBJECT) || !crate::zend::obj::instanceof((*(*z).value.obj).ce, writeconcern::CE) {
+        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected \"writeConcern\" option to be MongoDB\\Driver\\WriteConcern, {} given", zval::type_name(z)));
+        return Err(());
+    }
+    Ok(Some(crate::zend::obj::data::<writeconcern::WriteConcern>((*z).value.obj).clone()))
+}
+
+/// phongo_split_namespace (after phongo_validate_namespace)
+pub unsafe fn split_namespace(ns: &[u8]) -> Option<(String, String)> {
+    if ns.contains(&0) {
+        crate::bson::throw(crate::bson::E::InvalidArgument, "Invalid namespace provided: namespaces may not contain a null byte");
+        return None;
+    }
+    let s = String::from_utf8_lossy(ns);
+    match s.split_once('.') {
+        Some((d, c)) => Some((d.to_owned(), c.to_owned())),
+        None => {
+            crate::bson::throw(crate::bson::E::InvalidArgument, format!("Invalid namespace provided: {s}"));
+            None
+        }
+    }
 }

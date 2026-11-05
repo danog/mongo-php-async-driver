@@ -52,6 +52,9 @@ pub mod code {
     pub const NAMESPACE_INVALID: u32 = 20;
     pub const NAMESPACE_INVALID_FILTER_TYPE: u32 = 21;
     pub const COMMAND_INVALID_ARG: u32 = 22;
+    pub const COLLECTION_INSERT_FAILED: u32 = 23;
+    pub const COLLECTION_UPDATE_FAILED: u32 = 24;
+    pub const COLLECTION_DELETE_FAILED: u32 = 25;
     pub const QUERY_COMMAND_NOT_FOUND: u32 = 59;
     pub const QUERY_NOT_TAILABLE: u32 = 13051;
     pub const SERVER_SELECTION_BAD_WIRE_VERSION: u32 = 13052;

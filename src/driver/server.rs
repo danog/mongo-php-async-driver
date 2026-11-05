@@ -161,3 +161,9 @@ exec!(zim_MongoDB_Driver_Server_executeCommand, super::manager::CmdType::Raw);
 exec!(zim_MongoDB_Driver_Server_executeReadCommand, super::manager::CmdType::Read);
 exec!(zim_MongoDB_Driver_Server_executeWriteCommand, super::manager::CmdType::Write);
 exec!(zim_MongoDB_Driver_Server_executeReadWriteCommand, super::manager::CmdType::ReadWrite);
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWrite(ex: Ex, rv: *mut sys::zval) {
+    let s = me(ex);
+    let Some(c) = s.client.clone() else { return };
+    super::manager::execute_bulk_write(ex, rv, c, Some(s.server_id));
+}

@@ -441,3 +441,93 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getWriteConcern(ex: Ex, rv: 
         *rv = super::writeconcern::new_writeconcern(wc);
     }
 }
+
+/// phongo_execute_bulk_write (Manager::executeBulkWrite selects a primary first; a Server
+/// passes its id).
+pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>) {
+    let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
+    let mut zbulk: *mut sys::zval = null_mut();
+    let mut options: *mut sys::zval = null_mut();
+    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zbulk, super::bulkwrite::CE, &mut options) != 0 {
+        return;
+    }
+    let ns = std::slice::from_raw_parts(p, l).to_vec();
+    let Ok(session) = super::parse_session(options, &client) else { return };
+    let server_id = match server_id {
+        Some(s) => s,
+        None => {
+            // phongo_manager_select_server(for_writes)
+            let pinned = session.map_or(0, |z| super::session_server_id(z));
+            if pinned > 0 {
+                pinned
+            } else {
+                match client.borrow_mut().select_server_id(OpType::Write, None, &[]) {
+                    Ok((s, _)) => s,
+                    Err(e) => {
+                        super::throw_error(&e, None);
+                        return;
+                    }
+                }
+            }
+        }
+    };
+    let bw = obj::data::<super::bulkwrite::BulkWrite>((*zbulk).value.obj);
+    if bw.executed {
+        throw(E::InvalidArgument, "BulkWrite objects may only be executed once and this instance has already been executed");
+        return;
+    }
+    let Some((db, coll)) = super::split_namespace(&ns) else { return };
+    let Ok(session) = super::parse_session(options, &client) else { return };
+    let Ok(wc_opt) = super::parse_write_concern(options) else { return };
+    let wc = wc_opt.clone().unwrap_or_else(|| super::writeconcern::WriteConcern::from_uri(&client.borrow().uri));
+    if session.is_some() && !wc.is_acknowledged() {
+        throw(E::InvalidArgument, "Cannot combine \"session\" option with an unacknowledged write concern");
+        return;
+    }
+    bw.database = Some(db.clone());
+    bw.collection = Some(coll.clone());
+    bw.bulk.server_id = server_id;
+    if let Some(z) = session {
+        bw.session = zval::copy(z);
+    }
+    if let Some(w) = &wc_opt {
+        bw.write_concern = Some(w.clone());
+    }
+    let (ok, reply, error) = {
+        let mut cl = client.borrow_mut();
+        match session {
+            Some(z) => super::with_session(z, |s| bw.bulk.execute(&mut cl, &db, &coll, &wc, Some(s))),
+            None => bw.bulk.execute(&mut cl, &db, &coll, &wc, None),
+        }
+    };
+    bw.executed = true;
+    let result = super::writeresult::new_writeresult(reply.clone(), client.clone(), bw.bulk.server_id, wc);
+    *rv = result;
+    if ok {
+        return;
+    }
+    use mongo_core::error::{code, domain};
+    if error.domain != domain::SERVER && error.domain != domain::WRITE_CONCERN {
+        super::throw_error(&error, Some(&reply));
+    }
+    if error.domain == domain::COMMAND && error.code == code::COMMAND_INVALID_ARG {
+        return;
+    }
+    let bwe = super::lookup(c"mongodb\\driver\\exception\\bulkwriteexception");
+    let ex_obj = if call::has_exception() {
+        let prev = (*std::ptr::addr_of_mut!(sys::executor_globals)).exception;
+        let name = crate::zend::class::name((*prev).ce);
+        let msg = format!("Bulk write failed due to previous {name}: {}", error.message);
+        super::throw_code(bwe, &msg, 0)
+    } else {
+        super::throw_code(bwe, &error.message, error.code as i64)
+    };
+    super::add_error_labels(ex_obj, &reply);
+    // phongo_add_exception_prop("writeResult")
+    super::update_prop(ex_obj, b"writeResult", rv);
+}
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeBulkWrite(ex: Ex, rv: *mut sys::zval) {
+    let Some(c) = client_of(ex) else { return };
+    execute_bulk_write(ex, rv, c, None);
+}

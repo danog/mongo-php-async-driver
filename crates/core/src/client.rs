@@ -76,6 +76,10 @@ pub struct Client {
     /// mongoc_client_t.generation: bumped by a reset (after a fork); cursors of an older
     /// generation neither advance nor kill their server cursor.
     pub generation: u32,
+    /// the server session pool
+    pub sessions: crate::session::Pool,
+    /// mongoc_cluster_t.operation_id
+    pub operation_id: i64,
 }
 
 /// The error libmongoc built without TLS gives for a URI that requests TLS (the transport is
@@ -108,7 +112,7 @@ impl Client {
             return Err(tls_unavailable());
         }
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), generation: 0 };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0 };
         c.reconcile_nodes();
         Ok(c)
     }
@@ -134,6 +138,8 @@ impl Client {
             self.td.clear_connection_pool(id, &sid);
         }
         self.generation = self.generation.wrapping_add(1);
+        // server sessions in use by the parent (mongoc_client_reset clears the pool)
+        self.sessions.clear();
     }
 
     /// Whether the client is in the process that created its connections.
@@ -380,11 +386,17 @@ impl Client {
     /// mongoc-cluster.c reports it ("Failed to send ..." for network errors, which also
     /// invalidate the server and drop its connection).
     pub fn run_command(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
+        Ok(self.run_command_payload(server_id, cmd_name, db, body, None, true)?.unwrap_or_default())
+    }
+
+    /// `run_command` with an optional document sequence; unacknowledged commands are sent with
+    /// moreToCome and yield no reply (None).
+    pub fn run_command_payload(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: Option<(&str, &[u8])>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
         self.check_fork();
         let socket_timeout = ms(self.settings.socket_timeout_ms);
         let conn = self.stream_for_server(server_id, true)?;
         let generation = conn.generation as u32;
-        match handshake::run_command(conn, body, socket_timeout) {
+        match handshake::run_msg(conn, body, payload, !acknowledged, socket_timeout) {
             Ok(r) => {
                 if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
                     n.last_used = monotonic_usec();
@@ -402,6 +414,11 @@ impl Client {
                 Err(err)
             }
         }
+    }
+
+    /// The connection-time description of `server_id` (else the topology's).
+    pub fn stream_description(&self, server_id: u32) -> Option<&ServerDescription> {
+        self.handshake_description(server_id).or_else(|| self.td.server(server_id))
     }
 
     /// _handle_network_error: SDAM error handling and disconnecting the node.

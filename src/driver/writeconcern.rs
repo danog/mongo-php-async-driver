@@ -3,74 +3,10 @@
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
 use crate::zend::{class, hash, obj, sys, zval};
-use mongo_core::uri::{W_DEFAULT, W_MAJORITY, W_TAG, W_UNACKNOWLEDGED};
+use mongo_core::uri::{W_DEFAULT, W_MAJORITY, W_UNACKNOWLEDGED};
 use std::ptr::{addr_of_mut, null_mut};
 
-/// mongoc_write_concern_t
-#[derive(Clone, Debug)]
-pub struct WriteConcern {
-    pub w: i32,
-    pub wtag: Option<Vec<u8>>,
-    pub wtimeout: i64,
-    /// None: MONGOC_WRITE_CONCERN_JOURNAL_DEFAULT
-    pub journal: Option<bool>,
-    pub is_default: bool,
-}
-
-impl Default for WriteConcern {
-    fn default() -> Self {
-        WriteConcern { w: W_DEFAULT, wtag: None, wtimeout: 0, journal: None, is_default: true }
-    }
-}
-
-impl WriteConcern {
-    fn set_w(&mut self, w: i32) {
-        self.w = w;
-        if w != W_DEFAULT {
-            self.is_default = false;
-        }
-    }
-    fn set_wtag(&mut self, t: &[u8]) {
-        self.wtag = Some(t.to_vec());
-        self.w = W_TAG;
-        self.is_default = false;
-    }
-    fn set_wtimeout(&mut self, v: i64) {
-        if v >= 0 {
-            self.wtimeout = v;
-            self.is_default = false;
-        }
-    }
-    fn set_journal(&mut self, j: bool) {
-        self.journal = Some(j);
-        self.is_default = false;
-    }
-    /// mongoc_write_concern_is_valid
-    fn is_valid(&self) -> bool {
-        !(self.journal == Some(true) && self.w == W_UNACKNOWLEDGED) && self.wtimeout >= 0
-    }
-    /// mongoc_write_concern_is_acknowledged
-    pub fn is_acknowledged(&self) -> bool {
-        self.w != W_UNACKNOWLEDGED || self.journal == Some(true)
-    }
-    /// The client's write concern (from the URI).
-    pub fn from_uri(u: &mongo_core::uri::Uri) -> Self {
-        let wc = &u.write_concern;
-        let mut r = WriteConcern::default();
-        if let Some(t) = &wc.wtag {
-            r.set_wtag(t.as_bytes());
-        } else {
-            r.set_w(wc.w);
-        }
-        if wc.wtimeout != 0 {
-            r.set_wtimeout(wc.wtimeout);
-        }
-        if let Some(j) = wc.journal {
-            r.set_journal(j);
-        }
-        r
-    }
-}
+pub use mongo_core::concern::WriteConcern;
 
 static mut H_WC: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
 pub static mut CE: *mut sys::zend_class_entry = null_mut();

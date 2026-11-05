@@ -386,3 +386,55 @@ pub unsafe fn to_bson_with_id(data: *mut sys::zval, flags: u32) -> Option<(Vec<u
 fn _unused(_: &Iter) -> bool {
     iter::is_empty(&[])
 }
+
+/// phongo_zval_to_bson_value: `data` as the single element `key` of a document (None if an
+/// exception was thrown).
+pub unsafe fn to_bson_value_doc(data: *mut sys::zval, key: &[u8]) -> Option<Vec<u8>> {
+    let data = crate::zend::zval::deref(data);
+    let mut w = Writer::with_capacity(32);
+    match crate::zend::zval::type_of(data) as u32 {
+        sys::IS_UNDEF | sys::IS_NULL => w.null(key),
+        sys::IS_FALSE => w.bool(key, false),
+        sys::IS_TRUE => w.bool(key, true),
+        sys::IS_LONG => {
+            let v = (*data).value.lval;
+            if v > i32::MAX as i64 || v < i32::MIN as i64 {
+                w.int64(key, v);
+            } else {
+                w.int32(key, v as i32);
+            }
+        }
+        sys::IS_DOUBLE => w.double(key, (*data).value.dval),
+        sys::IS_STRING => {
+            let s = crate::zend::zval::str_bytes(data);
+            if s.len() > MAX_LENGTH {
+                throw(E::UnexpectedValue, format!("Expected string to be <= {} bytes, {} given", MAX_LENGTH, s.len()));
+                return None;
+            }
+            if !mongo_core::bson::utf8::validate(s, true) {
+                throw(E::UnexpectedValue, "Detected invalid UTF-8 in string value");
+                return None;
+            }
+            w.utf8(key, s);
+        }
+        sys::IS_ARRAY | sys::IS_OBJECT => {
+            let ht = crate::zend::hash::new(1);
+            crate::zend::hash::str_update(ht, b"data", crate::zend::zval::copy(data));
+            let mut wrapper = crate::zend::zval::arr(ht);
+            let r = to_bson(&mut wrapper, NONE);
+            crate::zend::zval::dtor(&mut wrapper);
+            let r = r?;
+            let mut it = Iter::new(&r)?;
+            if !it.find(b"data") {
+                throw(E::UnexpectedValue, "Could not convert value to BSON");
+                return None;
+            }
+            w.element_from(Some(key), &it);
+        }
+        _ => {
+            throw(E::InvalidArgument, format!("Unsupported type {}", crate::zend::zval::type_name(data)));
+            return None;
+        }
+    }
+    Some(w.finish())
+}

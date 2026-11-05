@@ -8,7 +8,7 @@ thread_local! {
     static CTX: Cell<Option<(u32, [u8; 5], u32)>> = const { Cell::new(None) };
 }
 
-fn random_bytes(n: usize) -> Vec<u8> {
+pub fn random_bytes(n: usize) -> Vec<u8> {
     let mut v = vec![0u8; n];
     if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
         use std::io::Read;

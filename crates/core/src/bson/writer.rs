@@ -50,6 +50,18 @@ impl Writer {
         self.buf.len() == 4
     }
 
+    /// bson_concat: appends the elements of the finished document `doc`.
+    pub fn concat(&mut self, doc: &[u8]) {
+        if doc.len() > 5 {
+            self.buf.extend_from_slice(&doc[4..doc.len() - 1]);
+        }
+    }
+
+    /// Appends the elements of a finished document (alias of `concat`).
+    pub fn append_raw_elements(&mut self, doc: &[u8]) {
+        self.concat(doc)
+    }
+
     #[inline]
     fn head(&mut self, t: u8, key: &[u8]) {
         self.buf.push(t);

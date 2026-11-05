@@ -54,6 +54,16 @@ impl MsgBuilder {
         self.buf[at..at + 4].copy_from_slice(&n.to_le_bytes());
     }
 
+    /// Section kind 1 from already concatenated documents.
+    pub fn sequence_raw(&mut self, id: &str, docs: &[u8]) {
+        self.buf.push(1);
+        let n = (4 + id.len() + 1 + docs.len()) as i32;
+        self.buf.extend_from_slice(&n.to_le_bytes());
+        self.buf.extend_from_slice(id.as_bytes());
+        self.buf.push(0);
+        self.buf.extend_from_slice(docs);
+    }
+
     /// Patches messageLength and returns the message.
     pub fn finish(mut self) -> Vec<u8> {
         let n = self.buf.len() as i32;

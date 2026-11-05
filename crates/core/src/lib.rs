@@ -12,11 +12,15 @@ pub const LIBMONGOCRYPT_VERSION: &str = "1.21.1";
 
 pub mod bson;
 pub mod client;
+pub mod bulk;
 pub mod cmd;
+pub mod cmdparts;
+pub mod concern;
 pub mod error;
 pub mod handshake;
 pub mod net;
 pub mod sdam;
+pub mod session;
 pub mod topology;
 pub mod uri;
 pub mod wire;

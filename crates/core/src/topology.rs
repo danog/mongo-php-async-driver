@@ -864,7 +864,7 @@ fn find_topology_version(reply: &[u8]) -> Vec<u8> {
 }
 
 /// _mongoc_cluster_time_greater: compares the clusterTime timestamps.
-fn cluster_time_greater(new: &[u8], old: &[u8]) -> bool {
+pub fn cluster_time_greater(new: &[u8], old: &[u8]) -> bool {
     use crate::bson::iter::{Iter, Value};
     let ts = |d: &[u8]| -> Option<(u32, u32)> {
         let mut it = Iter::new(d)?;

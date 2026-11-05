@@ -113,12 +113,25 @@ pub fn next_request_id() -> i32 {
 
 /// Runs `body` on `conn` (blocking) and returns the reply's body document.
 pub fn run_command(conn: &mut Conn, body: &[u8], timeout: Option<Duration>) -> Result<Vec<u8>, NetError> {
-    let mut m = MsgBuilder::new(next_request_id(), 0);
+    Ok(run_msg(conn, body, None, false, timeout)?.unwrap_or_default())
+}
+
+/// Sends an OP_MSG (body + optional document sequence); with `more_to_come` no reply is
+/// read (unacknowledged writes) and None is returned.
+pub fn run_msg(conn: &mut Conn, body: &[u8], payload: Option<(&str, &[u8])>, more_to_come: bool, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, NetError> {
+    let mut m = MsgBuilder::new(next_request_id(), if more_to_come { wire::FLAG_MORE_TO_COME } else { 0 });
     m.body(body);
+    if let Some((id, docs)) = payload {
+        m.sequence_raw(id, docs);
+    }
     let msg = m.finish();
+    if more_to_come {
+        conn.send(&msg, timeout)?;
+        return Ok(None);
+    }
     let reply = conn.roundtrip(&msg, timeout)?;
     let r = wire::parse_reply(reply).map_err(NetError::Protocol)?;
-    Ok(r.body.to_vec())
+    Ok(Some(r.body.to_vec()))
 }
 
 /// Connects to `host:port` and runs the handshake; the server description it yields.
