@@ -9,3 +9,4 @@ pub mod gen;
 pub mod module;
 pub mod zend;
 pub mod bson;
+pub mod driver;

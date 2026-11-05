@@ -104,3 +104,30 @@ fn nonblocking_with_mio() {
     mongo_core::cmd::check_ok(rep.body).unwrap();
     r.disarm(&mut c).unwrap();
 }
+
+#[test]
+fn client_select_and_command() {
+    use mongo_core::client::{Client, Settings};
+    use mongo_core::topology::OpType;
+    use mongo_core::uri::Uri;
+    // an unreachable server: serverSelectionTryOnce error with the scanner's error
+    let uri = Uri::parse("mongodb://127.0.0.1:28099/?connectTimeoutMS=200").unwrap();
+    let s = Settings::from_uri(&uri);
+    let mut c = Client::new(uri, s);
+    let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
+    assert_eq!(e.message, "No suitable servers found (`serverSelectionTryOnce` set): [connection refused calling hello on '127.0.0.1:28099']");
+    // in cooldown right after: no rescan
+    let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
+    assert!(e.message.starts_with("No servers yet eligible for rescan"), "{}", e.message);
+    let Some((h, p)) = server() else { return };
+    let uri = Uri::parse(&format!("mongodb://{h}:{p}/")).unwrap();
+    let s = Settings::from_uri(&uri);
+    let mut c = Client::new(uri, s);
+    let (id, _) = c.select_server_id(OpType::Write, None, &[]).unwrap();
+    assert_eq!(c.td.server(id).unwrap().ty, ServerType::Standalone);
+    let mut w = Writer::with_capacity(32);
+    w.int32(b"ping", 1);
+    w.utf8(b"$db", b"admin");
+    let r = c.run_command(id, "ping", "admin", &w.finish()).unwrap();
+    assert!(matches!(get(&r, b"ok"), Some(Value::Double(f)) if f == 1.0));
+}
