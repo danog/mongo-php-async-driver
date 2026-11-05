@@ -4,19 +4,50 @@
 #   replset     mongodb://127.0.0.1:28011,127.0.0.1:28012,127.0.0.1:28013/?replicaSet=rs0
 #   sharded     mongodb://127.0.0.1:28030,127.0.0.1:28031 (2 mongos; config rs cfg 28020, shards sh1 28021, sh2 28022)
 # Env: MONGO_BIN (dir with mongod/mongos), TOPO_DATA (data dir), TOPO_PHP (a PHP with a mongodb extension, to initiate).
+#      TOPO_DOCKER=1 (default on macOS): every mongod/mongos runs in its own container (image TOPO_IMAGE,
+#      default mongo:8.0) on the host network, so the addresses are the same; containers are named
+#      mdrop-<name> and removed when stopped (data lives in the container).
 set -e
 BIN=${MONGO_BIN:-/zf/async/mongo/bin}
 DATA=${TOPO_DATA:-/zf/mdrop/data/topo}
 PHPI=${TOPO_PHP:-php8.4 -n -d extension=mongodb}
 H=127.0.0.1
+DOCKER=${TOPO_DOCKER:-$([ "$(uname)" = Darwin ] && echo 1 || echo 0)}
+IMAGE=${TOPO_IMAGE:-mongo:8.0}
 
+wait_port() { # port
+  for _ in $(seq 1 120); do nc -z $H "$1" 2>/dev/null && return 0; sleep 0.25; done
+  echo "port $1 not listening" >&2; return 1
+}
 mongod_start() { # name port extra...
   local name=$1 port=$2; shift 2
+  if [ "$DOCKER" = 1 ]; then
+    docker run -d --rm --name "mdrop-$name" --network host "$IMAGE" mongod --port "$port" --bind_ip $H \
+      --wiredTigerCacheSizeGB 0.5 --setParameter enableTestCommands=1 "$@" >/dev/null
+    wait_port "$port"
+    return
+  fi
   mkdir -p "$DATA/$name"
   "$BIN/mongod" --dbpath "$DATA/$name" --port "$port" --bind_ip $H --fork --logpath "$DATA/$name.log" \
     --wiredTigerCacheSizeGB 0.5 --setParameter enableTestCommands=1 "$@" >/dev/null
 }
-mongod_stop() { [ -d "$DATA/$1" ] && "$BIN/mongod" --dbpath "$DATA/$1" --shutdown >/dev/null 2>&1 || true; }
+mongos_start() { # port
+  if [ "$DOCKER" = 1 ]; then
+    docker run -d --rm --name "mdrop-mongos-$1" --network host "$IMAGE" mongos --configdb cfg/$H:28020 --port "$1" \
+      --bind_ip $H --setParameter enableTestCommands=1 >/dev/null
+    wait_port "$1"
+    return
+  fi
+  "$BIN/mongos" --configdb cfg/$H:28020 --port "$1" --bind_ip $H --fork --logpath "$DATA/mongos-$1.log" --setParameter enableTestCommands=1 >/dev/null
+}
+mongod_stop() {
+  if [ "$DOCKER" = 1 ]; then docker stop "mdrop-$1" >/dev/null 2>&1 || true; return; fi
+  [ -d "$DATA/$1" ] && "$BIN/mongod" --dbpath "$DATA/$1" --shutdown >/dev/null 2>&1 || true
+}
+mongos_stop() {
+  if [ "$DOCKER" = 1 ]; then docker stop "mdrop-mongos-$1" >/dev/null 2>&1 || true; return; fi
+  pkill -f "mongos --configdb cfg/$H:28020 --port $1" || true
+}
 initiate() { # port json
   $PHPI -r '$m = new MongoDB\Driver\Manager("mongodb://'$H:$1'/?directConnection=true");
     try { $m->executeCommand("admin", new MongoDB\Driver\Command(["replSetInitiate" => json_decode($argv[1])])); } catch (Exception $e) { if (strpos($e->getMessage(), "already") === false) throw $e; }
@@ -37,7 +68,7 @@ start() {
       mongod_start cfg 28020 --replSet cfg --configsvr; initiate 28020 '{"_id":"cfg","configsvr":true,"members":[{"_id":0,"host":"'$H':28020"}]}'
       mongod_start sh1 28021 --replSet sh1 --shardsvr; initiate 28021 "$(members sh1 28021)"
       mongod_start sh2 28022 --replSet sh2 --shardsvr; initiate 28022 "$(members sh2 28022)"
-      for p in 28030 28031; do "$BIN/mongos" --configdb cfg/$H:28020 --port $p --bind_ip $H --fork --logpath "$DATA/mongos-$p.log" --setParameter enableTestCommands=1 >/dev/null; done
+      for p in 28030 28031; do mongos_start $p; done
       $PHPI -r '$m = new MongoDB\Driver\Manager("mongodb://'$H':28030");
         foreach (["sh1/'$H':28021", "sh2/'$H':28022"] as $s) { try { $m->executeCommand("admin", new MongoDB\Driver\Command(["addShard" => $s])); } catch (Exception $e) { if (strpos($e->getMessage(), "already") === false) throw $e; } }' ;;
     all) start standalone; start replset; start sharded ;;
@@ -48,7 +79,7 @@ stop() {
     standalone) mongod_stop standalone ;;
     replset) for p in 28011 28012 28013; do mongod_stop rs0-$p; done ;;
     sharded)
-      for p in 28030 28031; do pkill -f "mongos --configdb cfg/$H:28020 --port $p" || true; done
+      for p in 28030 28031; do mongos_stop $p; done
       mongod_stop sh1; mongod_stop sh2; mongod_stop cfg ;;
     all) stop sharded; stop replset; stop standalone ;;
   esac
