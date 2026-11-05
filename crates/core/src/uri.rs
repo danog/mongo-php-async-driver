@@ -906,6 +906,19 @@ impl Uri {
     pub fn auth_source_option(&self) -> Option<&str> {
         self.credentials.str("authsource")
     }
+    /// mongoc_uri_get_auth_source
+    pub fn auth_source(&self) -> &str {
+        if let Some(s) = self.auth_source_option() {
+            return s;
+        }
+        let db = self.database.as_deref();
+        match self.auth_mechanism() {
+            None => db.unwrap_or("admin"),
+            Some(m) if m.eq_ignore_ascii_case("SCRAM-SHA-1") || m.eq_ignore_ascii_case("SCRAM-SHA-256") => db.unwrap_or("admin"),
+            Some(m) if m.eq_ignore_ascii_case("PLAIN") => db.unwrap_or("$external"),
+            Some(_) => "$external",
+        }
+    }
     pub fn mechanism_properties(&self) -> Option<&Vec<(String, String)>> {
         match self.credentials.get("authmechanismproperties") {
             Some(OptVal::Doc(d)) => Some(d),
