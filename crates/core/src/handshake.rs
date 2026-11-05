@@ -1,0 +1,135 @@
+//! The connection handshake (mongoc-handshake.c, mongoc-topology-scanner.c): the initial hello
+//! command with client metadata, and running it on a fresh connection.
+
+use std::time::{Duration, Instant};
+
+use crate::bson::writer::Writer;
+use crate::net::{Conn, NetError};
+use crate::sdam::ServerDescription;
+use crate::wire::{self, MsgBuilder};
+
+/// Driver metadata (mongoc_handshake_data_append: libmongoc's values, then the wrapping
+/// driver's, separated by " / ").
+#[derive(Clone, Debug, Default)]
+pub struct Metadata {
+    pub appname: Option<String>,
+    /// e.g. "ext-mongodb:PHP"
+    pub driver_name: String,
+    pub driver_version: String,
+    /// e.g. "PHP 8.4.13"
+    pub platform: String,
+}
+
+/// What the hello asks for besides the metadata.
+#[derive(Clone, Debug, Default)]
+pub struct HelloOpts {
+    /// serverApi declared: use `hello` (else legacy `isMaster` with helloOk)
+    pub api_version: Option<String>,
+    pub api_strict: Option<bool>,
+    pub api_deprecation_errors: Option<bool>,
+    pub load_balanced: bool,
+    pub compressors: Vec<String>,
+    /// "db.user" for saslSupportedMechs
+    pub sasl_user: Option<String>,
+}
+
+fn os_type() -> &'static str {
+    match std::env::consts::OS {
+        "linux" => "Linux",
+        "macos" => "Darwin",
+        "windows" => "Windows",
+        "freebsd" => "FreeBSD",
+        o => o,
+    }
+}
+
+/// The initial hello command body (with $db), as mongoc builds it for a handshake.
+pub fn hello_command(md: &Metadata, o: &HelloOpts, hello_ok_known: bool) -> Vec<u8> {
+    let mut w = Writer::with_capacity(512);
+    if o.api_version.is_some() || o.load_balanced || hello_ok_known {
+        w.int32(b"hello", 1);
+    } else {
+        w.int32(b"isMaster", 1);
+    }
+    w.bool(b"helloOk", true);
+    let c = w.begin(3, b"client");
+    if let Some(a) = &md.appname {
+        let a0 = w.begin(3, b"application");
+        w.utf8(b"name", a.as_bytes());
+        w.end(a0);
+    }
+    let d = w.begin(3, b"driver");
+    let name = if md.driver_name.is_empty() { "mongoc".to_owned() } else { format!("mongoc / {}", md.driver_name) };
+    let version = if md.driver_version.is_empty() { crate::LIBMONGOC_VERSION.to_owned() } else { format!("{} / {}", crate::LIBMONGOC_VERSION, md.driver_version) };
+    w.utf8(b"name", name.as_bytes());
+    w.utf8(b"version", version.as_bytes());
+    w.end(d);
+    let os = w.begin(3, b"os");
+    w.utf8(b"type", os_type().as_bytes());
+    w.utf8(b"architecture", std::env::consts::ARCH.as_bytes());
+    w.end(os);
+    if !md.platform.is_empty() {
+        w.utf8(b"platform", md.platform.as_bytes());
+    }
+    w.end(c);
+    if o.load_balanced {
+        w.bool(b"loadBalanced", true);
+    }
+    if !o.compressors.is_empty() {
+        let a = w.begin(4, b"compression");
+        for (i, c) in o.compressors.iter().enumerate() {
+            w.utf8(i.to_string().as_bytes(), c.as_bytes());
+        }
+        w.end(a);
+    }
+    if let Some(u) = &o.sasl_user {
+        w.utf8(b"saslSupportedMechs", u.as_bytes());
+    }
+    if let Some(v) = &o.api_version {
+        w.utf8(b"apiVersion", v.as_bytes());
+        if let Some(s) = o.api_strict {
+            w.bool(b"apiStrict", s);
+        }
+        if let Some(d) = o.api_deprecation_errors {
+            w.bool(b"apiDeprecationErrors", d);
+        }
+    }
+    w.utf8(b"$db", b"admin");
+    w.finish()
+}
+
+thread_local! {
+    static REQUEST_ID: std::cell::Cell<i32> = const { std::cell::Cell::new(1) };
+}
+
+/// The next OP_MSG requestID (process-wide on this thread, never 0).
+pub fn next_request_id() -> i32 {
+    REQUEST_ID.with(|r| {
+        let v = r.get();
+        r.set(v.checked_add(1).unwrap_or(1));
+        v
+    })
+}
+
+/// Runs `body` on `conn` (blocking) and returns the reply's body document.
+pub fn run_command(conn: &mut Conn, body: &[u8], timeout: Option<Duration>) -> Result<Vec<u8>, NetError> {
+    let mut m = MsgBuilder::new(next_request_id(), 0);
+    m.body(body);
+    let msg = m.finish();
+    let reply = conn.roundtrip(&msg, timeout)?;
+    let r = wire::parse_reply(reply).map_err(NetError::Protocol)?;
+    Ok(r.body.to_vec())
+}
+
+/// Connects to `host:port` and runs the handshake; the server description it yields.
+pub fn connect_and_hello(host: &str, port: u16, connect_timeout: Option<Duration>, md: &Metadata, o: &HelloOpts) -> Result<(Conn, ServerDescription), NetError> {
+    let mut conn = Conn::connect(host, port, connect_timeout)?;
+    let body = hello_command(md, o, false);
+    let t0 = Instant::now();
+    // the handshake is bounded by connectTimeoutMS, as libmongoc does
+    let reply = run_command(&mut conn, &body, connect_timeout)?;
+    let rtt = t0.elapsed().as_millis() as i64;
+    let sd = ServerDescription::from_hello(&conn.addr, &reply, rtt);
+    conn.set_max_message_size(sd.max_msg_size.max(crate::net::DEFAULT_MAX_MSG_SIZE as i32) as usize);
+    Ok((conn, sd))
+}

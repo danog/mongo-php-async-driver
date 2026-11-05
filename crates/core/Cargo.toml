@@ -8,5 +8,8 @@ description = "PHP-independent parts of mongo-php-async-driver: BSON, wire proto
 
 [dependencies]
 
+[target.'cfg(unix)'.dependencies]
+mio = { version = "1", features = ["os-poll", "os-ext"] }
+
 [dev-dependencies]
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

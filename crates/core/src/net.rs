@@ -1,0 +1,324 @@
+//! Connections and the I/O-backend layer.
+//!
+//! A [`Conn`] is one TCP connection to a server. It is used in one of two modes:
+//! - blocking (the default, what ext-mongodb does): `send`/`recv` block the PHP thread, bounded
+//!   by the socket timeout (SO_SNDTIMEO/SO_RCVTIMEO, set only when the value changes);
+//! - non-blocking, driven by an event loop: `try_send`/`try_recv` make progress until the socket
+//!   would block, and a [`Reactor`] reports when to try again.
+//!
+//! [`Reactor`] is the I/O-backend layer: it watches connections for readiness and hands back the
+//! tokens of the ready ones. Backend 1 is [`MioReactor`] (one epoll/kqueue fd, which the PHP side
+//! watches with Revolt; Unix only). A per-socket backend for Windows (Revolt watchers on each
+//! connection socket, no threads) implements the same trait later.
+
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::{Duration, Instant};
+
+use crate::wire;
+
+/// The largest reply accepted before the server's maxMessageSizeBytes is known (libmongoc's
+/// default MONGOC_DEFAULT_MAX_MSG_SIZE, 48 MB).
+pub const DEFAULT_MAX_MSG_SIZE: usize = 48_000_000;
+
+#[derive(Debug)]
+pub enum NetError {
+    /// Name resolution failed or gave no address.
+    Resolve(String),
+    /// Connecting failed (refused, unreachable, timed out: see the io::Error).
+    Connect(io::Error),
+    /// A send or receive timed out.
+    Timeout,
+    /// The server closed the connection.
+    Closed,
+    Io(io::Error),
+    /// A malformed or oversized message.
+    Protocol(&'static str),
+}
+
+impl std::fmt::Display for NetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            NetError::Resolve(s) => write!(f, "{s}"),
+            NetError::Connect(e) | NetError::Io(e) => write!(f, "{e}"),
+            NetError::Timeout => write!(f, "socket timeout"),
+            NetError::Closed => write!(f, "connection closed"),
+            NetError::Protocol(s) => write!(f, "{s}"),
+        }
+    }
+}
+
+fn io_err(e: io::Error) -> NetError {
+    match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => NetError::Timeout,
+        io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => NetError::Closed,
+        _ => NetError::Io(e),
+    }
+}
+
+pub struct Conn {
+    stream: TcpStream,
+    /// The server address as the topology names it ("host:port").
+    pub addr: String,
+    /// The message being received (complete after `recv` / `try_recv` returned it).
+    rbuf: Vec<u8>,
+    max_msg: usize,
+    nonblocking: bool,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+    /// Pool generation at creation (CMAP).
+    pub generation: u64,
+    /// Registered with a reactor (backend-specific bookkeeping).
+    pub registered: bool,
+}
+
+/// Resolves `host:port` (all addresses, in resolver order, as libmongoc tries them).
+pub fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, NetError> {
+    let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs().map_err(|e| NetError::Resolve(e.to_string()))?.collect();
+    if addrs.is_empty() {
+        return Err(NetError::Resolve(format!("no address for {host}")));
+    }
+    Ok(addrs)
+}
+
+impl Conn {
+    /// Connects to the first address of `host:port` that accepts within `timeout` each
+    /// (connectTimeoutMS; None = the OS default).
+    pub fn connect(host: &str, port: u16, timeout: Option<Duration>) -> Result<Conn, NetError> {
+        let mut last = None;
+        for sa in resolve(host, port)? {
+            let r = match timeout {
+                Some(t) if !t.is_zero() => TcpStream::connect_timeout(&sa, t),
+                _ => TcpStream::connect(sa),
+            };
+            match r {
+                Ok(stream) => {
+                    stream.set_nodelay(true).map_err(NetError::Connect)?;
+                    let addr = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
+                    return Ok(Conn {
+                        stream,
+                        addr,
+                        rbuf: Vec::new(),
+                        max_msg: DEFAULT_MAX_MSG_SIZE,
+                        nonblocking: false,
+                        read_timeout: None,
+                        write_timeout: None,
+                        generation: 0,
+                        registered: false,
+                    });
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(NetError::Connect(last.unwrap()))
+    }
+
+    /// The server's maxMessageSizeBytes, once the handshake told it.
+    pub fn set_max_message_size(&mut self, n: usize) {
+        self.max_msg = n;
+    }
+
+    #[cfg(unix)]
+    pub fn raw_fd(&self) -> std::os::fd::RawFd {
+        std::os::fd::AsRawFd::as_raw_fd(&self.stream)
+    }
+
+    fn set_blocking(&mut self) -> Result<(), NetError> {
+        if self.nonblocking {
+            self.stream.set_nonblocking(false).map_err(NetError::Io)?;
+            self.nonblocking = false;
+        }
+        Ok(())
+    }
+
+    /// Switches to non-blocking mode (for `try_send` / `try_recv`).
+    pub fn set_nonblocking(&mut self) -> Result<(), NetError> {
+        if !self.nonblocking {
+            self.stream.set_nonblocking(true).map_err(NetError::Io)?;
+            self.nonblocking = true;
+        }
+        Ok(())
+    }
+
+    /// Sends `msg`, blocking up to `timeout` (None or zero: no limit) per write.
+    pub fn send(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<(), NetError> {
+        self.set_blocking()?;
+        let t = timeout.filter(|t| !t.is_zero());
+        if t != self.write_timeout {
+            self.stream.set_write_timeout(t).map_err(NetError::Io)?;
+            self.write_timeout = t;
+        }
+        self.stream.write_all(msg).map_err(io_err)
+    }
+
+    /// Receives one message, blocking up to `timeout` (None or zero: no limit) per read.
+    pub fn recv(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
+        self.set_blocking()?;
+        let t = timeout.filter(|t| !t.is_zero());
+        if t != self.read_timeout {
+            self.stream.set_read_timeout(t).map_err(NetError::Io)?;
+            self.read_timeout = t;
+        }
+        self.rbuf.clear();
+        while !self.read_some()? {}
+        Ok(&self.rbuf)
+    }
+
+    /// Sends `msg` and receives the reply (blocking).
+    pub fn roundtrip(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<&[u8], NetError> {
+        self.send(msg, timeout)?;
+        self.recv(timeout)
+    }
+
+    /// Non-blocking send of `data[*off..]`; Ok(true) once all of it is sent.
+    pub fn try_send(&mut self, data: &[u8], off: &mut usize) -> Result<bool, NetError> {
+        while *off < data.len() {
+            match self.stream.write(&data[*off..]) {
+                Ok(0) => return Err(NetError::Closed),
+                Ok(n) => *off += n,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(io_err(e)),
+            }
+        }
+        Ok(true)
+    }
+
+    /// Starts receiving a new message (non-blocking mode).
+    pub fn begin_recv(&mut self) {
+        self.rbuf.clear();
+    }
+
+    /// Non-blocking receive; Ok(true) once the message is complete (see `message`).
+    pub fn try_recv(&mut self) -> Result<bool, NetError> {
+        match self.read_some() {
+            Err(NetError::Timeout) if self.nonblocking => Ok(false),
+            r => r,
+        }
+    }
+
+    /// The last complete message.
+    pub fn message(&self) -> &[u8] {
+        &self.rbuf
+    }
+
+    /// Reads into rbuf (one read call at most once the header is known); true when complete.
+    fn read_some(&mut self) -> Result<bool, NetError> {
+        loop {
+            let have = self.rbuf.len();
+            // the first read takes up to 16 KiB (most replies), then exactly what is missing:
+            // one reply per request, so bytes beyond it are a protocol error
+            let want = if have >= 4 {
+                let n = wire::message_length(&self.rbuf);
+                if n < wire::HEADER_LEN as i32 || n as usize > self.max_msg {
+                    return Err(NetError::Protocol("invalid reply length"));
+                }
+                let n = n as usize;
+                if have >= n {
+                    if have > n {
+                        return Err(NetError::Protocol("trailing bytes after reply"));
+                    }
+                    return Ok(true);
+                }
+                n - have
+            } else {
+                16 * 1024 - have
+            };
+            self.rbuf.reserve(want);
+            let spare = self.rbuf.spare_capacity_mut();
+            // SAFETY: read() only writes into the buffer; we expose the uninitialized tail as
+            // bytes and set the length to what was written.
+            let dst = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, want) };
+            match self.stream.read(dst) {
+                Ok(0) => return Err(NetError::Closed),
+                Ok(n) => unsafe { self.rbuf.set_len(have + n) },
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(io_err(e)),
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ I/O backends
+
+/// A reactor token: the driver's identifier of an in-flight operation.
+pub type Token = usize;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Interest {
+    Read,
+    Write,
+}
+
+/// The I/O-backend layer: readiness notification for non-blocking connections.
+pub trait Reactor {
+    /// Watches `conn` for `interest`, reporting `token` once (re-arm after each report).
+    fn arm(&mut self, conn: &mut Conn, token: Token, interest: Interest) -> io::Result<()>;
+    /// Stops watching `conn` (before it is closed or used in blocking mode elsewhere).
+    fn disarm(&mut self, conn: &mut Conn) -> io::Result<()>;
+    /// Appends the tokens that became ready to `ready`, waiting up to `timeout` (None: forever).
+    fn poll(&mut self, timeout: Option<Duration>, ready: &mut Vec<Token>) -> io::Result<()>;
+}
+
+/// Backend 1: mio's poll (epoll on Linux, kqueue on macOS/BSD). Its fd is what PHP watches.
+#[cfg(unix)]
+pub struct MioReactor {
+    poll: mio::Poll,
+    events: mio::Events,
+}
+
+#[cfg(unix)]
+impl MioReactor {
+    pub fn new() -> io::Result<Self> {
+        Ok(MioReactor { poll: mio::Poll::new()?, events: mio::Events::with_capacity(64) })
+    }
+
+    /// The epoll/kqueue fd: readable when an armed connection is ready.
+    pub fn raw_fd(&self) -> std::os::fd::RawFd {
+        std::os::fd::AsRawFd::as_raw_fd(&self.poll)
+    }
+}
+
+#[cfg(unix)]
+impl Reactor for MioReactor {
+    fn arm(&mut self, conn: &mut Conn, token: Token, interest: Interest) -> io::Result<()> {
+        let fd = conn.raw_fd();
+        let i = match interest {
+            Interest::Read => mio::Interest::READABLE,
+            Interest::Write => mio::Interest::WRITABLE,
+        };
+        let reg = self.poll.registry();
+        if conn.registered {
+            reg.reregister(&mut mio::unix::SourceFd(&fd), mio::Token(token), i)
+        } else {
+            reg.register(&mut mio::unix::SourceFd(&fd), mio::Token(token), i)?;
+            conn.registered = true;
+            Ok(())
+        }
+    }
+
+    fn disarm(&mut self, conn: &mut Conn) -> io::Result<()> {
+        if conn.registered {
+            conn.registered = false;
+            let fd = conn.raw_fd();
+            return self.poll.registry().deregister(&mut mio::unix::SourceFd(&fd));
+        }
+        Ok(())
+    }
+
+    fn poll(&mut self, timeout: Option<Duration>, ready: &mut Vec<Token>) -> io::Result<()> {
+        loop {
+            match self.poll.poll(&mut self.events, timeout) {
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                r => r?,
+            }
+            ready.extend(self.events.iter().map(|e| e.token().0));
+            return Ok(());
+        }
+    }
+}
+
+/// Time left until `deadline` (zero once passed).
+pub fn remaining(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now())
+}

@@ -11,3 +11,8 @@ pub const LIBMONGOC_VERSION: &str = "2.5.8";
 pub const LIBMONGOCRYPT_VERSION: &str = "1.21.1";
 
 pub mod bson;
+pub mod cmd;
+pub mod handshake;
+pub mod net;
+pub mod sdam;
+pub mod wire;
