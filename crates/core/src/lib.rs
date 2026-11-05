@@ -15,4 +15,5 @@ pub mod cmd;
 pub mod handshake;
 pub mod net;
 pub mod sdam;
+pub mod uri;
 pub mod wire;
