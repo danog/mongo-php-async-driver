@@ -111,3 +111,23 @@ pub fn check_ok_no_wce(doc: &[u8]) -> Result<(), CmdError> {
 pub fn error_message(doc: &[u8]) -> String {
     parse_error_reply(doc, false).map(|e| e.1).unwrap_or_else(|| "Unknown command error".to_owned())
 }
+
+impl CmdError {
+    /// The bson_error_t libmongoc builds with error API version 2 (domain SERVER).
+    pub fn into_error(self) -> crate::error::Error {
+        let category = if self.server { crate::error::Category::Server } else { crate::error::Category::Driver };
+        crate::error::Error { domain: crate::error::domain::SERVER, code: self.code, category, message: self.message }
+    }
+}
+
+/// mongoc_error_has_label: `reply.errorLabels` contains `label`.
+pub fn has_label(reply: &[u8], label: &str) -> bool {
+    let Some(Value::Array(a)) = find(reply, b"errorLabels") else { return false };
+    let Some(mut it) = Iter::new(a) else { return false };
+    while it.next() {
+        if matches!(it.value(), Value::Utf8(s) if s == label.as_bytes()) {
+            return true;
+        }
+    }
+    false
+}
