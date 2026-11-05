@@ -710,6 +710,7 @@ impl Iterator {
 pub unsafe fn init_MongoDB_BSON_Iterator(c: *mut sys::zend_class_entry) {
     ce_mut().iterator = c;
     setup::<Iterator>(c);
+    (*c).get_iterator = Some(get_iterator);
 }
 
 /// phongo_iterator_init
@@ -736,52 +737,76 @@ unsafe fn iterator_init(rv: *mut sys::zval, zbson: *mut sys::zval) {
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator___construct(_ex: Ex, _rv: *mut sys::zval) {}
+impl Iterator {
+    /// phongo_iterator_get_current: null after throwing.
+    unsafe fn get_current(&mut self) -> *mut sys::zval {
+        if !self.valid {
+            throw(E::Logic, "Cannot call current() on an exhausted iterator");
+            return null_mut();
+        }
+        if zval::is(&self.current, sys::IS_UNDEF) {
+            match decode::value_to_zval(self.it.as_ref().unwrap().value()) {
+                Some(z) => self.current = z,
+                None => return null_mut(),
+            }
+        }
+        &mut self.current
+    }
+    /// phongo_iterator_key: false after throwing.
+    unsafe fn get_key(&self, rv: *mut sys::zval) -> bool {
+        if !self.valid {
+            throw(E::Logic, "Cannot call key() on an exhausted iterator");
+            return false;
+        }
+        if self.is_array {
+            *rv = zval::long(self.key);
+            return true;
+        }
+        let it = self.it.as_ref().unwrap();
+        let k = it.key();
+        if !mongo_core::bson::utf8::validate(k, false) {
+            throw(E::UnexpectedValue, format!("Detected corrupt BSON data at offset {}", it.off));
+            return false;
+        }
+        *rv = zval::string(k);
+        true
+    }
+    /// phongo_iterator_next
+    fn advance(&mut self) {
+        self.valid = self.it.as_mut().unwrap().next();
+        self.key += 1;
+        self.free_current();
+    }
+    /// phongo_iterator_rewind
+    unsafe fn rewind(&mut self) {
+        if self.key == 0 {
+            return;
+        }
+        self.free_current();
+        let mut it = Iter::new(self.data()).unwrap();
+        self.key = 0;
+        self.valid = it.next();
+        self.it = Some(it);
+    }
+}
+
 pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_current(ex: Ex, rv: *mut sys::zval) {
-    if !call::none(ex) {
-        return;
-    }
-    let me = this::<Iterator>(ex);
-    if !me.valid {
-        throw(E::Logic, "Cannot call current() on an exhausted iterator");
-        return;
-    }
-    if zval::is(&me.current, sys::IS_UNDEF) {
-        match decode::value_to_zval(me.it.as_ref().unwrap().value()) {
-            Some(z) => me.current = z,
-            None => return,
+    if call::none(ex) {
+        let c = this::<Iterator>(ex).get_current();
+        if !c.is_null() {
+            *rv = zval::copy(c);
         }
     }
-    *rv = zval::copy(&me.current);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_key(ex: Ex, rv: *mut sys::zval) {
-    if !call::none(ex) {
-        return;
+    if call::none(ex) {
+        this::<Iterator>(ex).get_key(rv);
     }
-    let me = this::<Iterator>(ex);
-    if !me.valid {
-        throw(E::Logic, "Cannot call key() on an exhausted iterator");
-        return;
-    }
-    if me.is_array {
-        *rv = zval::long(me.key);
-        return;
-    }
-    let it = me.it.as_ref().unwrap();
-    let k = it.key();
-    if !mongo_core::bson::utf8::validate(k, false) {
-        throw(E::UnexpectedValue, format!("Detected corrupt BSON data at offset {}", it.off));
-        return;
-    }
-    *rv = zval::string(k);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_next(ex: Ex, _rv: *mut sys::zval) {
-    if !call::none(ex) {
-        return;
+    if call::none(ex) {
+        this::<Iterator>(ex).advance();
     }
-    let me = this::<Iterator>(ex);
-    me.valid = me.it.as_mut().unwrap().next();
-    me.key += 1;
-    me.free_current();
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_valid(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -789,16 +814,61 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_valid(ex: Ex, rv: *mut sys::z
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_rewind(ex: Ex, _rv: *mut sys::zval) {
-    if !call::none(ex) {
-        return;
+    if call::none(ex) {
+        this::<Iterator>(ex).rewind();
     }
-    let me = this::<Iterator>(ex);
-    if me.key == 0 {
-        return;
+}
+
+// zend_object_iterator for foreach (phongo_iterator_it_funcs)
+unsafe fn it_intern<'a>(iter: *mut sys::zend_object_iterator) -> &'a mut Iterator {
+    obj::data::<Iterator>((*iter).data.value.obj)
+}
+unsafe extern "C" fn it_dtor(iter: *mut sys::zend_object_iterator) {
+    zval::dtor(&mut (*iter).data);
+}
+unsafe extern "C" fn it_valid(iter: *mut sys::zend_object_iterator) -> sys::zend_result {
+    if it_intern(iter).valid {
+        0
+    } else {
+        -1
     }
-    me.free_current();
-    let mut it = Iter::new(me.data()).unwrap();
-    me.key = 0;
-    me.valid = it.next();
-    me.it = Some(it);
+}
+unsafe extern "C" fn it_get_current_data(iter: *mut sys::zend_object_iterator) -> *mut sys::zval {
+    it_intern(iter).get_current()
+}
+unsafe extern "C" fn it_get_current_key(iter: *mut sys::zend_object_iterator, key: *mut sys::zval) {
+    it_intern(iter).get_key(key);
+}
+unsafe extern "C" fn it_move_forward(iter: *mut sys::zend_object_iterator) {
+    it_intern(iter).advance();
+}
+unsafe extern "C" fn it_rewind(iter: *mut sys::zend_object_iterator) {
+    it_intern(iter).rewind();
+}
+unsafe extern "C" fn it_get_gc(iter: *mut sys::zend_object_iterator, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+    *n = 1;
+    *table = &mut (*iter).data;
+    null_mut()
+}
+static IT_FUNCS: sys::zend_object_iterator_funcs = sys::zend_object_iterator_funcs {
+    dtor: Some(it_dtor),
+    valid: Some(it_valid),
+    get_current_data: Some(it_get_current_data),
+    get_current_key: Some(it_get_current_key),
+    move_forward: Some(it_move_forward),
+    rewind: Some(it_rewind),
+    invalidate_current: None,
+    get_gc: Some(it_get_gc),
+};
+/// phongo_iterator_get_iterator
+unsafe extern "C" fn get_iterator(_ce: *mut sys::zend_class_entry, object: *mut sys::zval, by_ref: i32) -> *mut sys::zend_object_iterator {
+    if by_ref != 0 {
+        throw(E::Logic, "An iterator cannot be used with foreach by reference");
+        return null_mut();
+    }
+    let iter = sys::_emalloc(std::mem::size_of::<sys::zend_object_iterator>()) as *mut sys::zend_object_iterator;
+    sys::zend_iterator_init(iter);
+    (*iter).data = zval::copy(object);
+    (*iter).funcs = &IT_FUNCS;
+    iter
 }

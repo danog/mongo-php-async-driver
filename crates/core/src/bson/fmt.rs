@@ -12,34 +12,155 @@ pub fn fmt_g(v: f64, prec: usize) -> String {
     if v == 0.0 {
         return if v.is_sign_negative() { "-0".into() } else { "0".into() };
     }
-    // exact decimal digits, correctly rounded to p significant digits
-    let e = format!("{:.*e}", p - 1, v);
-    let (mant, exp) = e.split_once('e').unwrap();
-    let x: i32 = exp.parse().unwrap();
-    if x < -4 || x >= p as i32 {
-        let mut m = mant.to_string();
-        if m.contains('.') {
-            while m.ends_with('0') {
-                m.pop();
-            }
-            if m.ends_with('.') {
-                m.pop();
-            }
+    // exact decimal digits, correctly rounded to p significant digits (one conversion; the
+    // fixed notation is laid out from the same digits, as printf's %g does)
+    let neg = v.is_sign_negative();
+    let mut buf = [0u8; 48];
+    let (mut digits, x): (Vec<u8>, i32) = match exact_digits(v.abs(), p, &mut buf) {
+        Some((n, x)) => (buf[..n].to_vec(), x),
+        None => {
+            let e = format!("{:.*e}", p - 1, v.abs());
+            let (mant, exp) = e.split_once('e').unwrap();
+            (mant.bytes().filter(|&c| c != b'.').collect(), exp.parse().unwrap())
         }
-        format!("{}e{}{:02}", m, if x < 0 { '-' } else { '+' }, x.abs())
-    } else {
-        let decimals = (p as i32 - 1 - x) as usize;
-        let mut f = format!("{:.*}", decimals, v);
-        if f.contains('.') {
-            while f.ends_with('0') {
-                f.pop();
-            }
-            if f.ends_with('.') {
-                f.pop();
-            }
-        }
-        f
+    };
+    while digits.len() > 1 && digits.last() == Some(&b'0') {
+        digits.pop();
     }
+    let mut out = String::with_capacity(p + 8);
+    if neg {
+        out.push('-');
+    }
+    let ds = |d: &[u8]| unsafe { std::str::from_utf8_unchecked(d) }.to_owned();
+    if x < -4 || x >= p as i32 {
+        out.push(digits[0] as char);
+        if digits.len() > 1 {
+            out.push('.');
+            out.push_str(&ds(&digits[1..]));
+        }
+        out.push('e');
+        out.push(if x < 0 { '-' } else { '+' });
+        if x.abs() < 10 {
+            out.push('0');
+        }
+        out.push_str(&x.abs().to_string());
+    } else if x >= 0 {
+        let int_len = x as usize + 1;
+        if digits.len() <= int_len {
+            out.push_str(&ds(&digits));
+            for _ in digits.len()..int_len {
+                out.push('0');
+            }
+        } else {
+            out.push_str(&ds(&digits[..int_len]));
+            out.push('.');
+            out.push_str(&ds(&digits[int_len..]));
+        }
+    } else {
+        out.push_str("0.");
+        for _ in 0..(-x - 1) {
+            out.push('0');
+        }
+        out.push_str(&ds(&digits));
+    }
+    out
+}
+
+/// The first `p` significant decimal digits of the finite, positive `v`, correctly rounded
+/// (ties to even, as printf), and the decimal exponent of the first one. Exact u128 arithmetic
+/// for v = m * 2^e with -124 <= e <= 74 (None otherwise: the caller falls back to core::fmt).
+fn exact_digits(v: f64, p: usize, out: &mut [u8; 48]) -> Option<(usize, i32)> {
+    if p > 40 {
+        return None;
+    }
+    let bits = v.to_bits();
+    let be = ((bits >> 52) & 0x7ff) as i32;
+    let mut m = bits & ((1u64 << 52) - 1);
+    let e = if be == 0 {
+        -1074
+    } else {
+        m |= 1u64 << 52;
+        be - 1075
+    };
+    if !(-124..=74).contains(&e) || m == 0 {
+        return None;
+    }
+    let (ip, mut frac, k): (u128, u128, u32) = if e >= 0 {
+        ((m as u128) << e, 0, 0)
+    } else {
+        let k = (-e) as u32;
+        ((m as u128) >> k, (m as u128) & ((1u128 << k) - 1), k)
+    };
+    let mask = if k == 0 { 0 } else { (1u128 << k) - 1 };
+    // integer part digits
+    let mut idig = [0u8; 40];
+    let mut ni = 0;
+    let mut t = ip;
+    while t > 0 {
+        idig[ni] = (t % 10) as u8;
+        t /= 10;
+        ni += 1;
+    }
+    idig[..ni].reverse();
+    let mut n = 0; // significant digits produced
+    let mut exp10: i32 = ni as i32 - 1;
+    let mut next = 0u8; // the digit after the p-th
+    let mut sticky = false;
+    let mut have_next = false;
+    for &d in &idig[..ni] {
+        if n < p {
+            out[n] = d;
+            n += 1;
+        } else if !have_next {
+            next = d;
+            have_next = true;
+        } else if d != 0 {
+            sticky = true;
+        }
+    }
+    while !have_next && (frac != 0 || n < p) {
+        frac *= 10;
+        let d = (frac >> k) as u8;
+        frac &= mask;
+        if n == 0 && d == 0 {
+            exp10 -= 1;
+            continue;
+        }
+        if n < p {
+            out[n] = d;
+            n += 1;
+        } else {
+            next = d;
+            have_next = true;
+        }
+    }
+    if frac != 0 {
+        sticky = true;
+    }
+    if next > 5 || (next == 5 && (sticky || out[n - 1] % 2 == 1)) {
+        let mut i = n;
+        loop {
+            if i == 0 {
+                out[0] = 1;
+                for d in &mut out[1..n] {
+                    *d = 0;
+                }
+                exp10 += 1;
+                break;
+            }
+            i -= 1;
+            if out[i] == 9 {
+                out[i] = 0;
+            } else {
+                out[i] += 1;
+                break;
+            }
+        }
+    }
+    for d in &mut out[..n] {
+        *d += b'0';
+    }
+    Some((n, exp10))
 }
 
 /// Days since 1970-01-01 -> (year, month, day) (proleptic Gregorian).
