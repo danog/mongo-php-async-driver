@@ -2,6 +2,8 @@
 
 use super::command::Command;
 use super::cursor::Cursor;
+use super::readpref::ReadPreference;
+use mongo_core::uri::ReadMode;
 use super::ClientRef;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
@@ -229,15 +231,27 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
         throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
         return;
     }
+    // phongo_parse_read_preference (raw and read commands)
+    let mut rp: Option<ReadPreference> = None;
+    if !options.is_null() && matches!(ty, CmdType::Raw | CmdType::Read) {
+        match parse_read_preference((*options).value.arr) {
+            Ok(r) => rp = r,
+            Err(()) => return,
+        }
+    }
+    if rp.is_none() && ty == CmdType::Read {
+        rp = Some(client_read_preference(&client.borrow().uri));
+    }
     let db = String::from_utf8_lossy(std::slice::from_raw_parts(p, l)).into_owned();
     let cmd = obj::data::<Command>((*command).value.obj);
     let Some(bson) = cmd.bson.clone() else { return };
     let (batch_size, max_await) = (cmd.batch_size, cmd.max_await_time_ms);
     let optype = if matches!(ty, CmdType::Write | CmdType::ReadWrite) { OpType::Write } else { OpType::Read };
-    let sid = match server_id {
-        Some(s) => s,
-        None => match client.borrow_mut().select_server_id(optype, None, &[]) {
-            Ok((s, _)) => s,
+    let prefs = rp.as_ref().map(ReadPreference::prefs);
+    let (sid, must_use_primary) = match server_id {
+        Some(s) => (s, false),
+        None => match client.borrow_mut().select_server_id(optype, if optype == OpType::Read { prefs.as_ref() } else { None }, &[]) {
+            Ok(s) => s,
             Err(e) => {
                 super::throw_error(&e, None);
                 return;
@@ -251,7 +265,25 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
             w.element_from(None, &it);
         }
     }
-    w.utf8(b"$db", db.as_bytes());
+    if !has_key(&bson, b"$db") {
+        w.utf8(b"$db", db.as_bytes());
+    }
+    // mongoc_cmd_parts_assemble: $readPreference for reads on non-standalone servers
+    if optype == OpType::Read {
+        let cl = client.borrow();
+        let sty = cl.td.server(sid).map(|s| s.ty);
+        let single_direct = cl.td.ty == mongo_core::topology::TopologyType::Single && sty != Some(mongo_core::sdam::ServerType::Mongos);
+        let mut eff = rp.clone().unwrap_or_default();
+        if eff.mode == ReadMode::Primary && single_direct {
+            eff = ReadPreference { mode: ReadMode::PrimaryPreferred, ..Default::default() };
+        }
+        let mode = if must_use_primary { ReadMode::Primary } else { eff.mode };
+        if mode != ReadMode::Primary && sty != Some(mongo_core::sdam::ServerType::Standalone) {
+            let d = w.begin(3, b"$readPreference");
+            eff.append_contents(&mut w, mode);
+            w.end(d);
+        }
+    }
     let body = w.finish();
     let name = super::command::name(&bson);
     let r = client.borrow_mut().run_command(sid, &name, &db, &body);
@@ -277,6 +309,34 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     c.batch_size = batch_size;
     c.max_await_time_ms = max_await;
     *rv = super::cursor::new_cursor(c);
+}
+
+fn has_key(doc: &[u8], k: &[u8]) -> bool {
+    mongo_core::bson::iter::Iter::new(doc).is_some_and(|mut it| it.find(k))
+}
+
+/// phongo_parse_read_preference
+unsafe fn parse_read_preference(options: *mut sys::HashTable) -> Result<Option<ReadPreference>, ()> {
+    let Some(z) = hash::find(options, b"readPreference") else { return Ok(None) };
+    let z = zval::deref(z);
+    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readpref::CE) {
+        throw(E::InvalidArgument, format!("Expected \"readPreference\" option to be MongoDB\\Driver\\ReadPreference, {} given", zval::type_name(z)));
+        return Err(());
+    }
+    Ok(Some(obj::data::<ReadPreference>((*z).value.obj).clone()))
+}
+
+/// The client's read preference (from the URI).
+pub fn client_read_preference(uri: &Uri) -> ReadPreference {
+    let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
+    for (i, set) in uri.read_tags.iter().enumerate() {
+        let d = w.begin(3, i.to_string().as_bytes());
+        for (k, v) in set {
+            w.utf8(k.as_bytes(), v.as_bytes());
+        }
+        w.end(d);
+    }
+    ReadPreference { mode: uri.read_mode, tags: w.finish(), max_staleness_seconds: uri.max_staleness_seconds as i64, hedge: None }
 }
 
 /// _mongoc_parse_wc_err
@@ -327,7 +387,16 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
         return;
     }
     let Some(c) = client_of(ex) else { return };
-    let r = c.borrow_mut().select_server_id(OpType::Read, None, &[]);
+    let rp = if rp.is_null() {
+        client_read_preference(&c.borrow().uri)
+    } else if zval::is(rp, sys::IS_OBJECT) && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE) {
+        obj::data::<ReadPreference>((*rp).value.obj).clone()
+    } else {
+        sys::zend_argument_type_error(1, c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(), sys::zend_zval_value_name(rp));
+        return;
+    };
+    let prefs = rp.prefs();
+    let r = c.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]);
     match r {
         Ok((id, _)) => *rv = super::server::new_server(c, id),
         Err(e) => super::throw_error(&e, None),
@@ -351,4 +420,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getServers(ex: Ex, rv: *mut 
 #[allow(dead_code)]
 fn _unused() -> *mut sys::zend_string {
     unsafe { zstr::new(b"") }
+}
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadPreference(ex: Ex, rv: *mut sys::zval) {
+    if !call::none(ex) {
+        return;
+    }
+    if let Some(c) = client_of(ex) {
+        let rp = client_read_preference(&c.borrow().uri);
+        *rv = super::readpref::new_readpreference(rp);
+    }
 }

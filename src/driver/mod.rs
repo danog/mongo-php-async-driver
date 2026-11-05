@@ -6,6 +6,7 @@
 pub mod command;
 pub mod cursor;
 pub mod manager;
+pub mod readpref;
 pub mod server;
 
 use crate::zend::{call, class, sys, zval};
