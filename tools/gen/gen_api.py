@@ -445,6 +445,10 @@ for r in order:
         else:
             raise Exception('constant %s::%s' % (c['name'], k))
     for p, pv in (j['properties'] or {}).items():
+        # zend_register_internal_enum declares an enum's name (and value) itself; declaring
+        # them again would leak the first property_info
+        if c['kind'] == 'enum' and p in ('name', 'value'):
+            continue
         cls, mask = prop_type(pv['type'])
         mods = []
         if pv['modifiers'] & 1: mods.append('sys::ZEND_ACC_PUBLIC')

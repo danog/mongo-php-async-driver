@@ -115,7 +115,7 @@ fn client_select_and_command() {
     let s = Settings::from_uri(&uri);
     let mut c = Client::new(uri, s).unwrap();
     let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
-    assert_eq!(e.message, "No suitable servers found (`serverSelectionTryOnce` set): [connection refused calling hello on '127.0.0.1:28099']");
+    assert_eq!(e.message, "No suitable servers found (`serverSelectionTryOnce` set): [connection refused calling hello on '127.0.0.1:28099']. Topology type: Single");
     // in cooldown right after: no rescan
     let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
     assert!(e.message.starts_with("No servers yet eligible for rescan"), "{}", e.message);

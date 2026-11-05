@@ -2000,7 +2000,6 @@ pub unsafe fn register_all() {
         crate::zend::class::enum_case(ce, c"Float32");
         crate::zend::class::enum_case(ce, c"Int8");
         crate::zend::class::enum_case(ce, c"PackedBit");
-        crate::zend::class::typed_property(ce, c"name", None, 64, sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_READONLY, crate::zend::class::Default::Undef);
         h::init_MongoDB_BSON_VectorType(ce);
     }
     // MongoDB\Driver\CursorInterface

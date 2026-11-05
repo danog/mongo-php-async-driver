@@ -241,43 +241,43 @@ pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_ServerChangedEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPreviousDescription(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPreviousDescription") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPreviousDescription;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_ServerClosedEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getPort;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getPort;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getPreviousDescription(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getPreviousDescription") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getPreviousDescription;
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId;
 pub use crate::driver::apm::zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId") }
+pub use crate::driver::apm_sdam::zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId;
 pub use crate::driver::query::zim_MongoDB_Driver_Query___construct;
 pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern___construct;
 pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern___set_state;
@@ -445,12 +445,12 @@ pub unsafe fn init_MongoDB_Driver_Monitoring_CommandStartedEvent(_ce: *mut sys::
 pub unsafe fn init_MongoDB_Driver_Monitoring_CommandSucceededEvent(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_LogSubscriber(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_SDAMSubscriber(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_Driver_Monitoring_ServerChangedEvent(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::apm_sdam::init_MongoDB_Driver_Monitoring_ServerChangedEvent;
 pub unsafe fn init_MongoDB_Driver_Monitoring_ServerClosedEvent(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_ServerOpeningEvent(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_Driver_Monitoring_TopologyChangedEvent(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::apm_sdam::init_MongoDB_Driver_Monitoring_TopologyChangedEvent;
 pub unsafe fn init_MongoDB_Driver_Monitoring_TopologyClosedEvent(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Monitoring_TopologyOpeningEvent(_ce: *mut sys::zend_class_entry) {}

@@ -132,7 +132,7 @@ unsafe fn subscribers_for(c: &ClientRef, of: *mut sys::zend_class_entry) -> Vec<
 /// Dispatches the client's queued events.
 pub unsafe fn flush(c: &ClientRef) {
     let events = match c.try_borrow_mut() {
-        Ok(mut cl) if !cl.events.is_empty() => std::mem::take(&mut cl.events),
+        Ok(mut cl) if !cl.td.events.0.is_empty() => cl.take_events(),
         _ => return,
     };
     for ev in events {
@@ -141,13 +141,18 @@ pub unsafe fn flush(c: &ClientRef) {
 }
 
 unsafe fn dispatch(c: &ClientRef, ev: Event) {
-    let sub_ce = ce(c"mongodb\\driver\\monitoring\\commandsubscriber");
+    let is_command = matches!(ev, Event::CommandStarted { .. } | Event::CommandSucceeded { .. } | Event::CommandFailed { .. });
+    let sub_ce = if is_command { ce(c"mongodb\\driver\\monitoring\\commandsubscriber") } else { ce(c"mongodb\\driver\\monitoring\\sdamsubscriber") };
     let subs = subscribers_for(c, sub_ce);
     if !subs.is_empty() {
         let (method, z): (&CStr, sys::zval) = match ev {
             Event::CommandStarted { info, command } => (c"commandStarted", started_event(&info, &command)),
             Event::CommandSucceeded { info, duration_us, reply } => (c"commandSucceeded", succeeded_event(&info, duration_us, &reply)),
             Event::CommandFailed { info, duration_us, error, reply } => (c"commandFailed", failed_event(&info, duration_us, &error, &reply)),
+            ev => match super::apm_sdam::event_object(ev) {
+                Some(x) => x,
+                None => return,
+            },
         };
         for s in &subs {
             if call::has_exception() {
@@ -161,7 +166,7 @@ unsafe fn dispatch(c: &ClientRef, ev: Event) {
 }
 
 /// zend_update_property (which copies `v`; our reference is released here).
-unsafe fn set(o: *mut sys::zend_object, name: &[u8], mut v: sys::zval) {
+pub(crate) unsafe fn set(o: *mut sys::zend_object, name: &[u8], mut v: sys::zval) {
     sys::zend_update_property((*o).ce, o, name.as_ptr() as *const _, name.len(), &mut v);
 }
 
@@ -178,10 +183,6 @@ unsafe fn ids(o: *mut sys::zend_object, info: &CommandInfo) {
     set(o, b"requestId", zval::string(info.request_id.to_string().as_bytes()));
     set(o, b"serviceId", info.service_id.as_ref().map_or_else(zval::null, |s| crate::bson::types::new_objectid(s)));
     set(o, b"serverConnectionId", if info.server_connection_id == -1 { zval::null() } else { zval::long(info.server_connection_id) });
-}
-
-unsafe fn doc(d: &[u8]) -> sys::zval {
-    super::to_zval_no_odm(d).unwrap_or_else(zval::null)
 }
 
 /// phongo_commandstartedevent_init
@@ -209,12 +210,9 @@ unsafe fn succeeded_event(info: &CommandInfo, duration_us: i64, reply: &[u8]) ->
     z
 }
 
-/// phongo_commandfailedevent_init
-unsafe fn failed_event(info: &CommandInfo, duration_us: i64, error: &mongo_core::error::Error, reply: &[u8]) -> sys::zval {
-    let z = obj::new_zval(ce(c"mongodb\\driver\\monitoring\\commandfailedevent"));
-    let o = z.value.obj;
-    common(o, info);
-    set(o, b"duration", zval::long(duration_us));
+/// The exception object of a failed command or heartbeat: the class for the error's
+/// domain/code with message and code set (no constructor call, as phongo).
+pub(crate) unsafe fn error_object(error: &mongo_core::error::Error) -> sys::zval {
     let ze = obj::new_zval(super::exception_ce(error));
     let eo = ze.value.obj;
     let exc = sys::zend_ce_exception;
@@ -222,8 +220,16 @@ unsafe fn failed_event(info: &CommandInfo, duration_us: i64, error: &mongo_core:
     sys::zend_update_property(exc, eo, c"message".as_ptr(), 7, &mut m);
     let mut code = zval::long(error.code as i64);
     sys::zend_update_property(exc, eo, c"code".as_ptr(), 4, &mut code);
-    set(o, b"error", ze);
-    let _ = doc;
+    ze
+}
+
+/// phongo_commandfailedevent_init
+unsafe fn failed_event(info: &CommandInfo, duration_us: i64, error: &mongo_core::error::Error, reply: &[u8]) -> sys::zval {
+    let z = obj::new_zval(ce(c"mongodb\\driver\\monitoring\\commandfailedevent"));
+    let o = z.value.obj;
+    common(o, info);
+    set(o, b"duration", zval::long(duration_us));
+    set(o, b"error", error_object(error));
     if let Some(d) = super::to_zval_no_odm(reply) {
         set(o, b"reply", d);
     }
@@ -232,7 +238,7 @@ unsafe fn failed_event(info: &CommandInfo, duration_us: i64, error: &mongo_core:
 }
 
 /// PHONGO_PROPERTY_GETTER
-unsafe fn prop(ex: Ex, rv: *mut sys::zval, name: &CStr) {
+pub(crate) unsafe fn prop(ex: Ex, rv: *mut sys::zval, name: &CStr) {
     if !call::none(ex) {
         return;
     }

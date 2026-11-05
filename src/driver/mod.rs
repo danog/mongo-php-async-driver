@@ -4,6 +4,7 @@
 #![allow(non_snake_case)]
 
 pub mod apm;
+pub mod apm_sdam;
 pub mod bulkwrite;
 pub mod command;
 pub mod cursor;
@@ -58,7 +59,7 @@ pub fn destroy_persistent_clients() {
             cl.check_fork();
             cl.end_pooled_sessions();
             // no subscribers are left to notify
-            cl.events.clear();
+            cl.clear_events();
         }
     }
 }

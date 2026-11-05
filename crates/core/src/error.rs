@@ -110,6 +110,16 @@ impl Error {
     pub fn server(domain: u32, code: u32, message: impl Into<String>) -> Self {
         Error { domain, code, category: Category::Server, message: message.into() }
     }
+    /// _mongoc_error_append: `s` appended within bson_error_t's 504-byte message buffer.
+    pub fn append(&mut self, s: &str) {
+        const MAX: usize = 503;
+        for c in s.chars() {
+            if self.message.len() + c.len_utf8() > MAX {
+                break;
+            }
+            self.message.push(c);
+        }
+    }
     /// _mongoc_error_is_server
     pub fn is_server(&self) -> bool {
         self.domain == domain::SERVER || self.domain == domain::WRITE_CONCERN

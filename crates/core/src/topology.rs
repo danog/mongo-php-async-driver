@@ -100,6 +100,12 @@ pub struct TopologyDescription {
     pub rand_seed: u32,
     /// Warnings libmongoc would log (e.g. "Last server removed from topology").
     pub warnings: Vec<String>,
+    pub topology_id: [u8; 12],
+    /// whether the TopologyOpening event was sent (topology "opening" is deferred until server
+    /// selection)
+    pub opened: bool,
+    /// APM events not yet handed to the subscribers (copies start empty)
+    pub events: crate::apm::Queue,
 }
 
 /// _mongoc_rand_simple (rand_r)
@@ -135,6 +141,9 @@ impl TopologyDescription {
             max_hosts: 0,
             rand_seed: (crate::sdam::monotonic_usec() as u32) ^ std::process::id(),
             warnings: Vec::new(),
+            topology_id: ZERO_OID,
+            opened: false,
+            events: Default::default(),
         }
     }
 
@@ -168,6 +177,7 @@ impl TopologyDescription {
     pub fn from_uri(uri: &crate::uri::Uri, single_threaded: bool) -> Self {
         let hb_default = if single_threaded { HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED } else { HEARTBEAT_FREQUENCY_MS_MULTI_THREADED };
         let mut td = Self::new(Self::initial_type(uri), uri.get_int32("heartbeatfrequencyms", hb_default as i32) as i64);
+        td.topology_id = crate::bson::oid::generate();
         td.set_name = uri.options.str("replicaset").map(str::to_owned);
         td.max_hosts = uri.get_int32("srvmaxhosts", 0);
         let hosts: Vec<String> = uri.hosts.iter().map(|h| h.host_and_port.clone()).collect();
@@ -192,13 +202,72 @@ impl TopologyDescription {
         v
     }
 
-    /// _mongoc_topology_description_monitor_opening: a load-balanced topology's one server
-    /// becomes a LoadBalancer.
+    /// _mongoc_topology_description_monitor_opening: TopologyOpening, the initial
+    /// TopologyChanged and ServerOpening for every server, once; a load-balanced topology's one
+    /// server becomes a LoadBalancer.
     pub fn open(&mut self) {
+        if self.opened {
+            return;
+        }
+        self.opened = true;
+        let topology_id = self.topology_id;
+        self.events.push(|| crate::apm::Event::TopologyOpening { topology_id });
+        // the initial "previous" description: Unknown, no servers, zero id
+        let initial = TopologyDescription::new(TopologyType::Unknown, self.heartbeat_msec);
+        self.monitor_changed(Box::new(initial));
+        let ids: Vec<u32> = self.servers.iter().map(|s| s.id).collect();
+        for id in ids {
+            self.monitor_server_opening(id);
+        }
         if self.ty == TopologyType::LoadBalanced {
-            for s in &mut self.servers {
+            let previous = Box::new(self.clone());
+            if let Some(s) = self.servers.first_mut() {
+                let prev_sd = s.clone();
                 s.ty = ServerType::LoadBalancer;
+                let new_sd = s.clone();
+                self.events.push(|| crate::apm::Event::ServerChanged { topology_id, addr: new_sd.addr.clone(), previous: Box::new(prev_sd), new: Box::new(new_sd) });
             }
+            self.monitor_changed(previous);
+        }
+    }
+
+    /// _mongoc_topology_description_monitor_changed
+    fn monitor_changed(&mut self, previous: Box<TopologyDescription>) {
+        let topology_id = self.topology_id;
+        if crate::apm::enabled() {
+            let new = Box::new(self.clone());
+            self.events.push(|| crate::apm::Event::TopologyChanged { topology_id, previous, new });
+        }
+    }
+
+    /// _mongoc_topology_description_monitor_server_opening: deferred until the topology opened.
+    fn monitor_server_opening(&mut self, id: u32) {
+        let (opened, topology_id) = (self.opened, self.topology_id);
+        let Some(sd) = self.servers.iter_mut().find(|s| s.id == id) else { return };
+        if opened && !sd.opened {
+            sd.opened = true;
+            let addr = sd.addr.clone();
+            self.events.push(|| crate::apm::Event::ServerOpening { topology_id, addr });
+        }
+    }
+
+    /// The monitoring part of mongoc_topology_destroy: ServerClosed for every opened server,
+    /// TopologyChanged to an empty Unknown description, then TopologyClosed if opened.
+    pub fn close(&mut self) {
+        let topology_id = self.topology_id;
+        let opened: Vec<String> = self.servers.iter().filter(|s| s.opened).map(|s| s.addr.clone()).collect();
+        for addr in opened {
+            self.events.push(|| crate::apm::Event::ServerClosed { topology_id, addr });
+        }
+        if crate::apm::enabled() {
+            let mut next = TopologyDescription::new(TopologyType::Unknown, self.heartbeat_msec);
+            next.topology_id = topology_id;
+            next.opened = self.opened;
+            let previous = Box::new(self.clone());
+            self.events.push(|| crate::apm::Event::TopologyChanged { topology_id, previous, new: Box::new(next) });
+        }
+        if self.opened {
+            self.events.push(|| crate::apm::Event::TopologyClosed { topology_id });
         }
     }
 
@@ -223,11 +292,16 @@ impl TopologyDescription {
         self.max_server_id += 1;
         let id = self.max_server_id;
         self.servers.push(ServerDescription::new(id, address));
+        self.monitor_server_opening(id);
         id
     }
 
     /// _mongoc_topology_description_remove_server
     fn remove_server(&mut self, id: u32) {
+        if let Some(sd) = self.server(id).filter(|s| s.opened) {
+            let (topology_id, addr) = (self.topology_id, sd.addr.clone());
+            self.events.push(|| crate::apm::Event::ServerClosed { topology_id, addr });
+        }
         self.servers.retain(|s| s.id != id);
         if self.servers.is_empty() {
             self.warnings.push("Last server removed from topology".into());
@@ -461,6 +535,9 @@ impl TopologyDescription {
     pub fn handle_hello(&mut self, id: u32, reply: Option<&[u8]>, rtt_ms: i64, error: Option<&Error>) {
         let set_name = self.set_name.clone();
         let ty = self.ty;
+        let monitoring = crate::apm::enabled();
+        let prev_td = (monitoring && self.server(id).is_some()).then(|| Box::new(self.clone()));
+        let topology_id = self.topology_id;
         let Some(sd) = self.server_mut(id) else { return };
         if let Some(r) = reply {
             if let Some(tv) = crate::bson::iter::Iter::new(r).and_then(|mut it| if it.find(b"topologyVersion") { if let crate::bson::iter::Value::Document(d) = it.value() { Some(d.to_vec()) } else { None } } else { None }) {
@@ -469,6 +546,7 @@ impl TopologyDescription {
                 }
             }
         }
+        let prev_sd = monitoring.then(|| sd.clone());
         sd.handle_hello(reply, rtt_ms, error);
         if let (Some(want), TopologyType::Single) = (&set_name, ty) {
             let err = match &sd.set_name {
@@ -481,10 +559,19 @@ impl TopologyDescription {
             }
         }
         let sd = sd.clone();
+        // phongo always registers the callbacks: the change is computed whenever someone listens
+        let changed = prev_sd.filter(|p| !p.sdam_equal(&sd));
+        if let Some(previous) = &changed {
+            let (previous, new) = (Box::new(previous.clone()), Box::new(sd.clone()));
+            self.events.push(|| crate::apm::Event::ServerChanged { topology_id, addr: new.addr.clone(), previous, new });
+        }
         self.transition(&sd);
         self.update_session_timeout();
         if reply.is_some() && error.is_none_or(|e| e.code == 0) {
             self.check_compatible();
+        }
+        if let (Some(_), Some(prev_td)) = (changed, prev_td) {
+            self.monitor_changed(prev_td);
         }
     }
 

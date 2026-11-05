@@ -185,6 +185,38 @@ fn utf8(s: &[u8]) -> String {
 }
 
 impl ServerDescription {
+    /// _mongoc_server_description_equal: whether a check changed nothing an SDAM event reports.
+    pub fn sdam_equal(&self, o: &ServerDescription) -> bool {
+        fn ci(a: &Option<String>, b: &Option<String>) -> bool {
+            match (a, b) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+                _ => false,
+            }
+        }
+        // bson_error_t: an unset error is all zeros (strncmp over BSON_ERROR_BUFFER_SIZE = 504)
+        let err = |e: &Option<Error>| e.as_ref().map_or((0, 0, String::new()), |e| (e.domain, e.code, e.message.chars().scan(0, |n, c| { *n += c.len_utf8(); (*n < 504).then_some(c) }).collect()));
+        let docs_eq = |a: &[u8], b: &[u8]| {
+            let e: &[u8] = &EMPTY_DOC;
+            (if a.is_empty() { e } else { a }) == (if b.is_empty() { e } else { b })
+        };
+        self.ty == o.ty
+            && self.min_wire_version == o.min_wire_version
+            && self.max_wire_version == o.max_wire_version
+            && ci(&self.me, &o.me)
+            && self.hosts == o.hosts
+            && self.passives == o.passives
+            && self.arbiters == o.arbiters
+            && docs_eq(&self.tags, &o.tags)
+            && self.set_name == o.set_name
+            && self.set_version == o.set_version
+            && self.election_id == o.election_id
+            && ci(&self.primary, &o.primary)
+            && self.session_timeout_minutes == o.session_timeout_minutes
+            && err(&self.error) == err(&o.error)
+            && docs_eq(&self.topology_version, &o.topology_version)
+    }
+
     /// mongoc_server_description_init: an Unknown server.
     pub fn new(id: u32, addr: &str) -> Self {
         let mut sd = ServerDescription {

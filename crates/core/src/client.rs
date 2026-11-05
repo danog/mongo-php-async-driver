@@ -84,8 +84,6 @@ pub struct Client {
     pub operation_id: i64,
     /// mongoc_cluster_t.request_id
     pub request_id: i32,
-    /// APM events not yet handed to the subscribers
-    pub events: Vec<crate::apm::Event>,
 }
 
 /// The error libmongoc built without TLS gives for a URI that requests TLS (the transport is
@@ -118,7 +116,7 @@ impl Client {
             return Err(tls_unavailable());
         }
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, events: Vec::new() };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0 };
         c.reconcile_nodes();
         Ok(c)
     }
@@ -164,14 +162,44 @@ impl Client {
         self.nodes.iter().find(|n| n.id == server_id).and_then(|n| n.conn.as_ref()).map(Conn::raw_fd)
     }
 
-    /// mongoc_topology_reconcile: scanner nodes for the description's servers.
-    fn reconcile_nodes(&mut self) {
+    /// The APM events not yet handed to the subscribers, in the order they happened.
+    pub fn take_events(&mut self) -> Vec<crate::apm::Event> {
+        std::mem::take(&mut self.td.events.0)
+    }
+
+    /// Drops the queued events (no subscriber may observe them any more).
+    pub fn clear_events(&mut self) {
+        self.td.events.0.clear();
+    }
+
+    /// The monitoring part of mongoc_topology_destroy (ServerClosed, TopologyChanged,
+    /// TopologyClosed), for a client being destroyed by the process that created it.
+    pub fn close(&mut self) {
+        if self.in_creating_process() {
+            self.td.close();
+        }
+    }
+
+    /// mongoc_topology_reconcile: scanner nodes for the description's servers. Returns the
+    /// ids of the nodes added.
+    fn reconcile_nodes(&mut self) -> Vec<u32> {
         let ids: Vec<u32> = self.td.servers.iter().map(|s| s.id).collect();
         self.nodes.retain(|n| ids.contains(&n.id));
+        let mut added = Vec::new();
         for s in &self.td.servers {
             if !self.nodes.iter().any(|n| n.id == s.id) {
                 self.nodes.push(Node { id: s.id, addr: s.addr.clone(), conn: None, handshake: None, last_failed: -1, last_error: None, last_used: -1 });
+                added.push(s.id);
             }
+        }
+        added
+    }
+
+    /// _mongoc_topology_scanner_monitor_heartbeat_started (node setup)
+    fn heartbeat_started(&mut self, id: u32) {
+        if let Some(n) = self.nodes.iter().find(|n| n.id == id) {
+            let addr = n.addr.clone();
+            self.td.events.push(|| crate::apm::Event::HeartbeatStarted { addr });
         }
     }
 
@@ -231,24 +259,35 @@ impl Client {
         Ok((reply, rtt))
     }
 
-    /// mongoc_topology_scan_once: one blocking scan of every node (sequential).
+    /// mongoc_topology_scan_once: one blocking scan of every node (sequential). As libmongoc's
+    /// scanner: every node's heartbeat starts first, nodes discovered during the scan join it,
+    /// and a known server whose check fails is checked once more before the scan ends.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
         self.check_fork();
         self.reconcile_nodes();
         let now = monotonic_usec();
-        let ids: Vec<u32> = self.nodes.iter().map(|n| n.id).collect();
-        for id in ids {
+        let mut queue: std::collections::VecDeque<u32> = self.nodes.iter().filter(|n| !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))).map(|n| n.id).collect();
+        for &id in &queue {
+            self.heartbeat_started(id);
+        }
+        while let Some(id) = queue.pop_front() {
             let Some(i) = self.nodes.iter().position(|n| n.id == id) else { continue };
-            if obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(&self.nodes[i], now) {
-                continue;
-            }
-            match self.check_node(i) {
+            let t0 = std::time::Instant::now();
+            let result = self.check_node(i);
+            let duration_us = t0.elapsed().as_micros() as i64;
+            // in load balanced mode, scanning only establishes connections
+            let lb = self.td.ty == TopologyType::LoadBalanced;
+            match result {
                 Ok((reply, rtt)) => {
                     let n = &mut self.nodes[i];
                     n.last_used = monotonic_usec();
                     n.last_failed = -1;
                     n.last_error = None;
-                    self.td.handle_hello(id, Some(&reply), rtt, None);
+                    let addr = n.addr.clone();
+                    self.td.events.push(|| crate::apm::Event::HeartbeatSucceeded { addr, duration_us, reply: reply.clone() });
+                    if !lb {
+                        self.td.handle_hello(id, Some(&reply), rtt, None);
+                    }
                 }
                 Err(e) => {
                     let n = &mut self.nodes[i];
@@ -257,12 +296,29 @@ impl Client {
                     n.last_used = monotonic_usec();
                     n.last_failed = n.last_used;
                     let msg = if e.domain == domain::STREAM && e.code == code::STREAM_NAME_RESOLUTION { e.message.clone() } else { format!("{} calling hello on '{}'", e.message, n.addr) };
-                    n.last_error = Some(if e.code == code::STREAM_NAME_RESOLUTION { e.clone() } else { Error::new(domain::CLIENT, code::STREAM_CONNECT, msg) });
-                    self.td.handle_hello(id, None, RTT_UNSET, Some(&e));
+                    let last = if e.code == code::STREAM_NAME_RESOLUTION { e.clone() } else { Error::new(domain::CLIENT, code::STREAM_CONNECT, msg) };
+                    n.last_error = Some(last.clone());
+                    let addr = n.addr.clone();
+                    self.td.events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error: last });
+                    if !lb {
+                        // a failed check clears the pool; a known server becomes Unknown only
+                        // after one more check (_mongoc_topology_scanner_cb)
+                        self.td.clear_connection_pool(id, &crate::sdam::ZERO_OID);
+                        let known = self.td.server(id).is_some_and(|s| s.ty != ServerType::Unknown);
+                        self.td.handle_hello(id, None, RTT_UNSET, Some(&e));
+                        if known {
+                            self.heartbeat_started(id);
+                            queue.push_back(id);
+                            continue;
+                        }
+                    }
                 }
             }
-            // a scan may add or remove servers (replica-set discovery)
-            self.reconcile_nodes();
+            // a scan may add or remove servers (replica-set discovery); new ones join this scan
+            for added in self.reconcile_nodes() {
+                self.heartbeat_started(added);
+                queue.push_back(added);
+            }
         }
         // _mongoc_topology_scanner_finish: "[e1] [e2]", last domain/code win
         let mut msg = String::new();
@@ -281,8 +337,19 @@ impl Client {
         self.stale = false;
     }
 
-    /// mongoc_topology_select_server_id (single-threaded).
+    /// mongoc_topology_select_server_id (single-threaded): a server-selection error ends with
+    /// the topology type the selection started with.
     pub fn select_server_id(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
+        let topology_type = format!(". Topology type: {}", self.td.ty.name());
+        self.select_server_id_inner(optype, rp, deprioritized).map_err(|mut e| {
+            if e.domain == domain::SERVER_SELECTION {
+                e.append(&topology_type);
+            }
+            e
+        })
+    }
+
+    fn select_server_id_inner(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
         const TIMEOUT_MSG: &str = "No suitable servers found: `serverSelectionTimeoutMS` expired";
         self.check_fork();
         if let Some(e) = &self.invalid {

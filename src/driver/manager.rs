@@ -30,9 +30,11 @@ unsafe extern "C" fn free(o: *mut sys::zend_object) {
         if std::rc::Rc::strong_count(c) == 2 && !super::is_persistent(c) {
             if let Ok(mut cl) = c.try_borrow_mut() {
                 cl.end_pooled_sessions();
+                // mongoc_topology_destroy's ServerClosed/TopologyChanged/TopologyClosed
+                cl.close();
                 // request shutdown: no more events (phongo_pclient_destroy)
                 if (*std::ptr::addr_of!(sys::executor_globals)).flags & EG_FLAGS_IN_SHUTDOWN != 0 {
-                    cl.events.clear();
+                    cl.clear_events();
                 }
             }
             super::apm::flush(c);
@@ -350,7 +352,9 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
                 };
                 let prefs = eff.as_ref().map(ReadPreference::prefs);
                 let op = if for_writes { OpType::Write } else { OpType::Read };
-                match client.borrow_mut().select_server_id(op, prefs.as_ref(), &[]) {
+                let selected = client.borrow_mut().select_server_id(op, prefs.as_ref(), &[]);
+                super::apm::flush(&client);
+                match selected {
                     Ok((s, _)) => s,
                     Err(e) => {
                         super::throw_error(&e, None);
@@ -596,6 +600,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
     };
     let prefs = rp.prefs();
     let r = c.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]);
+    super::apm::flush(&c);
     match r {
         Ok((id, _)) => zval::write(rv, super::server::new_server(c, id)),
         Err(e) => super::throw_error(&e, None),
@@ -672,6 +677,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
         return;
     }
     let r = c.borrow_mut().start_session_with(cc, snap, txn.as_ref());
+    super::apm::flush(&c);
     match r {
         Ok(cs) => {
             let drp = rp.unwrap_or_else(|| client_read_preference(&c.borrow().uri));
@@ -710,7 +716,9 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
             if pinned > 0 {
                 pinned
             } else {
-                match client.borrow_mut().select_server_id(OpType::Write, None, &[]) {
+                let selected = client.borrow_mut().select_server_id(OpType::Write, None, &[]);
+                super::apm::flush(&client);
+                match selected {
                     Ok((s, _)) => s,
                     Err(e) => {
                         super::throw_error(&e, None);
@@ -813,7 +821,9 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
                 // inherit the client's read preference
                 let eff = rp.clone().unwrap_or_else(|| client_read_preference(&client.borrow().uri));
                 let prefs = eff.prefs();
-                match client.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]) {
+                let selected = client.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]);
+                super::apm::flush(&client);
+                match selected {
                     Ok((s, _)) => s,
                     Err(e) => {
                         super::throw_error(&e, None);
