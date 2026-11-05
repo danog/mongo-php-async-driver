@@ -19,7 +19,7 @@ const URI_DEFAULT: &str = "mongodb://127.0.0.1/";
 #[derive(Default)]
 pub struct Manager {
     pub client: Option<ClientRef>,
-    /// the URI string as given (mongoc_uri_get_string)
+    /// the URI string as given (mongoc_uri_get_string), with its secrets redacted
     pub uri_string: String,
     /// Manager::addSubscriber registrations
     pub subscribers: super::apm::Subscribers,
@@ -60,7 +60,7 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
     obj::alloc(c, Manager::default(), addr_of_mut!(H_MANAGER))
 }
 
-/// phongo_manager_get_debug_info: the URI, a Server for every known server, and the
+/// phongo_manager_get_debug_info: the URI (redacted), a Server for every known server, and the
 /// crypt_shared version (none: client-side encryption is not supported yet).
 unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
     *is_temp = 1;
@@ -215,7 +215,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
     let uri = match Uri::parse(&full) {
         Ok(u) => u,
         Err(e) => {
-            throw(E::InvalidArgument, format!("Failed to parse MongoDB URI: '{uri_string}'. {e}."));
+            // safety: the reference quotes the URI as given, password included
+            throw(E::InvalidArgument, format!("Failed to parse MongoDB URI: '{}'. {e}.", mongo_core::uri::redact(&uri_string)));
             return;
         }
     };
@@ -225,7 +226,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
         return;
     }
     let me = obj::data::<Manager>(call::this(ex));
-    me.uri_string = uri_string.clone();
+    // safety: the reference shows the URI as given, password included
+    me.uri_string = mongo_core::uri::redact(&uri_string);
     let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
     // phongo checks the option after creating the client: a client error comes first
     let api = super::serverapi::from_driver_options(driver_options);

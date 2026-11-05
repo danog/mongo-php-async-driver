@@ -7,6 +7,14 @@ license = "Apache-2.0"
 description = "PHP-independent parts of mongo-php-async-driver: BSON, wire protocol, URI, SDAM, auth"
 
 [dependencies]
+# SCRAM (pure Rust: RustCrypto hashes/MACs/KDF, the OS RNG through getrandom's syscalls, NFKC for SASLprep)
+sha1 = { version = "0.11", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+md-5 = { version = "0.11", default-features = false }
+hmac = { version = "0.13", default-features = false }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+getrandom = "0.3"
+unicode-normalization = { version = "0.1", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 mio = { version = "1", features = ["os-poll", "os-ext"] }

@@ -24,7 +24,7 @@ without message, a missing key in ClientEncryption::deleteKey()); they are track
 | `atlas.phpt` | Atlas clusters and credentials (`TESTS=tests/atlas.phpt`) |
 | `ocsp-success.phpt`, `ocsp-failure.phpt` | an OCSP responder and certificates from drivers-evergreen-tools |
 | `clientEncryption/*` using AWS, Azure, GCP or KMIP KMS providers | KMS credentials / a KMIP server; the local KMS provider runs |
-| `connect/*-auth-*`, `standalone-x509-*`, `standalone-ssl-*` | a mongod with auth / TLS / X.509 set up (to be added to tools/topo.sh in phase 5) |
+| `standalone-x509-*`, `standalone-ssl-*` | a mongod with TLS / X.509 set up (to be added to tools/topo.sh with TLS). The SCRAM tests (`connect/standalone-auth-*`, `tests/local/manager-scram-001.phpt`) run with `tools/topo.sh auth` and `MONGODB_URI=mongodb://root:toor@127.0.0.1:28015/?authSource=admin` |
 | `frankenphp/` | not tests: a FrankenPHP worker-mode restart script (ZTS); this extension is NTS-only |
 
 ### Observe libmongoc internals (to be emulated, or documented as differences)

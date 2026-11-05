@@ -11,6 +11,7 @@ pub const LIBMONGOC_VERSION: &str = "2.5.8";
 pub const LIBMONGOCRYPT_VERSION: &str = "1.21.1";
 
 pub mod apm;
+pub mod auth;
 pub mod bson;
 pub mod client;
 pub mod bulk;

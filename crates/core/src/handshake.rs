@@ -45,6 +45,12 @@ fn os_type() -> &'static str {
 
 /// The initial hello command body (with $db), as mongoc builds it for a handshake.
 pub fn hello_command(md: &Metadata, o: &HelloOpts, hello_ok_known: bool) -> Vec<u8> {
+    hello_command_auth(md, o, hello_ok_known, true, None)
+}
+
+/// `hello_command` with authentication parts: saslSupportedMechs (when `negotiate` and
+/// `o.sasl_user` is set) and a speculativeAuthenticate document.
+pub fn hello_command_auth(md: &Metadata, o: &HelloOpts, hello_ok_known: bool, negotiate: bool, speculative: Option<&[u8]>) -> Vec<u8> {
     let mut w = Writer::with_capacity(512);
     if o.api_version.is_some() || o.load_balanced || hello_ok_known {
         w.int32(b"hello", 1);
@@ -82,8 +88,11 @@ pub fn hello_command(md: &Metadata, o: &HelloOpts, hello_ok_known: bool) -> Vec<
         }
         w.end(a);
     }
-    if let Some(u) = &o.sasl_user {
+    if let Some(u) = o.sasl_user.as_ref().filter(|_| negotiate) {
         w.utf8(b"saslSupportedMechs", u.as_bytes());
+    }
+    if let Some(d) = speculative {
+        w.document(b"speculativeAuthenticate", d);
     }
     if let Some(v) = &o.api_version {
         w.utf8(b"apiVersion", v.as_bytes());

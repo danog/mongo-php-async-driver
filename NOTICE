@@ -26,10 +26,16 @@ licensed under the Apache License, Version 2.0:
 
 - MongoDB Rust Driver (mongodb and bson crates), https://github.com/mongodb/mongo-rust-driver
   Copyright 2017-present MongoDB, Inc.
-  Ported: parts of the implementation (e.g. SCRAM) and of its spec-test runners.
+  Ported: parts of its spec-test runners.
 
 The extension is built on ext-php-rs (https://github.com/extphprs/ext-php-rs, MIT OR Apache-2.0),
 used as a dependency for the Zend Engine bindings, zval ownership and module plumbing.
+
+SCRAM authentication uses, as dependencies (all MIT OR Apache-2.0, pure Rust): the RustCrypto
+crates sha1, sha2, md-5, hmac and pbkdf2 (https://github.com/RustCrypto), getrandom
+(https://github.com/rust-random/getrandom) and unicode-normalization
+(https://github.com/unicode-rs/unicode-normalization). The SASLprep tables in
+crates/core/src/auth/tables.rs are libmongoc's copy of the RFC 3454 tables.
 
 The MongoDB Specifications (https://github.com/mongodb/specifications), whose test files the
 test suites read, are licensed under the Creative Commons Attribution-NonCommercial-ShareAlike

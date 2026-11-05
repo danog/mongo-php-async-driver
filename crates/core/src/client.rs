@@ -39,7 +39,12 @@ impl Settings {
             local_threshold_ms: i("localthresholdms", tp::LOCAL_THRESHOLD_MS),
             min_heartbeat_ms: tp::MIN_HEARTBEAT_FREQUENCY_MS,
             metadata: Metadata { appname: uri.options.str("appname").map(str::to_owned), ..Default::default() },
-            hello: HelloOpts { load_balanced: uri.get_bool("loadbalanced", false), compressors: uri.compressors.clone(), ..Default::default() },
+            hello: HelloOpts {
+                load_balanced: uri.get_bool("loadbalanced", false),
+                compressors: uri.compressors.clone(),
+                sasl_user: crate::auth::sasl_user(uri),
+                ..Default::default()
+            },
         }
     }
 }
@@ -58,6 +63,19 @@ struct Node {
     last_failed: i64,
     last_error: Option<Error>,
     last_used: i64,
+    /// the connection's authentication state (reset with every new connection)
+    auth: NodeAuth,
+    /// the server's saslSupportedMechs, negotiated in the node's first handshake
+    mechs: Option<crate::auth::SaslMechs>,
+}
+
+/// The authentication state of a node's connection (scanner_node->has_auth,
+/// speculative_auth_response, scram).
+#[derive(Default)]
+struct NodeAuth {
+    has_auth: bool,
+    speculative: Vec<u8>,
+    scram: Option<crate::auth::scram::Scram>,
 }
 
 /// mongoc_topology_t (single-threaded)
@@ -98,13 +116,6 @@ pub const MAX_DISCOVERED_PER_SCAN: usize = 100;
 
 fn addr_lc(nodes: &[Node], id: u32) -> String {
     nodes.iter().find(|n| n.id == id).map(|n| n.addr.to_ascii_lowercase()).unwrap_or_default()
-}
-
-/// The authentication error for a URI with credentials (the mechanisms are not implemented
-/// yet: like a libmongoc built without them, every command fails to authenticate).
-pub fn auth_unavailable(mechanism: Option<&str>) -> Error {
-    let m = mechanism.unwrap_or("default");
-    Error::new(domain::CLIENT, code::CLIENT_AUTHENTICATE, format!("The {m} authentication mechanism is not supported by this build yet"))
 }
 
 /// _mongoc_server_selection_error
@@ -148,7 +159,7 @@ impl Client {
         self.pid = pid;
         for n in &mut self.nodes {
             if let Some(c) = n.conn.take() {
-                std::mem::forget(c);
+                c.abandon();
             }
             n.handshake = None;
         }
@@ -203,7 +214,7 @@ impl Client {
         let mut added = Vec::new();
         for s in &self.td.servers {
             if !self.nodes.iter().any(|n| n.id == s.id) {
-                self.nodes.push(Node { id: s.id, addr: s.addr.clone(), conn: None, handshake: None, last_failed: -1, last_error: None, last_used: -1 });
+                self.nodes.push(Node { id: s.id, addr: s.addr.clone(), conn: None, handshake: None, last_failed: -1, last_error: None, last_used: -1, auth: NodeAuth::default(), mechs: None });
                 added.push(s.id);
             }
         }
@@ -264,9 +275,20 @@ impl Client {
             NetError::Resolve(_) => Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{host}'")),
             e => net_check_error(e),
         })?;
-        let body = handshake::hello_command(&self.settings.metadata, &self.settings.hello, false);
+        // single-threaded libmongoc negotiates the mechanism in a node's first handshake and
+        // starts a speculative authentication in each one
+        let negotiate = self.nodes[i].mechs.is_none();
+        let speculative = crate::auth::speculative_start(&self.uri);
+        let body = handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, speculative.as_ref().map(|s| &s.0[..]));
         let reply = handshake::run_command(&mut conn, &body, connect_timeout).map_err(net_check_error)?;
         let rtt = t0.elapsed().as_millis() as i64;
+        let speculative_reply = crate::auth::speculative_reply(&reply);
+        // the speculativeAuthenticate reply is seen by the authentication only
+        let reply = crate::auth::redact_hello(&reply).into_owned();
+        if negotiate && self.settings.hello.sasl_user.is_some() {
+            self.nodes[i].mechs = Some(crate::auth::parse_sasl_mechs(&reply));
+        }
+        self.nodes[i].auth = NodeAuth { has_auth: false, speculative: speculative_reply, scram: speculative.map(|s| s.1) };
         let sd = ServerDescription::from_hello(&self.nodes[i].addr, &reply, rtt);
         conn.set_max_message_size(sd.max_msg_size);
         self.nodes[i].handshake = Some(sd);
@@ -480,18 +502,56 @@ impl Client {
                 return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {addr}")));
             }
         }
-        // cluster->requires_auth: authentication is not implemented yet, and a connection that
-        // should be authenticated is never used unauthenticated (fail closed, as for TLS)
-        if self.uri.username.is_some() || self.uri.auth_mechanism().is_some() {
-            return Err(auth_unavailable(self.uri.auth_mechanism()));
-        }
         let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
         if let Some(h) = &n.handshake {
             if h.ty == ServerType::Unknown {
                 return Err(h.error.clone().unwrap_or_default());
             }
         }
-        Ok(n.conn.as_mut().expect("checked above"))
+        // stream open but not authenticated: first use since connecting. A connection that
+        // should be authenticated is never used unauthenticated.
+        if crate::auth::requires_auth(&self.uri) && !n.auth.has_auth {
+            self.authenticate_node(server_id)?;
+        }
+        let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
+        n.conn.as_mut().ok_or_else(|| Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {}", n.addr)))
+    }
+
+    /// The authentication part of _cluster_fetch_stream_single: completes the handshake's
+    /// speculative conversation, else authenticates explicitly.
+    fn authenticate_node(&mut self, server_id: u32) -> Result<(), Error> {
+        let uri = self.uri.clone();
+        let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else { return Ok(()) };
+        let mut st = std::mem::take(&mut self.nodes[i].auth);
+        let mechs = self.nodes[i].mechs.unwrap_or_default();
+        let mut run = |body: &[u8]| self.auth_command(server_id, body);
+        let speculative = crate::auth::finish_speculative(&uri, &st.speculative, st.scram.as_mut(), &mut run);
+        drop(st);
+        let connected = self.nodes.iter().any(|n| n.id == server_id && n.conn.is_some());
+        match speculative {
+            Ok(true) => {}
+            Err(e) if !connected => return Err(e),
+            _ => {
+                let mut run = |body: &[u8]| self.auth_command(server_id, body);
+                crate::auth::authenticate(&uri, mechs, &mut run)?;
+            }
+        }
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
+            n.auth.has_auth = true;
+        }
+        Ok(())
+    }
+
+    /// _mongoc_cluster_run_scram_command (before its error conversion): an authentication
+    /// command on the connection being authenticated, with $db = the auth source, no lsid.
+    fn auth_command(&mut self, server_id: u32, body: &[u8]) -> Result<Vec<u8>, Error> {
+        let db = self.uri.auth_source().to_owned();
+        let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new(&db, body) };
+        let cmd = self.assemble(parts, server_id, false)?;
+        let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, None, true)?.unwrap_or_default();
+        self.td.update_cluster_time(&reply);
+        crate::cmd::check_ok(&reply).map_err(|e| e.into_error())?;
+        Ok(reply)
     }
 
     /// Runs `body` (a command with $db) on `server_id`: the reply document, or the error as
@@ -505,8 +565,18 @@ impl Client {
     /// moreToCome and yield no reply (None).
     pub fn run_command_payload(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: Option<(&str, &[u8])>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
         self.check_fork();
+        self.stream_for_server(server_id, true)?;
+        self.exchange(server_id, cmd_name, db, body, payload, acknowledged)
+    }
+
+    /// Sends a command on the connection to `server_id` as it is (connected, and authenticated
+    /// unless this is the authentication): the reply, or the network error as mongoc-cluster.c
+    /// reports it.
+    fn exchange(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: Option<(&str, &[u8])>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
         let socket_timeout = ms(self.settings.socket_timeout_ms);
-        let conn = self.stream_for_server(server_id, true)?;
+        let Some(conn) = self.nodes.iter_mut().find(|n| n.id == server_id).and_then(|n| n.conn.as_mut()) else {
+            return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for server id: {server_id}")));
+        };
         let generation = conn.generation as u32;
         match handshake::run_msg(conn, body, payload, !acknowledged, socket_timeout) {
             Ok(r) => {

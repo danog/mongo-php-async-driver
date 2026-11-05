@@ -96,7 +96,7 @@ impl Default for WriteConcern {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Uri {
     pub string: String,
     pub is_srv: bool,
@@ -372,6 +372,89 @@ fn check_srv_service_name(s: &str) -> bool {
 /// (environment, supports a username, requires TOKEN_RESOURCE): mongoc-oidc-env.c
 const OIDC_ENVS: &[(&str, bool, bool)] = &[("test", false, false), ("azure", true, true), ("gcp", false, true), ("k8s", false, false)];
 
+/// The password is never printed (see `redact`).
+impl std::fmt::Debug for Uri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Uri")
+            .field("string", &redact(&self.string))
+            .field("hosts", &self.hosts)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| REDACTED))
+            .field("database", &self.database)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What a secret is replaced with in URIs shown to the user.
+pub const REDACTED: &str = "******";
+
+/// URI options whose values are secrets.
+const SECRET_OPTIONS: &[&str] = &["tlscertificatekeyfilepassword", "sslclientcertificatekeypassword"];
+/// authMechanismProperties keys whose values are not secrets (everything else, such as
+/// AWS_SESSION_TOKEN, is).
+const PUBLIC_MECHANISM_PROPERTIES: &[&str] = &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST", "ENVIRONMENT", "TOKEN_RESOURCE", "ALLOWED_HOSTS"];
+
+/// Whether the value of the URI option `key` must not be shown.
+pub fn is_secret_option(key: &str) -> bool {
+    is_in(SECRET_OPTIONS, key)
+}
+
+/// A URI string with its secrets replaced by REDACTED, for debug output and error messages:
+/// the password (the username is kept), the secret options and an authMechanismProperties
+/// value with any secret property. Works on any string, also one that does not parse: the
+/// userinfo is everything before the last '@' (a valid URI has at most one), so a password
+/// with unescaped characters is hidden too.
+pub fn redact(s: &str) -> String {
+    let (scheme, rest) = match s.find("://") {
+        Some(p) => s.split_at(p + 3),
+        None => ("", s),
+    };
+    let mut out = String::with_capacity(s.len());
+    out.push_str(scheme);
+    let rest = match rest.rfind('@') {
+        Some(at) => {
+            let userinfo = &rest[..at];
+            match userinfo.split_once(':') {
+                Some((user, _)) => {
+                    out.push_str(user);
+                    out.push(':');
+                    out.push_str(REDACTED);
+                }
+                None => out.push_str(userinfo),
+            }
+            out.push('@');
+            &rest[at + 1..]
+        }
+        None => rest,
+    };
+    let Some((before, query)) = rest.split_once('?') else {
+        out.push_str(rest);
+        return out;
+    };
+    out.push_str(before);
+    out.push('?');
+    for (n, entry) in query.split('&').enumerate() {
+        if n > 0 {
+            out.push('&');
+        }
+        match entry.split_once('=') {
+            Some((k, v)) if is_secret_option(k) || (k.eq_ignore_ascii_case("authmechanismproperties") && !public_properties(v)) => {
+                out.push_str(k);
+                out.push('=');
+                out.push_str(if v.is_empty() { "" } else { REDACTED });
+            }
+            _ => out.push_str(entry),
+        }
+    }
+    out
+}
+
+/// Whether an authMechanismProperties value names only public properties.
+fn public_properties(v: &str) -> bool {
+    let Ok(d) = pct_decode(v) else { return false };
+    d.split(',').all(|p| p.is_empty() || PUBLIC_MECHANISM_PROPERTIES.iter().any(|k| p.split(':').next().is_some_and(|x| x.eq_ignore_ascii_case(k))))
+}
+
 impl Uri {
     /// mongoc_uri_new_with_error
     pub fn parse(s: &str) -> R<Uri> {
@@ -555,7 +638,12 @@ impl Uri {
         if from_dns && !["authsource", "loadbalanced", "replicaset"].iter().any(|k| k.eq_ignore_ascii_case(key)) {
             return Err(format!("URI option \"{key}\" prohibited in TXT records"));
         }
-        let value = pct_decode(val).map_err(|e| format!("Value for URI option \"{key}\" contains is invalid: {e}"))?;
+        // the decoding error quotes the value: not for a secret
+        let value = pct_decode(val).map_err(|e| if is_secret_option(key) || key.eq_ignore_ascii_case("authmechanismproperties") {
+            format!("Value for URI option \"{key}\" contains is invalid: {REDACTED}")
+        } else {
+            format!("Value for URI option \"{key}\" contains is invalid: {e}")
+        })?;
         if key.eq_ignore_ascii_case("readpreferencetags") {
             let mut tags = Vec::new();
             let mut r = value.as_str();
@@ -1151,4 +1239,37 @@ fn validate_names(a: &Opts, b: &Opts) -> R<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod redact_tests {
+    use super::*;
+
+    #[test]
+    fn redacts_secrets() {
+        let cases = [
+            ("mongodb://u:secret@h/db?appname=x", "mongodb://u:******@h/db?appname=x"),
+            ("mongodb://u@h/", "mongodb://u@h/"),
+            ("mongodb://h:27017/?replicaSet=rs0", "mongodb://h:27017/?replicaSet=rs0"),
+            ("mongodb://u:p@ss@h/", "mongodb://u:******@h/"),
+            ("mongodb://u:p/ss@h/", "mongodb://u:******@h/"),
+            ("mongodb+srv://u:%40x@c.example.com/", "mongodb+srv://u:******@c.example.com/"),
+            ("mongodb://h/?tlsCertificateKeyFilePassword=pw&tls=true", "mongodb://h/?tlsCertificateKeyFilePassword=******&tls=true"),
+            ("mongodb://h/?sslClientCertificateKeyPassword=pw", "mongodb://h/?sslClientCertificateKeyPassword=******"),
+            (
+                "mongodb://k:s@h/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:tok",
+                "mongodb://k:******@h/?authMechanism=MONGODB-AWS&authMechanismProperties=******",
+            ),
+            ("mongodb://h/?authMechanismProperties=AWS_SESSION_TOKEN%3Atok", "mongodb://h/?authMechanismProperties=******"),
+            ("mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true", "mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true"),
+            ("not a uri u:pw@x", "not a uri u:******@x"),
+        ];
+        for (i, o) in cases {
+            assert_eq!(redact(i), o, "{i}");
+        }
+        let u = Uri::parse("mongodb://u:secret@h/").unwrap();
+        assert!(!format!("{u:?}").contains("secret"));
+        let e = Uri::parse("mongodb://h/?tlsCertificateKeyFilePassword=ab%2").unwrap_err();
+        assert!(!e.contains("%2"), "{e}");
+    }
 }

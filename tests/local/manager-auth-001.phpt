@@ -1,10 +1,11 @@
 --TEST--
-Manager: URIs with credentials fail closed while authentication is missing
+Manager: mechanisms other than SCRAM fail closed while they are missing
 --DESCRIPTION--
-Local test (not upstream). Until SCRAM/X509/PLAIN land, a client that requires authentication
-(a username or an authMechanism in the URI: libmongoc's cluster->requires_auth) never sends a
-command unauthenticated; every command fails with an AuthenticationException, as with a
-libmongoc built without the mechanism. Listed in DIVERGENCES.md (temporary gaps).
+Local test (not upstream). SCRAM-SHA-1 and SCRAM-SHA-256 are implemented; until X509 (needs
+TLS), PLAIN, GSSAPI, MONGODB-AWS and MONGODB-OIDC land, a client that must authenticate with one
+of them never sends a command unauthenticated: every command fails with an
+AuthenticationException, as with a libmongoc built without the mechanism. Listed in
+DIVERGENCES.md (temporary gaps).
 --SKIPIF--
 <?php require __DIR__ . "/../phpt/utils/basic-skipif.inc"; ?>
 <?php skip_if_not_live(); ?>
@@ -13,7 +14,13 @@ libmongoc built without the mechanism. Listed in DIVERGENCES.md (temporary gaps)
 require_once __DIR__ . "/../phpt/utils/basic.inc";
 // the first seed of URI, alone
 $seed = preg_replace('~^mongodb://(?:[^@/]*@)?([^,/?]+).*$~', '$1', URI);
-foreach (["mongodb://u:p@%s/", "mongodb://%s/?authMechanism=MONGODB-X509"] as $f) {
+foreach ([
+    "mongodb://%s/?authMechanism=MONGODB-X509",
+    "mongodb://u:p@%s/?authMechanism=PLAIN",
+    "mongodb://u@%s/?authMechanism=GSSAPI",
+    "mongodb://%s/?authMechanism=MONGODB-AWS",
+    "mongodb://%s/?authMechanism=MONGODB-OIDC&authMechanismProperties=ENVIRONMENT:test",
+] as $f) {
     $m = new MongoDB\Driver\Manager(sprintf($f, $seed), ['directConnection' => true], ['disableClientPersistence' => true]);
     try {
         $m->executeCommand('admin', new MongoDB\Driver\Command(['ping' => 1]));
@@ -24,5 +31,8 @@ foreach (["mongodb://u:p@%s/", "mongodb://%s/?authMechanism=MONGODB-X509"] as $f
 }
 ?>
 --EXPECT--
-MongoDB\Driver\Exception\AuthenticationException: The default authentication mechanism is not supported by this build yet
 MongoDB\Driver\Exception\AuthenticationException: The MONGODB-X509 authentication mechanism is not supported by this build yet
+MongoDB\Driver\Exception\AuthenticationException: The PLAIN authentication mechanism is not supported by this build yet
+MongoDB\Driver\Exception\AuthenticationException: The GSSAPI authentication mechanism is not supported by this build yet
+MongoDB\Driver\Exception\AuthenticationException: The MONGODB-AWS authentication mechanism is not supported by this build yet
+MongoDB\Driver\Exception\AuthenticationException: The MONGODB-OIDC authentication mechanism is not supported by this build yet

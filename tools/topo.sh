@@ -3,6 +3,9 @@
 #   standalone  mongodb://127.0.0.1:28010
 #   replset     mongodb://127.0.0.1:28011,127.0.0.1:28012,127.0.0.1:28013/?replicaSet=rs0
 #   sharded     mongodb://127.0.0.1:28030,127.0.0.1:28031 (2 mongos; config rs cfg 28020, shards sh1 28021, sh2 28022)
+#   auth        mongodb://root:toor@127.0.0.1:28015/?authSource=admin (standalone with --auth; users root/toor,
+#               and the auth specification's test users: user/pencil, sha1/sha1, sha256/sha256, both/both, IX/IX,
+#               \u2168/\u2163, created through the localhost exception)
 # Env: MONGO_BIN (dir with mongod/mongos), TOPO_DATA (data dir), TOPO_PHP (a PHP with a mongodb extension, to initiate).
 #      TOPO_DOCKER=1 (default on macOS): every mongod/mongos runs in its own container (image TOPO_IMAGE,
 #      default mongo:8.0) on the host network, so the addresses are the same; containers are named
@@ -71,12 +74,25 @@ start() {
       for p in 28030 28031; do mongos_start $p; done
       $PHPI -r '$m = new MongoDB\Driver\Manager("mongodb://'$H':28030");
         foreach (["sh1/'$H':28021", "sh2/'$H':28022"] as $s) { try { $m->executeCommand("admin", new MongoDB\Driver\Command(["addShard" => $s])); } catch (Exception $e) { if (strpos($e->getMessage(), "already") === false) throw $e; } }' ;;
+    auth)
+      mongod_start auth 28015 --auth
+      $PHPI -r '$m = new MongoDB\Driver\Manager("mongodb://'$H':28015/?directConnection=true");
+        $u = [["root", "toor", ["SCRAM-SHA-1", "SCRAM-SHA-256"]], ["user", "pencil", ["SCRAM-SHA-1", "SCRAM-SHA-256"]],
+          ["sha1", "sha1", ["SCRAM-SHA-1"]], ["sha256", "sha256", ["SCRAM-SHA-256"]], ["both", "both", ["SCRAM-SHA-1", "SCRAM-SHA-256"]],
+          ["IX", "IX", ["SCRAM-SHA-256"]], ["\u{2168}", "\u{2163}", ["SCRAM-SHA-256"]]];
+        foreach ($u as $i => [$n, $p, $mech]) {
+          // the first user goes through the localhost exception, then root authenticates
+          if ($i === 1) { $m = new MongoDB\Driver\Manager("mongodb://root:toor@'$H':28015/?directConnection=true"); }
+          try { $m->executeCommand("admin", new MongoDB\Driver\Command(["createUser" => $n, "pwd" => $p, "roles" => ["root"], "mechanisms" => $mech])); }
+          catch (Exception $e) { if (strpos($e->getMessage(), "already exists") === false) throw $e; }
+        }' ;;
     all) start standalone; start replset; start sharded ;;
   esac
 }
 stop() {
   case $1 in
     standalone) mongod_stop standalone ;;
+    auth) mongod_stop auth ;;
     replset) for p in 28011 28012 28013; do mongod_stop rs0-$p; done ;;
     sharded)
       for p in 28030 28031; do mongos_stop $p; done

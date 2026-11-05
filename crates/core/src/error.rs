@@ -55,6 +55,8 @@ pub mod code {
     pub const COLLECTION_INSERT_FAILED: u32 = 23;
     pub const COLLECTION_UPDATE_FAILED: u32 = 24;
     pub const COLLECTION_DELETE_FAILED: u32 = 25;
+    pub const SCRAM_NOT_DONE: u32 = 28;
+    pub const SCRAM_PROTOCOL_ERROR: u32 = 29;
     pub const QUERY_COMMAND_NOT_FOUND: u32 = 59;
     pub const QUERY_NOT_TAILABLE: u32 = 13051;
     pub const SERVER_SELECTION_BAD_WIRE_VERSION: u32 = 13052;
