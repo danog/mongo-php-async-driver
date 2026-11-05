@@ -5,5 +5,6 @@
 //! - `module`: the module entry, lifecycle hooks, INI settings and phpinfo().
 #![allow(clippy::missing_safety_doc)]
 
+pub mod gen;
 pub mod module;
 pub mod zend;

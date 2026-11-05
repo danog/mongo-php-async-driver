@@ -15,6 +15,7 @@ targets=("$@"); [ ${#targets[@]} = 0 ] && targets=("$ROOT/tests/phpt")
 export MONGODB_URI=$uri NO_INTERACTION=1 REPORT_EXIT_STATUS=0 TEST_PHP_EXECUTABLE=$(command -v $PHP)
 $PHP "$RT" -n -d extension=$ext -d date.timezone=UTC -j${JOBS:-16} -q --no-color --set-timeout 120 \
   "${targets[@]}" > "$OUT/$label.log" 2>&1 || true
-grep -E '^(PASS|FAIL|SKIP|BORK|XFAIL|LEAK|WARN)' "$OUT/$label.log" \
-  | sed -E 's/^(PASS|FAIL|SKIP|BORK|XFAIL|LEAK|WARN)[^[]*\[([^]]*)\].*/\1 \2/' | sed "s#$ROOT/##" | sort -k2 > "$OUT/$label.txt"
+# with -q, progress text precedes each result on the same line: match results anywhere
+grep -oE '(PASS|FAIL|SKIP|BORK|XFAIL|LEAK|WARN) .*?\[[^]]*\.phpt\]' "$OUT/$label.log" \
+  | sed -E 's/^(PASS|FAIL|SKIP|BORK|XFAIL|LEAK|WARN) .*\[([^]]*\.phpt)\]$/\1 \2/' | sed "s#$ROOT/##" | sort -u -k2 > "$OUT/$label.txt"
 awk '{print $1}' "$OUT/$label.txt" | sort | uniq -c | tr '\n' ' '; echo

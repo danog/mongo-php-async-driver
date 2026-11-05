@@ -2,7 +2,10 @@
 //! and macros of the PHP headers that the extension needs (zend_types.h, zend_string.h,
 //! zend_hash.h, zend_API.h, ...). NTS builds only: globals are plain symbols.
 
+pub mod class;
 pub mod sys;
+pub mod zstr;
+pub mod zval;
 
 use std::ffi::{c_char, CStr};
 
@@ -28,3 +31,8 @@ pub fn info_row(k: &CStr, v: &str) {
 #[repr(transparent)]
 pub struct Static<T>(pub T);
 unsafe impl<T> Sync for Static<T> {}
+
+/// Stub for an ext-mongodb method or function not ported yet: throws Error.
+pub unsafe fn not_implemented(handler: &CStr) {
+    sys::zend_throw_error(std::ptr::null_mut(), c"%s is not implemented yet by this mongodb extension".as_ptr(), handler.as_ptr());
+}

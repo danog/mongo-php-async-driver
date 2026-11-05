@@ -68,8 +68,13 @@ static INI: zend::Static<[sys::zend_ini_entry_def; 2]> = zend::Static([
     },
 ]);
 
+const CONST_PERSISTENT: i32 = 1;
+
 unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_result {
     sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
+    crate::gen::api::register_all();
+    sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
+    sys::zend_register_string_constant(c"MONGODB_STABILITY".as_ptr(), 17, c"stable".as_ptr(), CONST_PERSISTENT, module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
@@ -153,5 +158,6 @@ const fn const_parse(s: &str) -> u32 {
 /// The entry point PHP looks up when loading the extension.
 #[no_mangle]
 pub extern "C" fn get_module() -> *mut sys::zend_module_entry {
+    unsafe { (*addr_of_mut!(MODULE)).functions = crate::gen::api::functions() };
     addr_of_mut!(MODULE)
 }
