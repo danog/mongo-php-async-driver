@@ -51,7 +51,7 @@ mongos_stop() {
 initiate() { # port json
   $PHPI -r '$m = new MongoDB\Driver\Manager("mongodb://'$H:$1'/?directConnection=true");
     try { $m->executeCommand("admin", new MongoDB\Driver\Command(["replSetInitiate" => json_decode($argv[1])])); } catch (Exception $e) { if (strpos($e->getMessage(), "already") === false) throw $e; }
-    for ($i = 0; $i < 120; $i++) { $r = $m->executeCommand("admin", new MongoDB\Driver\Command(["hello" => 1]))->toArray()[0]; if (!empty($r->isWritablePrimary)) exit(0); usleep(250000); }
+    for ($i = 0; $i < 120; $i++) { $r = $m->executeCommand("admin", new MongoDB\Driver\Command(["hello" => 1]))->toArray()[0]; if (!empty($r->isWritablePrimary) || !empty($r->primary)) exit(0); usleep(250000); }
     fwrite(STDERR, "no primary\n"); exit(1);' "$2"
 }
 members() { # set port...
