@@ -32,7 +32,6 @@ unsafe fn update_properties(o: *mut sys::zend_object) {
         Some(l) => {
             let mut z = zval::string(&l);
             sys::zend_update_property(CE, o, c"level".as_ptr(), 5, &mut z);
-            zval::dtor(&mut z);
         }
         None => sys::zend_update_property_null(CE, o, c"level".as_ptr(), 5),
     }
@@ -81,7 +80,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___set_state(ex: Ex, rv: 
     }
     let z = obj::new_zval(CE);
     init_from_hash(z.value.obj, (*a).value.arr);
-    *rv = z;
+    zval::write(rv, z);
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___unserialize(ex: Ex, _rv: *mut sys::zval) {
@@ -94,13 +93,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___unserialize(ex: Ex, _r
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_getLevel(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = obj::data::<ReadConcern>(call::this(ex)).level.as_ref().map_or_else(zval::null, |l| zval::string(l));
+        zval::write(rv, obj::data::<ReadConcern>(call::this(ex)).level.as_ref().map_or_else(zval::null, |l| zval::string(l)));
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_isDefault(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::bool(obj::data::<ReadConcern>(call::this(ex)).is_default());
+        zval::write(rv, zval::bool(obj::data::<ReadConcern>(call::this(ex)).is_default()));
     }
 }
 
@@ -122,5 +121,5 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_bsonSerialize(ex: Ex, rv
     });
     let mut z = zval::arr(ht);
     sys::convert_to_object(&mut z);
-    *rv = z;
+    zval::write(rv, z);
 }

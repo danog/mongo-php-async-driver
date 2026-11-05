@@ -159,21 +159,17 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_advanceOperationTime(ex: Ex,
         return;
     }
     let o = (*z).value.obj;
-    let mut t = call::method(o, c"getTimestamp", &mut []);
+    let t = call::method(o, c"getTimestamp", &mut []);
     if call::has_exception() || zval::is(&t, sys::IS_UNDEF) {
-        zval::dtor(&mut t);
         return;
     }
-    let mut i = call::method(o, c"getIncrement", &mut []);
+    let i = call::method(o, c"getIncrement", &mut []);
     if call::has_exception() || zval::is(&i, sys::IS_UNDEF) {
-        zval::dtor(&mut t);
-        zval::dtor(&mut i);
         return;
     }
     // Z_LVAL of whatever the methods returned (the interface declares int)
     let (tv, iv) = (t.value.lval as u32, i.value.lval as u32);
-    zval::dtor(&mut t);
-    zval::dtor(&mut i);
+    drop((t, i));
     cs.borrow_mut().advance_operation_time(tv, iv);
 }
 
@@ -184,10 +180,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getClusterTime(ex: Ex, rv: *
     }
     let t = cs.borrow().cluster_time.clone();
     match t {
-        None => *rv = zval::null(),
+        None => zval::write(rv, zval::null()),
         Some(t) => {
             if let Some(z) = super::to_zval_no_odm(&t) {
-                *rv = z;
+                zval::write(rv, z);
             }
         }
     }
@@ -200,7 +196,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getLogicalSessionId(ex: Ex, 
     }
     let l = cs.borrow().lsid().to_vec();
     if let Some(z) = super::to_zval_no_odm(&l) {
-        *rv = z;
+        zval::write(rv, z);
     }
 }
 
@@ -210,7 +206,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getOperationTime(ex: Ex, rv:
         return;
     }
     let (t, i) = cs.borrow().operation_time;
-    *rv = if (t, i) == (0, 0) { zval::null() } else { crate::bson::types::new_timestamp(i, t) };
+    zval::write(rv, if (t, i) == (0, 0) { zval::null() } else { crate::bson::types::new_timestamp(i, t) });
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getServer(ex: Ex, rv: *mut sys::zval) {
@@ -219,10 +215,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getServer(ex: Ex, rv: *mut s
         return;
     }
     let sid = cs.borrow().pinned_server_id;
-    *rv = match (sid, me(ex).client.clone()) {
+    zval::write(rv, match (sid, me(ex).client.clone()) {
         (0, _) | (_, None) => zval::null(),
         (s, Some(c)) => super::server::new_server(c, s),
-    };
+    });
 }
 
 /// phongo_transaction_options_to_zval
@@ -252,7 +248,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getTransactionOptions(ex: Ex
     if live(ex, "getTransactionOptions").is_none() || !call::none(ex) {
         return;
     }
-    *rv = txn_options_zval(me(ex));
+    zval::write(rv, txn_options_zval(me(ex)));
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getTransactionState(ex: Ex, rv: *mut sys::zval) {
@@ -261,7 +257,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getTransactionState(ex: Ex, 
         return;
     }
     let st = cs.borrow().txn_state;
-    *rv = zval::string(state_str(st).as_bytes());
+    zval::write(rv, zval::string(state_str(st).as_bytes()));
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_startTransaction(ex: Ex, _rv: *mut sys::zval) {
@@ -338,14 +334,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_endSession(ex: Ex, _rv: *mut
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_isDirty(ex: Ex, rv: *mut sys::zval) {
     let Some(cs) = live(ex, "isDirty") else { return };
     if call::none(ex) {
-        *rv = zval::bool(cs.borrow().dirty());
+        zval::write(rv, zval::bool(cs.borrow().dirty()));
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_isInTransaction(ex: Ex, rv: *mut sys::zval) {
     let Some(cs) = live(ex, "isInTransaction") else { return };
     if call::none(ex) {
-        *rv = zval::bool(cs.borrow().in_txn());
+        zval::write(rv, zval::bool(cs.borrow().in_txn()));
     }
 }
 

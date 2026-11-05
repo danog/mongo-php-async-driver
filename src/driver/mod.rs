@@ -92,7 +92,6 @@ pub unsafe fn throw_error(e: &Error, reply: Option<&[u8]>) {
         let st = crate::bson::decode::State::new(&tm);
         if let Some(mut z) = crate::bson::decode::to_zval(r, &st) {
             update_prop(ex, b"resultDocument", &mut z);
-            zval::dtor(&mut z);
         }
     } else {
         ex = throw_code(exception_ce(e), &e.message, e.code as i64);
@@ -153,7 +152,6 @@ unsafe fn add_error_labels(ex: *mut sys::zend_object, reply: &[u8]) {
     if n > 0 {
         update_prop(ex, b"errorLabels", &mut z);
     }
-    zval::dtor(&mut z);
 }
 
 /// PHONGO_BSON_INIT_DEBUG_STATE's type map: arrays everywhere.
@@ -183,7 +181,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_CommandException_getResult
     let o = call::this(ex);
     let mut tmp = zval::undef();
     let z = sys::zend_read_property((*o).ce, o, c"resultDocument".as_ptr(), 14, true, &mut tmp);
-    *rv = zval::copy(zval::deref(z));
+    zval::write(rv, zval::copy(zval::deref(z)));
 }
 
 /// zend_get_type_by_const(Z_TYPE_P(z))
@@ -199,7 +197,7 @@ pub unsafe fn type_by_const(z: *const sys::zval) -> String {
 /// arrays as stdClass / array).
 pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
     let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
-    let mut z = to_zval(doc, &tm)?;
+    let z = to_zval(doc, &tm)?;
     let mut r = None;
     if zval::is(&z, sys::IS_ARRAY) {
         crate::zend::hash::each(z.value.arr, true, |_, v| {
@@ -207,7 +205,6 @@ pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
             false
         });
     }
-    zval::dtor(&mut z);
     r
 }
 

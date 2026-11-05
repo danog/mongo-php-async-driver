@@ -48,9 +48,7 @@ pub fn unregister_manager(o: *mut sys::zend_object) {
 /// RSHUTDOWN: the global subscribers are released with the request.
 pub unsafe fn rshutdown() {
     let subs = GLOBAL.with(|g| std::mem::take(&mut *g.borrow_mut()));
-    for (_, mut z) in subs {
-        zval::dtor(&mut z);
-    }
+    drop(subs);
     update_count();
 }
 
@@ -65,8 +63,7 @@ pub unsafe fn add(list: &mut Subscribers, z: *mut sys::zval) {
 pub unsafe fn remove(list: &mut Subscribers, z: *mut sys::zval) {
     let h = (*(*z).value.obj).handle;
     if let Some(i) = list.iter().position(|(x, _)| *x == h) {
-        let (_, mut v) = list.remove(i);
-        zval::dtor(&mut v);
+        drop(list.remove(i));
     }
 }
 
@@ -95,9 +92,7 @@ pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(ex: Ex, 
         }
     });
     // the subscriber's destructor may run here: no registry borrow held
-    if let Some(mut v) = taken {
-        zval::dtor(&mut v);
-    }
+    drop(taken);
     update_count();
 }
 
@@ -147,9 +142,9 @@ pub unsafe fn flush(c: &ClientRef) {
 
 unsafe fn dispatch(c: &ClientRef, ev: Event) {
     let sub_ce = ce(c"mongodb\\driver\\monitoring\\commandsubscriber");
-    let mut subs = subscribers_for(c, sub_ce);
+    let subs = subscribers_for(c, sub_ce);
     if !subs.is_empty() {
-        let (method, mut z): (&CStr, sys::zval) = match ev {
+        let (method, z): (&CStr, sys::zval) = match ev {
             Event::CommandStarted { info, command } => (c"commandStarted", started_event(&info, &command)),
             Event::CommandSucceeded { info, duration_us, reply } => (c"commandSucceeded", succeeded_event(&info, duration_us, &reply)),
             Event::CommandFailed { info, duration_us, error, reply } => (c"commandFailed", failed_event(&info, duration_us, &error, &reply)),
@@ -159,20 +154,15 @@ unsafe fn dispatch(c: &ClientRef, ev: Event) {
                 break;
             }
             let mut arg = [zval::copy(&z)];
-            let mut r = call::method(s.value.obj, method, &mut arg);
-            zval::dtor(&mut arg[0]);
-            zval::dtor(&mut r);
+            drop(call::method(s.value.obj, method, &mut arg));
         }
-        zval::dtor(&mut z);
     }
-    for s in &mut subs {
-        zval::dtor(s);
-    }
+    // the event and the subscriber references are released here
 }
 
+/// zend_update_property (which copies `v`; our reference is released here).
 unsafe fn set(o: *mut sys::zend_object, name: &[u8], mut v: sys::zval) {
     sys::zend_update_property((*o).ce, o, name.as_ptr() as *const _, name.len(), &mut v);
-    zval::dtor(&mut v);
 }
 
 /// The fields every command event has (host, port, names, ids).
@@ -230,7 +220,6 @@ unsafe fn failed_event(info: &CommandInfo, duration_us: i64, error: &mongo_core:
     let exc = sys::zend_ce_exception;
     let mut m = zval::string(error.message.as_bytes());
     sys::zend_update_property(exc, eo, c"message".as_ptr(), 7, &mut m);
-    zval::dtor(&mut m);
     let mut code = zval::long(error.code as i64);
     sys::zend_update_property(exc, eo, c"code".as_ptr(), 4, &mut code);
     set(o, b"error", ze);
@@ -250,7 +239,7 @@ unsafe fn prop(ex: Ex, rv: *mut sys::zval, name: &CStr) {
     let o = call::this(ex);
     let mut tmp = zval::undef();
     let z = sys::zend_read_property((*o).ce, o, name.as_ptr(), name.to_bytes().len(), false, &mut tmp);
-    *rv = zval::copy(zval::deref(z));
+    zval::write(rv, zval::copy(zval::deref(z)));
 }
 
 unsafe fn private_ctor() {

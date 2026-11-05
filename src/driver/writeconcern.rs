@@ -51,7 +51,7 @@ unsafe fn update_properties(o: *mut sys::zend_object) {
     let wc = obj::data::<WriteConcern>(o).clone();
     let mut w = w_zval(&wc);
     sys::zend_update_property(CE, o, c"w".as_ptr(), 1, &mut w);
-    zval::dtor(&mut w);
+    drop(w);
     match wc.journal {
         Some(j) => sys::zend_update_property_bool(CE, o, c"j".as_ptr(), 1, j as i64),
         None => sys::zend_update_property_null(CE, o, c"j".as_ptr(), 1),
@@ -186,7 +186,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___set_state(ex: Ex, rv:
     }
     let z = obj::new_zval(CE);
     init_from_hash(z.value.obj, (*a).value.arr);
-    *rv = z;
+    zval::write(rv, z);
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___unserialize(ex: Ex, _rv: *mut sys::zval) {
@@ -204,22 +204,22 @@ unsafe fn me<'a>(ex: Ex) -> &'a WriteConcern {
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern_getW(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = w_zval(me(ex));
+        zval::write(rv, w_zval(me(ex)));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern_getWtimeout(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::long(me(ex).wtimeout);
+        zval::write(rv, zval::long(me(ex).wtimeout));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern_getJournal(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = me(ex).journal.map_or_else(zval::null, zval::bool);
+        zval::write(rv, me(ex).journal.map_or_else(zval::null, zval::bool));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern_isDefault(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::bool(me(ex).is_default);
+        zval::write(rv, zval::bool(me(ex).is_default));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern_bsonSerialize(ex: Ex, rv: *mut sys::zval) {
@@ -241,5 +241,5 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern_bsonSerialize(ex: Ex, r
     }
     let mut z = zval::arr(ht);
     sys::convert_to_object(&mut z);
-    *rv = z;
+    zval::write(rv, z);
 }

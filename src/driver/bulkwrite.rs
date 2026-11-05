@@ -47,16 +47,6 @@ impl Default for BulkWrite {
     }
 }
 
-impl Drop for BulkWrite {
-    fn drop(&mut self) {
-        unsafe {
-            if !zval::is(&self.session, sys::IS_UNDEF) {
-                zval::dtor(&mut self.session);
-            }
-        }
-    }
-}
-
 cls!(BulkWrite, H_BULKWRITE);
 
 impl Cls for BulkWrite {
@@ -185,13 +175,12 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWrite_insert(ex: Ex, rv: *mut sy
     b.num_ops += 1;
     // phongo_bulkwrite_extract_id: decode {_id: ...} with an array root
     let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
-    if let Some(mut z) = super::to_zval(&id, &tm) {
+    if let Some(z) = super::to_zval(&id, &tm) {
         if zval::is(&z, sys::IS_ARRAY) {
             if let Some(v) = hash::find(z.value.arr, b"_id") {
-                *rv = zval::copy(v);
+                zval::write(rv, zval::copy(v));
             }
         }
-        zval::dtor(&mut z);
     }
 }
 
@@ -328,7 +317,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWrite_delete(ex: Ex, _rv: *mut s
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWrite_count(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::long(me(ex).num_ops);
+        zval::write(rv, zval::long(me(ex).num_ops));
     }
 }
 

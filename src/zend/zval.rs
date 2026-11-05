@@ -162,13 +162,6 @@ pub unsafe fn borrowed_obj(o: *mut sys::zend_object) -> ManuallyDrop<sys::zval> 
     ManuallyDrop::new(obj(o))
 }
 
-/// Transitional: zval_ptr_dtor that leaves the zval UNDEF, so the owned value's own Drop is a
-/// no-op afterwards (removed once every module follows the ownership rules above).
-#[inline]
-pub unsafe fn dtor(z: *mut sys::zval) {
-    release(z);
-}
-
 /// zval_ptr_dtor on an engine-owned slot, which is left UNDEF (so nothing can release it again).
 #[inline]
 pub unsafe fn release(z: *mut sys::zval) {

@@ -76,14 +76,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server___construct(_ex: Ex, _rv: *mu
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getHost(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(d) = sd(ex) {
-            *rv = zval::string(host_port(&d.addr).0.as_bytes());
+            zval::write(rv, zval::string(host_port(&d.addr).0.as_bytes()));
         }
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getPort(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(d) = sd(ex) {
-            *rv = zval::long(host_port(&d.addr).1);
+            zval::write(rv, zval::long(host_port(&d.addr).1));
         }
     }
 }
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getInfo(ex: Ex, rv: *mut sys:
     if call::none(ex) {
         if let Some(d) = sd(ex) {
             if let Some(z) = super::to_zval(&d.hello, &super::debug_typemap()) {
-                *rv = z;
+                zval::write(rv, z);
             }
         }
     }
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getInfo(ex: Ex, rv: *mut sys:
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getLatency(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(d) = sd(ex) {
-            *rv = if d.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(d.rtt_ms) };
+            zval::write(rv, if d.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(d.rtt_ms) });
         }
     }
 }
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getTags(ex: Ex, rv: *mut sys:
     if call::none(ex) {
         if let Some(d) = sd(ex) {
             if let Some(z) = super::to_zval(&d.tags, &super::debug_typemap()) {
-                *rv = z;
+                zval::write(rv, z);
             }
         }
     }
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getTags(ex: Ex, rv: *mut sys:
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getType(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(d) = sd(ex) {
-            *rv = zval::long(d.ty as i64);
+            zval::write(rv, zval::long(d.ty as i64));
         }
     }
 }
@@ -124,7 +124,7 @@ macro_rules! is_type {
         pub unsafe extern "C" fn $f(ex: Ex, rv: *mut sys::zval) {
             if call::none(ex) {
                 if let Some(d) = sd(ex) {
-                    *rv = zval::bool(d.ty == $t);
+                    zval::write(rv, zval::bool(d.ty == $t));
                 }
             }
         }
@@ -136,14 +136,14 @@ is_type!(zim_MongoDB_Driver_Server_isArbiter, ServerType::RsArbiter);
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_isHidden(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(d) = sd(ex) {
-            *rv = zval::bool(hello_flag(&d, b"hidden"));
+            zval::write(rv, zval::bool(hello_flag(&d, b"hidden")));
         }
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_isPassive(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(d) = sd(ex) {
-            *rv = zval::bool(hello_flag(&d, b"passive"));
+            zval::write(rv, zval::bool(hello_flag(&d, b"passive")));
         }
     }
 }

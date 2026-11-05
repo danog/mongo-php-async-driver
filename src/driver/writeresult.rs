@@ -54,9 +54,9 @@ impl WriteResult {
     }
 }
 
+/// zend_update_property (which copies `v`; our reference is released here).
 unsafe fn set_prop(ce: *mut sys::zend_class_entry, o: *mut sys::zend_object, name: &str, mut v: sys::zval) {
     sys::zend_update_property(ce, o, name.as_ptr() as *const _, name.len(), &mut v);
-    zval::dtor(&mut v);
 }
 
 /// phongo_writeerror_init / phongo_writeconcernerror_init: an object of `ce` from `doc`
@@ -77,11 +77,7 @@ pub unsafe fn error_object(ce: *mut sys::zend_class_entry, doc: &[u8], with_inde
     match info {
         Some(d) => match super::to_zval(&d, &Default::default()) {
             Some(i) => set_prop(ce, o, "info", i),
-            None => {
-                let mut z = z;
-                zval::dtor(&mut z);
-                return None;
-            }
+            None => return None,
         },
         None => set_prop(ce, o, "info", zval::null()),
     }
@@ -126,14 +122,11 @@ unsafe fn write_concern_error(w: &WriteResult) -> Option<sys::zval> {
 
 unsafe fn write_errors(w: &WriteResult) -> Option<sys::zval> {
     let ht = hash::new(0);
-    let mut z = zval::arr(ht);
+    let z = zval::arr(ht);
     for d in docs(&w.reply, b"writeErrors") {
         match error_object(writeerror_ce(), d, true, 0) {
             Some(e) => hash::push(ht, e),
-            None => {
-                zval::dtor(&mut z);
-                return None;
-            }
+            None => return None,
         }
     }
     Some(z)
@@ -155,15 +148,14 @@ unsafe fn upserted_ids(w: &WriteResult) -> sys::zval {
         let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
         let mut st = crate::bson::decode::State::new(&tm);
         st.skip_odm = true;
-        if let Some(mut z) = crate::bson::decode::to_zval(d, &st) {
+        if let Some(z) = crate::bson::decode::to_zval(d, &st) {
             if zval::is(&z, sys::IS_ARRAY) {
                 let id = hash::find(z.value.arr, b"_id");
                 let idx = hash::find(z.value.arr, b"index").map_or(0, |i| sys::zval_get_long_func(i, false));
                 if let Some(id) = id {
-                    sys::zend_hash_index_update(ht, idx as u64, &mut zval::copy(id));
+                    hash::index_update(ht, idx as u64, zval::copy(id));
                 }
             }
-            zval::dtor(&mut z);
         }
     }
     zval::arr(ht)
@@ -221,7 +213,7 @@ macro_rules! count {
             if !w.acknowledged() {
                 throw(E::Logic, concat!("MongoDB\\Driver\\WriteResult::", $name, "() should not be called for an unacknowledged write result"));
             }
-            *rv = zval::long(int32(&w.reply, $field).unwrap_or(0));
+            zval::write(rv, zval::long(int32(&w.reply, $field).unwrap_or(0)));
         }
     };
 }
@@ -233,7 +225,7 @@ count!(zim_MongoDB_Driver_WriteResult_getUpsertedCount, "getUpsertedCount", b"nU
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getServer(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = server_zval(me(ex));
+        zval::write(rv, server_zval(me(ex)));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getUpsertedIds(ex: Ex, rv: *mut sys::zval) {
@@ -244,28 +236,28 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getUpsertedIds(ex: Ex, r
     if !w.acknowledged() {
         throw(E::Logic, "MongoDB\\Driver\\WriteResult::getUpsertedIds() should not be called for an unacknowledged write result");
     }
-    *rv = upserted_ids(w);
+    zval::write(rv, upserted_ids(w));
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteConcernError(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = write_concern_error(me(ex)).unwrap_or_else(zval::null);
+        zval::write(rv, write_concern_error(me(ex)).unwrap_or_else(zval::null));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteErrors(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         if let Some(z) = write_errors(me(ex)) {
-            *rv = z;
+            zval::write(rv, z);
         }
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getErrorReplies(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = error_replies(me(ex));
+        zval::write(rv, error_replies(me(ex)));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_isAcknowledged(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::bool(me(ex).acknowledged());
+        zval::write(rv, zval::bool(me(ex).acknowledged()));
     }
 }
 
@@ -277,7 +269,7 @@ unsafe fn prop_getter(ex: Ex, rv: *mut sys::zval, name: &str) {
     let o = call::this(ex);
     let mut tmp = zval::undef();
     let z = sys::zend_read_property((*o).ce, o, name.as_ptr() as *const _, name.len(), true, &mut tmp);
-    *rv = zval::copy(zval::deref(z));
+    zval::write(rv, zval::copy(zval::deref(z)));
 }
 
 macro_rules! getter {
@@ -323,5 +315,5 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_RuntimeException_hasErrorL
             true
         });
     }
-    *rv = zval::bool(found);
+    zval::write(rv, zval::bool(found));
 }

@@ -131,10 +131,7 @@ unsafe fn update_properties(o: *mut sys::zend_object) {
         let mut st = crate::bson::decode::State::new(&tm);
         st.is_visiting_array = false;
         match crate::bson::decode::to_zval(&rp.tags, &st) {
-            Some(mut z) => {
-                sys::zend_update_property(CE, o, c"tags".as_ptr(), 4, &mut z);
-                zval::dtor(&mut z);
-            }
+            Some(mut z) => sys::zend_update_property(CE, o, c"tags".as_ptr(), 4, &mut z),
             None => return,
         }
     } else {
@@ -142,10 +139,7 @@ unsafe fn update_properties(o: *mut sys::zend_object) {
     }
     match rp.hedge.filter(|h| h.len() > 5) {
         Some(h) => match super::to_zval(&h, &Default::default()) {
-            Some(mut z) => {
-                sys::zend_update_property(CE, o, c"hedge".as_ptr(), 5, &mut z);
-                zval::dtor(&mut z);
-            }
+            Some(mut z) => sys::zend_update_property(CE, o, c"hedge".as_ptr(), 5, &mut z),
             None => (),
         },
         None => sys::zend_update_property_null(CE, o, c"hedge".as_ptr(), 5),
@@ -163,17 +157,13 @@ unsafe fn tags_bson(z: *mut sys::zval) -> Option<Vec<u8>> {
             sys::convert_to_object(&mut c);
         }
         match k {
-            hash::Key::Index(i) => {
-                sys::zend_hash_index_update(copy, i, &mut c);
-            }
+            hash::Key::Index(i) => hash::index_update(copy, i, c),
             hash::Key::Str(s) => hash::str_update(copy, zstr::bytes(s), c),
         }
         true
     });
     let mut cz = zval::arr(copy);
-    let r = crate::bson::encode::to_bson(&mut cz, crate::bson::encode::NONE);
-    zval::dtor(&mut cz);
-    r
+    crate::bson::encode::to_bson(&mut cz, crate::bson::encode::NONE)
 }
 
 /// phongo_read_preference_tags_are_valid
@@ -348,9 +338,9 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference___set_state(ex: Ex, r
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let mut z = obj::new_zval(CE);
+    let z = obj::new_zval(CE);
     init_from_hash(z.value.obj, (*a).value.arr);
-    *rv = std::mem::replace(&mut z, zval::undef());
+    zval::write(rv, z);
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference___unserialize(ex: Ex, _rv: *mut sys::zval) {
@@ -368,20 +358,20 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut ReadPreference {
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_getHedge(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = match me(ex).hedge.clone().filter(|h| h.len() > 5) {
+        zval::write(rv, match me(ex).hedge.clone().filter(|h| h.len() > 5) {
             Some(h) => super::to_zval(&h, &Default::default()).unwrap_or_else(zval::null),
             None => zval::null(),
-        };
+        });
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_getMaxStalenessSeconds(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::long(me(ex).max_staleness_seconds);
+        zval::write(rv, zval::long(me(ex).max_staleness_seconds));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_getModeString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::string(mode_str(me(ex).mode).as_bytes());
+        zval::write(rv, zval::string(mode_str(me(ex).mode).as_bytes()));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_getTagSets(ex: Ex, rv: *mut sys::zval) {
@@ -390,7 +380,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_getTagSets(ex: Ex, rv
         let tm = super::debug_typemap();
         let mut st = crate::bson::decode::State::new(&tm);
         st.is_visiting_array = true;
-        *rv = if tags.len() > 5 { crate::bson::decode::to_zval(&tags, &st).unwrap_or_else(zval::null) } else { zval::empty_array() };
+        zval::write(rv, if tags.len() > 5 { crate::bson::decode::to_zval(&tags, &st).unwrap_or_else(zval::null) } else { zval::empty_array() });
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_bsonSerialize(ex: Ex, rv: *mut sys::zval) {
@@ -411,5 +401,5 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference_bsonSerialize(ex: Ex,
     });
     let mut z = zval::arr(ht);
     sys::convert_to_object(&mut z);
-    *rv = z;
+    zval::write(rv, z);
 }

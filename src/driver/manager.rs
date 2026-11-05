@@ -39,11 +39,8 @@ unsafe extern "C" fn free(o: *mut sys::zend_object) {
         }
     }
     super::apm::unregister_manager(o);
-    let m = obj::data::<Manager>(o);
-    for (_, z) in m.subscribers.iter_mut() {
-        zval::dtor(z);
-    }
-    m.subscribers.clear();
+    // the subscriber references are released before the Manager's state is freed
+    drop(std::mem::take(&mut obj::data::<Manager>(o).subscribers));
     obj::free::<Manager>(o);
 }
 
@@ -513,7 +510,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     if let Some(r) = &rp {
         c.zread_preference = super::readpref::new_readpreference(r.clone());
     }
-    *rv = super::cursor::new_cursor(c);
+    zval::write(rv, super::cursor::new_cursor(c));
 }
 
 
@@ -581,7 +578,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
     let prefs = rp.prefs();
     let r = c.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]);
     match r {
-        Ok((id, _)) => *rv = super::server::new_server(c, id),
+        Ok((id, _)) => zval::write(rv, super::server::new_server(c, id)),
         Err(e) => super::throw_error(&e, None),
     }
 }
@@ -597,7 +594,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getServers(ex: Ex, rv: *mut 
             hash::push(ht, super::server::new_server(c.clone(), id));
         }
     }
-    *rv = zval::arr(ht);
+    zval::write(rv, zval::arr(ht));
 }
 
 #[allow(dead_code)]
@@ -611,7 +608,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadPreference(ex: Ex, rv
     }
     if let Some(c) = client_of(ex) {
         let rp = client_read_preference(&c.borrow().uri);
-        *rv = super::readpref::new_readpreference(rp);
+        zval::write(rv, super::readpref::new_readpreference(rp));
     }
 }
 
@@ -659,7 +656,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
     match r {
         Ok(cs) => {
             let drp = rp.unwrap_or_else(|| client_read_preference(&c.borrow().uri));
-            *rv = super::session::new_session(c.clone(), cs, drp);
+            zval::write(rv, super::session::new_session(c.clone(), cs, drp));
         }
         Err(e) => super::throw_error(&e, None),
     }
@@ -671,7 +668,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getWriteConcern(ex: Ex, rv: 
     }
     if let Some(c) = client_of(ex) {
         let wc = super::writeconcern::WriteConcern::from_uri(&c.borrow().uri);
-        *rv = super::writeconcern::new_writeconcern(wc);
+        zval::write(rv, super::writeconcern::new_writeconcern(wc));
     }
 }
 
@@ -736,7 +733,7 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     bw.executed = true;
     super::apm::flush(&client);
     let result = super::writeresult::new_writeresult(reply.clone(), client.clone(), bw.bulk.server_id, wc);
-    *rv = result;
+    zval::write(rv, result);
     if ok {
         return;
     }
@@ -872,7 +869,7 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
     if let Some(r) = &rp {
         c.zread_preference = super::readpref::new_readpreference(r.clone());
     }
-    *rv = super::cursor::new_cursor(c);
+    zval::write(rv, super::cursor::new_cursor(c));
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeQuery(ex: Ex, rv: *mut sys::zval) {
@@ -886,7 +883,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadConcern(ex: Ex, rv: *
     }
     if let Some(c) = client_of(ex) {
         let rc = mongo_core::concern::ReadConcern::from_uri(&c.borrow().uri);
-        *rv = super::readconcern::new_readconcern(rc);
+        zval::write(rv, super::readconcern::new_readconcern(rc));
     }
 }
 

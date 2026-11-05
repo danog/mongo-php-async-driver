@@ -127,13 +127,9 @@ impl Drop for Cursor {
             }
             unsafe { super::apm::flush(&c) };
         }
-        unsafe {
-            for z in [&mut self.session, &mut self.zquery, &mut self.zcommand, &mut self.zread_preference] {
-                if !zval::is(z, sys::IS_UNDEF) {
-                    zval::dtor(z);
-                    *z = zval::undef();
-                }
-            }
+        // the PHP values are released here, in phongo_cursor_free's order (assigning drops the old)
+        for z in [&mut self.session, &mut self.zquery, &mut self.zcommand, &mut self.zread_preference] {
+            *z = zval::undef();
         }
     }
 }
@@ -247,10 +243,8 @@ impl Cursor {
     }
 
     unsafe fn free_current(&mut self) {
-        if !zval::is(&self.zchild, sys::IS_UNDEF) {
-            zval::dtor(&mut self.zchild);
-            self.zchild = zval::undef();
-        }
+        // releases the old value
+        self.zchild = zval::undef();
     }
 
     /// mongoc_cursor_more
@@ -464,7 +458,6 @@ impl Cursor {
     /// phongo_cursor_free_session_if_exhausted
     unsafe fn free_session_if_exhausted(&mut self) {
         if self.id == 0 && !zval::is(&self.session, sys::IS_UNDEF) {
-            zval::dtor(&mut self.session);
             self.session = zval::undef();
         }
     }
@@ -529,14 +522,15 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_toArray(ex: Ex, rv: *mut sys:
     }
     let ht = hash::new(0);
     let mut out = zval::arr(ht);
-    let mut this = zval::obj(call::this(ex));
-    let r = sys::spl_iterator_apply(&mut this, Some(to_array_apply), &mut out as *mut _ as *mut std::ffi::c_void);
+    // $this, borrowed (no reference of ours)
+    let mut this = zval::borrowed_obj(call::this(ex));
+    let r = sys::spl_iterator_apply(&mut *this, Some(to_array_apply), &mut out as *mut _ as *mut std::ffi::c_void);
     if r != 0 {
-        zval::dtor(&mut out);
-        *rv = zval::null();
+        drop(out);
+        zval::write(rv, zval::null());
         return;
     }
-    *rv = out;
+    zval::write(rv, out);
 }
 
 unsafe extern "C" fn to_array_apply(iter: *mut sys::zend_object_iterator, puser: *mut std::ffi::c_void) -> i32 {
@@ -551,7 +545,7 @@ unsafe extern "C" fn to_array_apply(iter: *mut sys::zend_object_iterator, puser:
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_getId(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = crate::bson::types::new_int64(me(ex).id);
+        zval::write(rv, crate::bson::types::new_int64(me(ex).id));
     }
 }
 
@@ -559,28 +553,28 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_getServer(ex: Ex, rv: *mut sy
     if call::none(ex) {
         let c = me(ex);
         if let Some(cl) = &c.client {
-            *rv = super::server::new_server(cl.clone(), c.server_id);
+            zval::write(rv, super::server::new_server(cl.clone(), c.server_id));
         }
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_isDead(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::bool(!me(ex).more());
+        zval::write(rv, zval::bool(!me(ex).more()));
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_current(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let c = me(ex);
-        *rv = if zval::is(&c.zchild, sys::IS_UNDEF) { zval::null() } else { zval::copy(zval::deref(&mut c.zchild)) };
+        zval::write(rv, if zval::is(&c.zchild, sys::IS_UNDEF) { zval::null() } else { zval::copy(zval::deref(&mut c.zchild)) });
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_key(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let c = me(ex);
-        *rv = if zval::is(&c.zchild, sys::IS_UNDEF) { zval::null() } else { zval::long(c.current) };
+        zval::write(rv, if zval::is(&c.zchild, sys::IS_UNDEF) { zval::null() } else { zval::long(c.current) });
     }
 }
 
@@ -605,7 +599,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_next(ex: Ex, _rv: *mut sys::z
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_valid(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        *rv = zval::bool(!zval::is(&me(ex).zchild, sys::IS_UNDEF));
+        zval::write(rv, zval::bool(!zval::is(&me(ex).zchild, sys::IS_UNDEF)));
     }
 }
 
