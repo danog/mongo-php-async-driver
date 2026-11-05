@@ -401,50 +401,102 @@ pub fn is_secret_option(key: &str) -> bool {
 
 /// A URI string with its secrets replaced by REDACTED, for debug output and error messages:
 /// the password (the username is kept), the secret options and an authMechanismProperties
-/// value with any secret property. Works on any string, also one that does not parse: the
-/// userinfo is everything before the last '@' (a valid URI has at most one), so a password
-/// with unescaped characters is hidden too.
+/// value with any secret property.
+///
+/// A URI that parses is split exactly as the parser splits it (mongoc-uri.c: the userinfo
+/// ends at the first '@', the query starts at the first '?' after the host list). One that
+/// does not parse is redacted conservatively: first every secret option value wherever an
+/// option starts ('?' or '&', a value may contain '@'), then everything before the last '@' is
+/// taken as the userinfo, so a password with unescaped characters is hidden too.
 pub fn redact(s: &str) -> String {
     let (scheme, rest) = match s.find("://") {
         Some(p) => s.split_at(p + 3),
         None => ("", s),
     };
-    let mut out = String::with_capacity(s.len());
+    let mut out = String::with_capacity(s.len() + 8);
     out.push_str(scheme);
-    let rest = match rest.rfind('@') {
-        Some(at) => {
-            let userinfo = &rest[..at];
-            match userinfo.split_once(':') {
-                Some((user, _)) => {
-                    out.push_str(user);
-                    out.push(':');
-                    out.push_str(REDACTED);
+    if Uri::parse(s).is_ok() {
+        let (userinfo, after) = match rest.find('@') {
+            Some(at) => (Some(&rest[..at]), &rest[at + 1..]),
+            None => (None, rest),
+        };
+        if let Some(u) = userinfo {
+            push_userinfo(&mut out, u);
+        }
+        match after.split_once('?') {
+            Some((before, query)) => {
+                out.push_str(before);
+                out.push('?');
+                for (n, entry) in query.split('&').enumerate() {
+                    if n > 0 {
+                        out.push('&');
+                    }
+                    match entry.split_once('=') {
+                        Some((k, v)) if secret_value(k, v) => {
+                            out.push_str(k);
+                            out.push('=');
+                            out.push_str(REDACTED);
+                        }
+                        _ => out.push_str(entry),
+                    }
                 }
-                None => out.push_str(userinfo),
             }
-            out.push('@');
-            &rest[at + 1..]
+            None => out.push_str(after),
         }
-        None => rest,
-    };
-    let Some((before, query)) = rest.split_once('?') else {
-        out.push_str(rest);
         return out;
-    };
-    out.push_str(before);
-    out.push('?');
-    for (n, entry) in query.split('&').enumerate() {
-        if n > 0 {
-            out.push('&');
+    }
+    let text = redact_option_values(rest);
+    match text.rfind('@') {
+        Some(at) => {
+            push_userinfo(&mut out, &text[..at]);
+            out.push_str(&text[at + 1..]);
         }
-        match entry.split_once('=') {
-            Some((k, v)) if is_secret_option(k) || (k.eq_ignore_ascii_case("authmechanismproperties") && !public_properties(v)) => {
-                out.push_str(k);
-                out.push('=');
-                out.push_str(if v.is_empty() { "" } else { REDACTED });
+        None => out.push_str(&text),
+    }
+    out
+}
+
+/// Appends "user:REDACTED@" (or "user@" without a password).
+fn push_userinfo(out: &mut String, userinfo: &str) {
+    match userinfo.split_once(':') {
+        Some((user, _)) => {
+            out.push_str(user);
+            out.push(':');
+            out.push_str(REDACTED);
+        }
+        None => out.push_str(userinfo),
+    }
+    out.push('@');
+}
+
+/// Whether the value `v` of the URI option `k` is a secret.
+fn secret_value(k: &str, v: &str) -> bool {
+    !v.is_empty() && (is_secret_option(k) || (k.eq_ignore_ascii_case("authmechanismproperties") && !public_properties(v)))
+}
+
+/// Replaces the values of the secret options anywhere an option may start ('?' or '&') up to
+/// the next '&'.
+fn redact_option_values(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let b = s.as_bytes();
+    while i < s.len() {
+        let at_option = i > 0 && matches!(b[i - 1], b'?' | b'&');
+        if at_option {
+            let entry_end = s[i..].find('&').map_or(s.len(), |e| i + e);
+            if let Some((k, v)) = s[i..entry_end].split_once('=') {
+                if secret_value(k, v) {
+                    out.push_str(k);
+                    out.push('=');
+                    out.push_str(REDACTED);
+                    i = entry_end;
+                    continue;
+                }
             }
-            _ => out.push_str(entry),
         }
+        let c = s[i..].chars().next().expect("in bounds");
+        out.push(c);
+        i += c.len_utf8();
     }
     out
 }
@@ -527,6 +579,12 @@ impl Uri {
         };
         if hostinfo.starts_with('@') {
             return Err(format!("Invalid username or password. {ESCAPE_INSTRUCTIONS}"));
+        }
+        // safety: an unescaped '@' in the userinfo leaves part of the password in the host list
+        // (libmongoc then resolves it as a host name and shows it in errors and descriptions)
+        if hostinfo.contains('@') {
+            let what = if authority.split_once('@').is_some_and(|(u, _)| u.contains(':')) { "Password" } else { "Username" };
+            return Err(format!("{what} must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"));
         }
         if self.is_srv {
             self.parse_srv_hostname(hostinfo)
@@ -712,6 +770,118 @@ impl Uri {
         match self.options.get_mut(option) {
             Some(v) => *v = OptVal::Bool(value),
             None => self.options.0.push((option.to_ascii_lowercase(), OptVal::Bool(value))),
+        }
+    }
+
+    /// mongoc_uri_set_option_as_bool
+    pub fn set_option_as_bool(&mut self, key: &str, value: bool) -> bool {
+        let o = canonicalize(key);
+        if !option_is_bool(o) {
+            return false;
+        }
+        match self.options.get_mut(o) {
+            Some(OptVal::Bool(b)) => *b = value,
+            Some(_) => return false,
+            None => self.options.0.push((o.to_ascii_lowercase(), OptVal::Bool(value))),
+        }
+        true
+    }
+
+    /// mongoc_uri_set_option_as_int32 (its failures are logged as warnings)
+    pub fn set_option_as_int32(&mut self, key: &str, value: i32) -> bool {
+        if option_is_int64(key) {
+            return self.set_option_as_int64(key, i64::from(value));
+        }
+        let o = canonicalize(key);
+        if !option_is_int32(o) {
+            self.warn(format!("Unsupported value for \"{key}\": {value}, \"{o}\" is not an int32 option"));
+            return false;
+        }
+        match self.set_int32(key, value) {
+            Ok(()) => true,
+            Err(e) => {
+                self.warn(e);
+                false
+            }
+        }
+    }
+
+    /// mongoc_uri_set_option_as_int64
+    pub fn set_option_as_int64(&mut self, key: &str, value: i64) -> bool {
+        let o = canonicalize(key);
+        if !option_is_int64(o) && option_is_int32(key) {
+            return match i32::try_from(value) {
+                Ok(v) => {
+                    self.warn(format!("Setting value for 32-bit option \"{key}\" through 64-bit method"));
+                    self.set_option_as_int32(key, v)
+                }
+                Err(_) => {
+                    self.warn(format!("Unsupported value for \"{key}\": {value}, \"{o}\" is not an int64 option"));
+                    false
+                }
+            };
+        }
+        match self.set_int64(key, value) {
+            Ok(()) => true,
+            Err(e) => {
+                self.warn(e);
+                false
+            }
+        }
+    }
+
+    /// mongoc_uri_set_option_as_utf8 (appname: at most 128 bytes; serverMonitoringMode: stream,
+    /// poll or auto)
+    pub fn set_option_as_utf8(&mut self, key: &str, value: &str) -> bool {
+        let o = canonicalize(key);
+        if !option_is_utf8(o) {
+            return false;
+        }
+        if o.eq_ignore_ascii_case("appname") && value.len() > APPNAME_MAX {
+            return false;
+        }
+        if o.eq_ignore_ascii_case("servermonitoringmode") && !["stream", "poll", "auto"].contains(&value) {
+            return false;
+        }
+        self.options.upsert(o, OptVal::Str(value.to_owned()));
+        true
+    }
+
+    /// mongoc_uri_set_username / set_password
+    pub fn set_username(&mut self, v: &str) {
+        self.username = Some(v.to_owned());
+    }
+    pub fn set_password(&mut self, v: &str) {
+        self.password = Some(v.to_owned());
+    }
+    /// mongoc_uri_set_auth_mechanism / set_auth_source
+    pub fn set_auth_mechanism(&mut self, v: &str) {
+        self.credentials.upsert("authmechanism", OptVal::Str(v.to_owned()));
+    }
+    pub fn set_auth_source(&mut self, v: &str) {
+        self.credentials.upsert("authsource", OptVal::Str(v.to_owned()));
+    }
+    /// mongoc_uri_set_mechanism_properties
+    pub fn set_mechanism_properties_pub(&mut self, props: Vec<(String, String)>) {
+        self.set_mechanism_properties(props);
+    }
+    /// Whether authMechanismProperties are set (mongoc_uri_get_mechanism_properties).
+    pub fn has_mechanism_properties(&self) -> bool {
+        self.credentials.has("authmechanismproperties")
+    }
+
+    /// mongoc_uri_set_compressors: the supported ones of a comma-separated list (others are
+    /// warned about).
+    pub fn set_compressors(&mut self, value: &str) {
+        self.compressors.clear();
+        for c in value.split(',').filter(|c| !c.is_empty()) {
+            if ["snappy", "zlib", "zstd"].iter().any(|s| s.eq_ignore_ascii_case(c)) {
+                let lc = c.to_ascii_lowercase();
+                self.compressors.retain(|x| *x != lc);
+                self.compressors.push(lc);
+            } else {
+                self.warn(format!("Unsupported compressor: '{c}'"));
+            }
         }
     }
 
@@ -919,7 +1089,9 @@ impl Uri {
         Ok(())
     }
 
-    fn finalize(&mut self) -> R<()> {
+    /// mongoc_uri_finalize: libmongoc runs it again when it creates the topology, after phongo
+    /// applied the Manager's options.
+    pub fn finalize(&mut self) -> R<()> {
         self.finalize_tls()?;
         self.finalize_auth()?;
         if self.get_bool("directconnection", false) {
@@ -1250,18 +1422,31 @@ mod redact_tests {
         let cases = [
             ("mongodb://u:secret@h/db?appname=x", "mongodb://u:******@h/db?appname=x"),
             ("mongodb://u@h/", "mongodb://u@h/"),
+            ("mongodb://u:@h/", "mongodb://u:******@h/"),
             ("mongodb://h:27017/?replicaSet=rs0", "mongodb://h:27017/?replicaSet=rs0"),
-            ("mongodb://u:p@ss@h/", "mongodb://u:******@h/"),
-            ("mongodb://u:p/ss@h/", "mongodb://u:******@h/"),
-            ("mongodb+srv://u:%40x@c.example.com/", "mongodb+srv://u:******@c.example.com/"),
-            ("mongodb://h/?tlsCertificateKeyFilePassword=pw&tls=true", "mongodb://h/?tlsCertificateKeyFilePassword=******&tls=true"),
-            ("mongodb://h/?sslClientCertificateKeyPassword=pw", "mongodb://h/?sslClientCertificateKeyPassword=******"),
+            // '@' percent-encoded in the password
+            ("mongodb://u:p%40ss@h/", "mongodb://u:******@h/"),
+            // '@' in appname (valid with a userinfo: the parser splits at the first '@')
+            ("mongodb://u:pass@h/?appname=a@b", "mongodb://u:******@h/?appname=a@b"),
+            ("mongodb://u:p?ss@h/?appname=a@b", "mongodb://u:******@h/?appname=a@b"),
+            // '@' in a secret mechanism property
             (
-                "mongodb://k:s@h/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:tok",
+                "mongodb://k:pass@h/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:x@y",
                 "mongodb://k:******@h/?authMechanism=MONGODB-AWS&authMechanismProperties=******",
             ),
             ("mongodb://h/?authMechanismProperties=AWS_SESSION_TOKEN%3Atok", "mongodb://h/?authMechanismProperties=******"),
             ("mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true", "mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true"),
+            // several hosts, IPv6
+            ("mongodb://u:pw@h1:1,h2,[::1]:27017/?replicaSet=rs", "mongodb://u:******@h1:1,h2,[::1]:27017/?replicaSet=rs"),
+            ("mongodb://u:pw@[fe80::1]/admin", "mongodb://u:******@[fe80::1]/admin"),
+            ("mongodb+srv://u:%40x@c.example.com/", "mongodb+srv://u:******@c.example.com/"),
+            ("mongodb://h/?tlsCertificateKeyFilePassword=pw&tls=true", "mongodb://h/?tlsCertificateKeyFilePassword=******&tls=true"),
+            ("mongodb://h/?sslClientCertificateKeyPassword=pw", "mongodb://h/?sslClientCertificateKeyPassword=******"),
+            // not parseable: conservative
+            ("mongodb://u:p@ss@h/", "mongodb://u:******@h/"),
+            ("mongodb://u:p/ss@h/", "mongodb://u:******@h/"),
+            ("mongodb://u:pass@h/?tlsCertificateKeyFilePassword=a@b&w=bogus", "mongodb://u:******@h/?tlsCertificateKeyFilePassword=******&w=bogus"),
+            ("mongodb://u:pass@h/?authMechanismProperties=AWS_SESSION_TOKEN:x@y&w=-5", "mongodb://u:******@h/?authMechanismProperties=******&w=-5"),
             ("not a uri u:pw@x", "not a uri u:******@x"),
         ];
         for (i, o) in cases {
@@ -1269,7 +1454,16 @@ mod redact_tests {
         }
         let u = Uri::parse("mongodb://u:secret@h/").unwrap();
         assert!(!format!("{u:?}").contains("secret"));
-        let e = Uri::parse("mongodb://h/?tlsCertificateKeyFilePassword=ab%2").unwrap_err();
-        assert!(!e.contains("%2"), "{e}");
+        // parser errors never quote a secret value
+        for bad in [
+            "mongodb://h/?tlsCertificateKeyFilePassword=s3cr3t%2",
+            "mongodb://h/?sslClientCertificateKeyPassword=s3cr3t%zz",
+            "mongodb://k@h/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:s3cr3t%2",
+            "mongodb://u:s3c@r3t@h/",
+            "mongodb://u:s3c/r3t@h/",
+        ] {
+            let e = Uri::parse(bad).unwrap_err();
+            assert!(!e.contains("s3c") && !e.contains("r3t"), "{bad}: {e}");
+        }
     }
 }
