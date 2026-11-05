@@ -70,3 +70,12 @@ Not applicable:
 | mongo-rust-driver tests of its public async API, tokio runtime, `Client`/`Collection` builders, sync wrapper | they test the Rust crate's API, which this extension does not have |
 | SDAM monitoring with streaming hello / RTT monitor threads, CMAP background thread (minPoolSize maintenance, pool paused/ready events) | ext-mongodb uses libmongoc's single-threaded client (no monitoring threads, no CMAP pool); this extension follows it |
 | CSOT (client-side operations timeout) spec tests | not supported by ext-mongodb 2.5.6 either |
+
+## Local tests (tests/local) and deliberate divergences
+
+- `tests/local/bson-null-offset-001.phpt`: `$doc[]['a'] = 1` on a Document or PackedArray makes
+  ext-mongodb 2.5.6 dereference a NULL offset (crash). This driver throws the LogicException that
+  phongo throws for writes instead. Expected to fail (crash) with the reference build.
+- `tests/local/bson-reinit-001.phpt`: re-initialising a live Document/PackedArray/Javascript keeps the
+  old bytes alive for iterators and re-entered decodes (phongo leaks them; this driver frees them
+  with the object). Same output as the reference build.

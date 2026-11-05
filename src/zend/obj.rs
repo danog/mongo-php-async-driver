@@ -18,14 +18,16 @@ pub const fn offset<T>() -> usize {
 
 /// zend_object_properties_size
 #[inline]
-unsafe fn props_size(ce: *const sys::zend_class_entry) -> usize {
+/// (negative, -sizeof(zval), for a class without properties or guards: the last zval of
+/// zend_object's properties_table is not allocated then)
+unsafe fn props_size(ce: *const sys::zend_class_entry) -> isize {
     let n = (*ce).default_properties_count as isize - if (*ce).ce_flags & sys::ZEND_ACC_USE_GUARDS != 0 { 0 } else { 1 };
-    (size_of::<sys::zval>() as isize * n) as usize
+    size_of::<sys::zval>() as isize * n
 }
 
 /// Allocates and initializes an object of class `ce` carrying `data`.
 pub unsafe fn alloc<T>(ce: *mut sys::zend_class_entry, data: T, handlers: *const sys::zend_object_handlers) -> *mut sys::zend_object {
-    let p = sys::_emalloc(size_of::<Obj<T>>() + props_size(ce)) as *mut Obj<T>;
+    let p = sys::_emalloc((size_of::<Obj<T>>() as isize + props_size(ce)) as usize) as *mut Obj<T>;
     std::ptr::write(addr_of_mut!((*p).data), data);
     let o = addr_of_mut!((*p).std);
     sys::zend_object_std_init(o, ce);

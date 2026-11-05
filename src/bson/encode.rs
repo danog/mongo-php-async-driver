@@ -67,7 +67,7 @@ impl Enc {
                     return;
                 }
                 if obj::instanceof(oce, c.packedarray) {
-                    w.array(key, &obj::data::<document::Bson>(o).bson);
+                    w.array(key, &obj::data::<document::PackedArray>(o).0.bson);
                     return;
                 }
                 if obj::instanceof(oce, c.serializable) {
@@ -250,7 +250,7 @@ impl Enc {
                         throw(E::UnexpectedValue, format!("{} cannot be serialized as a root document", crate::zend::class::name(oce)));
                         return;
                     }
-                    copy_elements(&obj::data::<document::Bson>(o).bson, w);
+                    copy_elements(&obj::data::<document::PackedArray>(o).0.bson, w);
                     return self.done(flags, w, id_out, &mut obj_data);
                 }
                 if obj::instanceof(oce, c.serializable) {

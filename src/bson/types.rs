@@ -270,6 +270,28 @@ fn vector_type(d: &[u8]) -> VT {
     }
 }
 
+/// Buffers replaced by a re-initialisation (__construct/__unserialize on a live object), kept
+/// until the object is freed: an Iterator or an in-progress decode (re-entered from user code)
+/// may still borrow them. phongo leaks them; we free them with the object. Clones start empty.
+#[derive(Default)]
+pub struct Retired(Vec<Vec<u8>>);
+
+impl Clone for Retired {
+    fn clone(&self) -> Self {
+        Retired(Vec::new())
+    }
+}
+
+impl Retired {
+    /// Replaces `*slot` with `new`, keeping the old buffer alive.
+    pub fn replace(&mut self, slot: &mut Vec<u8>, new: Vec<u8>) {
+        let old = std::mem::replace(slot, new);
+        if old.capacity() > 0 {
+            self.0.push(old);
+        }
+    }
+}
+
 /// The PHONGO_BSON_MAX_LENGTH (INT32_MAX) check of the BSON type constructors.
 unsafe fn len_ok(what: &str, len: usize) -> bool {
     if len <= i32::MAX as usize {
@@ -1038,6 +1060,7 @@ pub struct Javascript {
     pub scope: Option<Vec<u8>>,
     pub init: bool,
     props: Props,
+    retired: Retired,
 }
 cls!(Javascript, H_JAVASCRIPT);
 
@@ -1093,8 +1116,10 @@ impl Javascript {
                 None => return false,
             }
         }
-        self.code = code.to_vec();
-        self.scope = sc;
+        self.retired.replace(&mut self.code, code.to_vec());
+        if let Some(old) = std::mem::replace(&mut self.scope, sc) {
+            self.retired.0.push(old);
+        }
         self.init = true;
         true
     }
@@ -1128,7 +1153,7 @@ pub unsafe fn new_javascript(code: &[u8], scope: Option<&[u8]>, depth: usize) ->
         let mut z = decode::to_zval(s, &st)?;
         zval::dtor(&mut z);
     }
-    Some(new(ce().javascript, Javascript { code: code.to_vec(), scope: scope.map(|s| s.to_vec()), init: true, props: Props::default() }))
+    Some(new(ce().javascript, Javascript { code: code.to_vec(), scope: scope.map(|s| s.to_vec()), init: true, props: Props::default(), retired: Default::default() }))
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___construct(ex: Ex, _rv: *mut sys::zval) {

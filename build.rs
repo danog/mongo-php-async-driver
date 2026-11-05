@@ -13,6 +13,12 @@ fn run(cmd: &str, args: &[&str]) -> String {
 fn main() {
     println!("cargo:rerun-if-env-changed=PHP_CONFIG");
     println!("cargo:rerun-if-env-changed=PHP");
+    // the checked-in bindings and the layout checks in src/zend/layout.rs are for LP64 Unix;
+    // Windows comes with its own I/O backend later
+    let width = std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap_or_default();
+    if width != "64" || std::env::var_os("CARGO_CFG_UNIX").is_none() {
+        panic!("only 64-bit Unix targets are supported for now (target pointer width {width})");
+    }
     for v in ["php84", "php85"] {
         println!("cargo:rustc-check-cfg=cfg({v})");
     }
