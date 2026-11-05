@@ -33,6 +33,15 @@ impl Writer {
         self.buf
     }
 
+    /// A finished copy of the document so far (for lookups while building).
+    pub fn buf_as_doc(&self) -> Vec<u8> {
+        let mut d = self.buf.clone();
+        d.push(0);
+        let n = d.len() as u32;
+        d[0..4].copy_from_slice(&n.to_le_bytes());
+        d
+    }
+
     pub fn len(&self) -> usize {
         self.buf.len() + 1
     }

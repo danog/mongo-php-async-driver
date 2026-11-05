@@ -22,7 +22,7 @@ pub unsafe fn interned(s: &CStr) -> *mut sys::zend_string {
 unsafe fn class_entry(name: &CStr, functions: *const sys::zend_function_entry) -> sys::zend_class_entry {
     let mut ce: sys::zend_class_entry = std::mem::zeroed();
     ce.name = interned(name);
-    ce.default_object_handlers = addr_of!(sys::std_object_handlers);
+    ce.default_object_handlers = addr_of!(super::obj::STD);
     ce.info.internal.builtin_functions = functions;
     ce
 }

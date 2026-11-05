@@ -2,7 +2,10 @@
 //! and macros of the PHP headers that the extension needs (zend_types.h, zend_string.h,
 //! zend_hash.h, zend_API.h, ...). NTS builds only: globals are plain symbols.
 
+pub mod call;
 pub mod class;
+pub mod hash;
+pub mod obj;
 pub mod sys;
 pub mod zstr;
 pub mod zval;

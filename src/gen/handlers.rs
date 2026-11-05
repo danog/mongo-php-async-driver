@@ -6,67 +6,67 @@ pub unsafe extern "C" fn NULL(_ex: *mut sys::zend_execute_data, _rv: *mut sys::z
 pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_addSubscriber(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zif_MongoDB_Driver_Monitoring_addSubscriber") }
 pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_mongoc_log(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zif_MongoDB_Driver_Monitoring_mongoc_log") }
 pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zif_MongoDB_Driver_Monitoring_removeSubscriber") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary_fromVector") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getData(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary_getData") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getType(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary_getType") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_getVectorType(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary_getVectorType") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_toArray(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Binary_toArray") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_DBPointer___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_DBPointer___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_DBPointer___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_DBPointer___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_DBPointer___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_DBPointer_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Decimal128___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Decimal128___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Decimal128___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Decimal128___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Decimal128___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Decimal128_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_fromBSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_fromBSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_fromJSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_fromJSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_fromPHP(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_fromPHP") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_get(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_get") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_getIterator(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_getIterator") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_has(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_has") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetExists(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_offsetExists") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetGet(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_offsetGet") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetSet(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_offsetSet") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetUnset(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_offsetUnset") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toCanonicalExtendedJSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_toCanonicalExtendedJSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toPHP(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_toPHP") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toRelaxedExtendedJSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Document_toRelaxedExtendedJSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Int64___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Int64___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Int64___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Int64___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Int64___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Int64_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Int64_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Iterator___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_current(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Iterator_current") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_key(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Iterator_key") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_next(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Iterator_next") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_rewind(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Iterator_rewind") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Iterator_valid(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Iterator_valid") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_getCode(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript_getCode") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_getScope(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript_getScope") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Javascript_jsonSerialize") }
+pub use crate::bson::types::zim_MongoDB_BSON_Binary___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary_fromVector;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary_getData;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary_getType;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary_getVectorType;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Binary_toArray;
+pub use crate::bson::types::zim_MongoDB_BSON_DBPointer___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_DBPointer___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_DBPointer___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_DBPointer___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_DBPointer___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_DBPointer_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Decimal128___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Decimal128___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Decimal128___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Decimal128___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Decimal128___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Decimal128_jsonSerialize;
+pub use crate::bson::document::zim_MongoDB_BSON_Document___construct;
+pub use crate::bson::document::zim_MongoDB_BSON_Document___serialize;
+pub use crate::bson::document::zim_MongoDB_BSON_Document___set_state;
+pub use crate::bson::document::zim_MongoDB_BSON_Document___toString;
+pub use crate::bson::document::zim_MongoDB_BSON_Document___unserialize;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_fromBSON;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_fromJSON;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_fromPHP;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_get;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_getIterator;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_has;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_offsetExists;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_offsetGet;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_offsetSet;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_offsetUnset;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_toCanonicalExtendedJSON;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_toPHP;
+pub use crate::bson::document::zim_MongoDB_BSON_Document_toRelaxedExtendedJSON;
+pub use crate::bson::types::zim_MongoDB_BSON_Int64___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Int64___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Int64___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Int64___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Int64___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Int64_jsonSerialize;
+pub use crate::bson::document::zim_MongoDB_BSON_Iterator___construct;
+pub use crate::bson::document::zim_MongoDB_BSON_Iterator_current;
+pub use crate::bson::document::zim_MongoDB_BSON_Iterator_key;
+pub use crate::bson::document::zim_MongoDB_BSON_Iterator_next;
+pub use crate::bson::document::zim_MongoDB_BSON_Iterator_rewind;
+pub use crate::bson::document::zim_MongoDB_BSON_Iterator_valid;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript_getCode;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript_getScope;
+pub use crate::bson::types::zim_MongoDB_BSON_Javascript_jsonSerialize;
 pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey___serialize") }
 pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey___set_state") }
 pub unsafe extern "C" fn zim_MongoDB_BSON_MaxKey___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MaxKey___unserialize") }
@@ -75,64 +75,64 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey___serialize(_ex: *mut sys::zend
 pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey___set_state") }
 pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey___unserialize") }
 pub unsafe extern "C" fn zim_MongoDB_BSON_MinKey_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_MinKey_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId_getTimestamp(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId_getTimestamp") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_ObjectId_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_fromJSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_fromJSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_fromPHP(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_fromPHP") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_get(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_get") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_getIterator(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_getIterator") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_has(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_has") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetExists(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_offsetExists") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetGet(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_offsetGet") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetSet(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_offsetSet") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetUnset(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_offsetUnset") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toPHP(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_toPHP") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_getFlags(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex_getFlags") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_getPattern(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex_getPattern") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Regex_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Symbol___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Symbol___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Symbol___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Symbol___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Symbol___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Symbol_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_getIncrement(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp_getIncrement") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_getTimestamp(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp_getTimestamp") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Timestamp_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime___construct") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime___serialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime___toString") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime_jsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime_toDateTime(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime_toDateTime") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime_toDateTimeImmutable(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_UTCDateTime_toDateTimeImmutable") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___construct") }
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId_getTimestamp;
+pub use crate::bson::types::zim_MongoDB_BSON_ObjectId_jsonSerialize;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray___construct;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray___serialize;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray___set_state;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray___toString;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray___unserialize;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_fromJSON;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_fromPHP;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_get;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_getIterator;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_has;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_offsetExists;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_offsetGet;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_offsetSet;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_offsetUnset;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_toPHP;
+pub use crate::bson::document::zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex_getFlags;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex_getPattern;
+pub use crate::bson::types::zim_MongoDB_BSON_Regex_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Symbol___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Symbol___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Symbol___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Symbol___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Symbol___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Symbol_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp_getIncrement;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp_getTimestamp;
+pub use crate::bson::types::zim_MongoDB_BSON_Timestamp_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime___construct;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime___serialize;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime___set_state;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime___toString;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime___unserialize;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime_jsonSerialize;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime_toDateTime;
+pub use crate::bson::types::zim_MongoDB_BSON_UTCDateTime_toDateTimeImmutable;
+pub use crate::bson::types::zim_MongoDB_BSON_Undefined___construct;
 pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___serialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___serialize") }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___toString(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___toString") }
+pub use crate::bson::types::zim_MongoDB_BSON_Undefined___toString;
 pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined___unserialize") }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Undefined_jsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_BSON_Undefined_jsonSerialize") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult___construct") }
@@ -374,9 +374,9 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getUpsertedIds(_ex: *mut
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteConcernError(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_WriteResult_getWriteConcernError") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteErrors(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_WriteResult_getWriteErrors") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_isAcknowledged(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_WriteResult_isAcknowledged") }
-pub unsafe fn init_MongoDB_BSON_Type(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Serializable(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Unserializable(_ce: *mut sys::zend_class_entry) {}
+pub use crate::bson::init_MongoDB_BSON_Type;
+pub use crate::bson::init_MongoDB_BSON_Serializable;
+pub use crate::bson::init_MongoDB_BSON_Unserializable;
 pub unsafe fn init_MongoDB_BSON_BinaryInterface(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_BSON_Decimal128Interface(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_BSON_JavascriptInterface(_ce: *mut sys::zend_class_entry) {}
@@ -386,24 +386,24 @@ pub unsafe fn init_MongoDB_BSON_ObjectIdInterface(_ce: *mut sys::zend_class_entr
 pub unsafe fn init_MongoDB_BSON_RegexInterface(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_BSON_TimestampInterface(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_BSON_UTCDateTimeInterface(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Iterator(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_PackedArray(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Document(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Binary(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_DBPointer(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Decimal128(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Int64(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Javascript(_ce: *mut sys::zend_class_entry) {}
+pub use crate::bson::document::init_MongoDB_BSON_Iterator;
+pub use crate::bson::document::init_MongoDB_BSON_PackedArray;
+pub use crate::bson::document::init_MongoDB_BSON_Document;
+pub use crate::bson::types::init_MongoDB_BSON_Binary;
+pub use crate::bson::types::init_MongoDB_BSON_DBPointer;
+pub use crate::bson::types::init_MongoDB_BSON_Decimal128;
+pub use crate::bson::types::init_MongoDB_BSON_Int64;
+pub use crate::bson::types::init_MongoDB_BSON_Javascript;
 pub unsafe fn init_MongoDB_BSON_MaxKey(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_BSON_MinKey(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_ObjectId(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Persistable(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Regex(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Symbol(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_Timestamp(_ce: *mut sys::zend_class_entry) {}
+pub use crate::bson::types::init_MongoDB_BSON_ObjectId;
+pub use crate::bson::init_MongoDB_BSON_Persistable;
+pub use crate::bson::types::init_MongoDB_BSON_Regex;
+pub use crate::bson::types::init_MongoDB_BSON_Symbol;
+pub use crate::bson::types::init_MongoDB_BSON_Timestamp;
 pub unsafe fn init_MongoDB_BSON_Undefined(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_UTCDateTime(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_BSON_VectorType(_ce: *mut sys::zend_class_entry) {}
+pub use crate::bson::types::init_MongoDB_BSON_UTCDateTime;
+pub use crate::bson::init_MongoDB_BSON_VectorType;
 pub unsafe fn init_MongoDB_Driver_CursorInterface(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_BulkWrite(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_BulkWriteCommand(_ce: *mut sys::zend_class_entry) {}
