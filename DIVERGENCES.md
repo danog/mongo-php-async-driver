@@ -1,0 +1,64 @@
+# Divergences from ext-mongodb 2.5.6
+
+This driver aims at exact parity with ext-mongodb 2.5.6 (libmongoc/libbson 2.5.8). The rule is:
+**safety beats parity.** Where mirroring the reference would crash, read freed memory, send on a
+socket inherited across `fork()`, overflow, allocate without bound or let server data control
+something it should not, this driver does the closest safe thing instead. It throws the nearest
+matching exception rather than crashing, and refuses rather than silently proceeding.
+
+This file lists every known difference. Each entry gives the reference behaviour, ours, the reason,
+and the test that pins ours (PHPT under `tests/local/`, or a `cargo test` in `crates/core`).
+Upstream tests that fail because of an entry are named with it. `tests/NOT_APPLICABLE.md` lists the
+tests that cannot run here.
+
+## 1. Permanent, for safety
+
+| Area | Reference (ext-mongodb 2.5.6) | This driver | Why | Pinned by |
+|---|---|---|---|---|
+| Appending through `Document`/`PackedArray` (`$doc[]['a'] = 1`) | dereferences a NULL offset in `read_dimension`: segfault | throws the `LogicException` phongo throws for writes ("Cannot write to MongoDB\BSON\Document property") | crash | `tests/local/bson-null-offset-001.phpt` |
+| `Int64 % -1` with `INT64_MIN` | C `%`: SIGFPE (process killed) on x86-64; 0 on arm64 | `Int64(0)` on every platform (as PHP's own `%`) | crash | `tests/local/bson-int64-mod-001.phpt` |
+| Re-initialising a live `Document`/`PackedArray`/`Javascript` (e.g. `__unserialize()` again) while iterators or a decode still use the old bytes | the old buffer is leaked | the old buffer is retired: kept alive until the object is freed, then released | iterators must never see freed memory; no leak | `tests/local/bson-reinit-001.phpt` |
+| Connections inherited across `fork()` | a child may keep using the parent's sockets: a cursor created before the fork sends `getMore` on the parent's connection (interleaved replies) | at the first I/O in the child, every inherited connection is forgotten (never written to, read, shut down or closed), each server's pool generation and the client generation advance, the pooled server sessions are dropped. A cursor from before the fork throws `MongoDB\Driver\Exception\RuntimeException` "Cannot advance cursor after client reset" and sends no `killCursors` | never send on a connection another process owns | `tests/local/manager-fork-001.phpt`, `cargo test client_fork`. Upstream `cursor/bug1274-002.phpt` fails (it expects the child's `getMore` to work) |
+| Wire replies | `messageLength` is checked against the server's `maxMessageSizeBytes` | the same check, and the limit is bounded to [21 B, 64 MiB] (a non-positive value falls back to 48 MB). `messageLength` is validated before reading on, and the buffer grows by at most 1 MiB per read | a server, or something posing as one, must not make the client allocate without bound | unit tests in `crates/core/src/net.rs` |
+| Topology scans with hosts discovered during the scan | libmongoc never re-adds an address within one scan, but every newly reported address joins the running scan without limit: members whose hello replies keep inventing hosts make one scan (and the operation waiting for it) endless | the same address rule, a failed known server is re-checked at most once per address, and at most 100 addresses discovered during a scan join it (a replica set has at most 50 members); the rest are checked by later scans | a hostile or broken server must not hold the client in an endless scan | `cargo test --test scan_bounds` |
+| Persistent clients after `fork()` | phongo resets them once per pid | kept, and reset by the same fork rule before their next I/O. `endSessions` is sent only by the process that created the client, never after a fork | same as above | `tests/local/manager-fork-001.phpt` |
+
+## 2. Permanent, other
+
+| Area | Reference | This driver | Why | Pinned by |
+|---|---|---|---|---|
+| `phpinfo()` rows `libmongoc SSL library`, `libmongoc crypto library`, `libmongocrypt crypto library` | `OpenSSL` / `libcrypto` (as built) | `rustls` / `RustCrypto` | the libraries really used (no C libraries) | none (no upstream test reads them) |
+| Stack use of BSON encode/decode/JSON per nesting level | smaller frames: survives `fiber.stack_size=64K` at the deepest allowed nesting | larger frames: segfaults at 64 KiB fiber stacks at the deepest nesting, works at 128 KiB and with PHP's default 2 MiB | Rust frame sizes. The nesting limits themselves are identical ("Nesting level too deep") | none yet (follow-up: shrink the per-level frames) |
+| APM delivery time | libmongoc calls the subscribers synchronously, from inside the operation (e.g. `commandStarted` before the command is sent) | events are queued and delivered, in the same order and with the same contents, when the operation releases the client: after server selection, and before the operation returns or throws | subscribers may call back into the driver while the client is borrowed | the `apm/` PHPTs (order and contents), `mdrop`'s event-sequence script |
+| Error-message length | `bson_error_t` truncates every libmongoc message to 503 bytes | not truncated, except the server-selection message (`. Topology type: ...` is appended within 503 bytes, as libmongoc does) | only very long host lists reach the limit | none |
+| Supported builds | ZTS and debug PHP builds, 32-bit platforms, Windows | NTS, non-debug, 64-bit Unix (Linux, macOS) only: `build.rs` refuses others | not ported yet (Windows backend planned) | `build.rs` |
+| `frankenphp/` worker restart script | runs under ZTS FrankenPHP | n/a (NTS only) | as above | listed in `tests/NOT_APPLICABLE.md` |
+
+### Reviewed: same as the reference, although a specification or a safety question pointed elsewhere
+
+| Area | Behaviour (reference and this driver) | Notes | Pinned by |
+|---|---|---|---|
+| `__pclass` decoding | the class named in the BSON is looked up with autoload before the `Persistable` check | PHP's `zend_lookup_class_ex` rejects anything that is not a valid class name before any autoloader runs (no `.`, `/`, NUL, empty name), so a server cannot steer a PSR-4 autoloader outside its directories. It can make an autoloader load any validly named class, as `unserialize()` can by default. A stricter mode (no autoload for server-supplied names) is a decision for the user | `tests/local/bson-pclass-autoload-001.phpt` |
+| URI option `srvAllowedHostsSuffix` on a non-SRV URI | accepted with a warning (libmongoc does not know the option) | the spec expects an error | `crates/core/tests/spec_uri_options.rs` (`DIVERGENCES`) |
+| Connection strings | `authMechanismProperties` split at every comma; `CANONICALIZE_HOST_NAME` only `true`/`false`; `.` rejected in the database path | three connection-string spec cases expect otherwise; same error messages as the reference | `crates/core/tests/spec_connection_string.rs` (`DIVERGENCES`) |
+| Extended JSON | doubles printed with `%.20g`; legacy `{"$date": <number>}` accepted (CDRIVER-2223); `$code` cut at its first NUL (CDRIVER-1879) | five BSON-corpus cases expect otherwise (XFAIL in the PHPT suite too) | `crates/core/tests/spec_bson_corpus.rs` (`LIBBSON_DIVERGENCES`) |
+
+## 3. Temporary gaps (not implemented yet)
+
+| Area | Reference | This driver now | Why / plan | Pinned by |
+|---|---|---|---|---|
+| TLS (`tls=true`, `ssl=true`, `mongodb+srv://`, any `tls*` option, `ca_dir`/`crl_file` driver options) | TLS over OpenSSL | fails closed: `InvalidArgumentException` "Failed to parse URI options: Can't create SSL client, SSL not enabled in this build." (libmongoc built without TLS) | never cleartext when TLS is requested; rustls port planned with certificate and hostname verification for every `tls*` option | `tests/local/manager-tls-001.phpt`; upstream `connect/*ssl*`, `ocsp-*` |
+| Authentication (SCRAM-SHA-1/256, X509, PLAIN, GSSAPI, AWS, OIDC) | authenticates every connection | fails closed: a URI with a username or an `authMechanism` makes every command throw `AuthenticationException` "The <mechanism> authentication mechanism is not supported by this build yet" (like a libmongoc built without the mechanism) | never use a connection unauthenticated when credentials were given; SCRAM next, then X509/PLAIN | `tests/local/manager-auth-001.phpt`; upstream `connect/standalone-plain-0001.phpt` (XFAIL upstream) |
+| SRV / TXT resolution (`mongodb+srv://`) | resolves the seed list | refused by the TLS rule above (SRV implies TLS); after TLS lands, SRV resolution must follow | DNS SRV/TXT not ported | `tests/local/manager-tls-001.phpt` |
+| Unix domain socket hosts | connects | server check fails with "Failed to resolve '<path>'" (reference: "Failed to connect to UNIX domain socket: ...") | `Conn` is TCP only | none |
+| Wire compression (snappy, zlib, zstd) | negotiated and used | compressors are parsed and advertised, nothing is ever sent compressed (the server then never compresses replies). `connect/compression_error-001/002` fail (they expect libmongoc's warnings) | pure-Rust codecs planned | none |
+| Client-side encryption (`ClientEncryption`, `autoEncryption`) | libmongocrypt | `Error` "... is not implemented yet" | not ported (`clientEncryption/` fails) | none |
+| `MongoDB\Driver\BulkWriteCommand`, `Manager::executeBulkWriteCommand` | implemented | `Error` "not implemented yet" | in progress | none |
+| Logging (`mongodb.debug`, `Monitoring\LogSubscriber`, URI warnings) | logs | the INI value is stored, nothing is logged | planned | none |
+| Debug info of `Server`, `Cursor`, `WriteResult` | full `var_dump` output | partial | in progress (`server/server-debug`, `cursor/cursor-session-00x`, `writeResult/writeresult-debug-001`) | none |
+| Manager options | typed checks and messages of `php_phongo_apply_options_to_uri` | `uriOptions` appended to the URI query string: some messages differ; `driver` and `autoEncryption` driver options are not handled | in progress (`manager/` failures) | none |
+| Persistent-client key | phongo's hash of the pid, the URI, the options and the prepared driver options | the URI string plus the `serverApi` option | replaced by the Manager options port | none |
+| Server scans | parallel async scans (happy eyeballs, `connectTimeoutMS` per scan); a failed DNS lookup reports its heartbeat failure while the other nodes are still starting | sequential blocking checks with the same event order otherwise; `socketCheckIntervalMS` is not checked | planned with the mio pool | `apm/` PHPTs |
+| `Server` comparison | by server id and description | by address | planned | none |
+| `cursor/cursor-getmore-007.phpt` | `killCursors` after a network error follows libmongoc's rules | differs | to investigate | upstream test |
+| Async I/O in fibers (Revolt), connection pool, Windows backend | n/a (the reference is blocking) | blocking single-threaded client | later phases | none |

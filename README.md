@@ -34,6 +34,8 @@ The upstream suites are carried over and run against both this extension and ext
 `tools/topo.sh` starts the standalone, replica-set and sharded topologies the suites use.
 `tests/UPSTREAM.md` records the upstream versions; `tests/NOT_APPLICABLE.md` lists the tests that
 cannot run here or are expected to fail, with the reason.
+`DIVERGENCES.md` lists every behaviour that differs from ext-mongodb 2.5.6 (safety wins over
+parity), with the test that pins each one.
 
 ## Build
 

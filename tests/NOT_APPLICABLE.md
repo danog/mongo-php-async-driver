@@ -73,9 +73,6 @@ Not applicable:
 
 ## Local tests (tests/local) and deliberate divergences
 
-- `tests/local/bson-null-offset-001.phpt`: `$doc[]['a'] = 1` on a Document or PackedArray makes
-  ext-mongodb 2.5.6 dereference a NULL offset (crash). This driver throws the LogicException that
-  phongo throws for writes instead. Expected to fail (crash) with the reference build.
-- `tests/local/bson-reinit-001.phpt`: re-initialising a live Document/PackedArray/Javascript keeps the
-  old bytes alive for iterators and re-entered decodes (phongo leaks them; this driver frees them
-  with the object). Same output as the reference build.
+Every behaviour that differs from ext-mongodb 2.5.6 (for safety, permanently for other reasons,
+or temporarily until a feature lands) is listed in `DIVERGENCES.md` at the repository root, with
+the local PHPT or cargo test that pins it.

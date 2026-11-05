@@ -92,6 +92,21 @@ pub fn tls_unavailable() -> Error {
     Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Can't create SSL client, SSL not enabled in this build.")
 }
 
+/// The most addresses discovered during one scan that join it (a replica set has at most 50
+/// members).
+pub const MAX_DISCOVERED_PER_SCAN: usize = 100;
+
+fn addr_lc(nodes: &[Node], id: u32) -> String {
+    nodes.iter().find(|n| n.id == id).map(|n| n.addr.to_ascii_lowercase()).unwrap_or_default()
+}
+
+/// The authentication error for a URI with credentials (the mechanisms are not implemented
+/// yet: like a libmongoc built without them, every command fails to authenticate).
+pub fn auth_unavailable(mechanism: Option<&str>) -> Error {
+    let m = mechanism.unwrap_or("default");
+    Error::new(domain::CLIENT, code::CLIENT_AUTHENTICATE, format!("The {m} authentication mechanism is not supported by this build yet"))
+}
+
 /// _mongoc_server_selection_error
 fn selection_error(msg: &str, scanner: Option<&Error>) -> Error {
     let m = match scanner {
@@ -262,11 +277,20 @@ impl Client {
     /// mongoc_topology_scan_once: one blocking scan of every node (sequential). As libmongoc's
     /// scanner: every node's heartbeat starts first, nodes discovered during the scan join it,
     /// and a known server whose check fails is checked once more before the scan ends.
+    ///
+    /// Bounded (safety): an address is checked at most once per scan plus one retry (libmongoc
+    /// also never re-adds an address within a scan), and at most MAX_DISCOVERED_PER_SCAN
+    /// addresses discovered during the scan join it (libmongoc has no such bound: hello replies
+    /// that keep inventing hosts would make its scan endless). The others are checked by later
+    /// scans.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
         self.check_fork();
         self.reconcile_nodes();
         let now = monotonic_usec();
         let mut queue: std::collections::VecDeque<u32> = self.nodes.iter().filter(|n| !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))).map(|n| n.id).collect();
+        let mut seen: std::collections::HashSet<String> = queue.iter().filter_map(|id| self.nodes.iter().find(|n| n.id == *id)).map(|n| n.addr.to_ascii_lowercase()).collect();
+        let mut retried: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut discovered = 0usize;
         for &id in &queue {
             self.heartbeat_started(id);
         }
@@ -306,7 +330,7 @@ impl Client {
                         self.td.clear_connection_pool(id, &crate::sdam::ZERO_OID);
                         let known = self.td.server(id).is_some_and(|s| s.ty != ServerType::Unknown);
                         self.td.handle_hello(id, None, RTT_UNSET, Some(&e));
-                        if known {
+                        if known && retried.insert(addr_lc(&self.nodes, id)) {
                             self.heartbeat_started(id);
                             queue.push_back(id);
                             continue;
@@ -314,8 +338,13 @@ impl Client {
                     }
                 }
             }
-            // a scan may add or remove servers (replica-set discovery); new ones join this scan
+            // a scan may add or remove servers (replica-set discovery); new addresses join this scan
             for added in self.reconcile_nodes() {
+                let a = addr_lc(&self.nodes, added);
+                if discovered >= MAX_DISCOVERED_PER_SCAN || !seen.insert(a) {
+                    continue;
+                }
+                discovered += 1;
                 self.heartbeat_started(added);
                 queue.push_back(added);
             }
@@ -450,6 +479,11 @@ impl Client {
             if !self.nodes.iter().any(|n| n.id == server_id && n.conn.is_some()) {
                 return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {addr}")));
             }
+        }
+        // cluster->requires_auth: authentication is not implemented yet, and a connection that
+        // should be authenticated is never used unauthenticated (fail closed, as for TLS)
+        if self.uri.username.is_some() || self.uri.auth_mechanism().is_some() {
+            return Err(auth_unavailable(self.uri.auth_mechanism()));
         }
         let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
         if let Some(h) = &n.handshake {
