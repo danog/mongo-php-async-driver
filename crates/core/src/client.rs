@@ -71,6 +71,17 @@ pub struct Client {
     scan_error: Option<Error>,
     /// the scanner's error when the topology is invalid (mongoc_topology_scanner_valid)
     pub invalid: Option<Error>,
+    /// The process that owns the connections (fork detection).
+    pid: u32,
+    /// mongoc_client_t.generation: bumped by a reset (after a fork); cursors of an older
+    /// generation neither advance nor kill their server cursor.
+    pub generation: u32,
+}
+
+/// The error libmongoc built without TLS gives for a URI that requests TLS (the transport is
+/// not there yet: fail closed, never send anything in cleartext).
+pub fn tls_unavailable() -> Error {
+    Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Can't create SSL client, SSL not enabled in this build.")
 }
 
 /// _mongoc_server_selection_error
@@ -90,11 +101,50 @@ fn split_host_port(addr: &str) -> (String, u16) {
 }
 
 impl Client {
-    pub fn new(uri: Uri, settings: Settings) -> Self {
+    /// mongoc_client_new_from_uri_with_error. Fails when the URI requests TLS: the TLS
+    /// transport is not implemented yet.
+    pub fn new(uri: Uri, settings: Settings) -> Result<Self, Error> {
+        if uri.tls() {
+            return Err(tls_unavailable());
+        }
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), generation: 0 };
         c.reconcile_nodes();
-        c
+        Ok(c)
+    }
+
+    /// Fork safety (mongoc_client_reset + libmongoc's socket ownership): in a child process,
+    /// the inherited connections belong to the parent. They are leaked (never written to, read
+    /// from, shut down or closed), every server's pool generation is bumped and the client
+    /// generation advances, before any I/O.
+    pub fn check_fork(&mut self) {
+        let pid = std::process::id();
+        if self.pid == pid {
+            return;
+        }
+        self.pid = pid;
+        for n in &mut self.nodes {
+            if let Some(c) = n.conn.take() {
+                std::mem::forget(c);
+            }
+            n.handshake = None;
+        }
+        let ids: Vec<(u32, [u8; 12])> = self.td.servers.iter().map(|s| (s.id, s.service_id)).collect();
+        for (id, sid) in ids {
+            self.td.clear_connection_pool(id, &sid);
+        }
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Whether the client is in the process that created its connections.
+    pub fn same_process(&self) -> bool {
+        self.pid == std::process::id()
+    }
+
+    /// The fd of the connection to `server_id` (tests).
+    #[cfg(unix)]
+    pub fn conn_fd(&self, server_id: u32) -> Option<std::os::fd::RawFd> {
+        self.nodes.iter().find(|n| n.id == server_id).and_then(|n| n.conn.as_ref()).map(Conn::raw_fd)
     }
 
     /// mongoc_topology_reconcile: scanner nodes for the description's servers.
@@ -166,6 +216,7 @@ impl Client {
 
     /// mongoc_topology_scan_once: one blocking scan of every node (sequential).
     pub fn scan_once(&mut self, obey_cooldown: bool) {
+        self.check_fork();
         self.reconcile_nodes();
         let now = monotonic_usec();
         let ids: Vec<u32> = self.nodes.iter().map(|n| n.id).collect();
@@ -216,6 +267,7 @@ impl Client {
     /// mongoc_topology_select_server_id (single-threaded).
     pub fn select_server_id(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
         const TIMEOUT_MSG: &str = "No suitable servers found: `serverSelectionTimeoutMS` expired";
+        self.check_fork();
         if let Some(e) = &self.invalid {
             return Err(Error::new(domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE, e.message.clone()));
         }
@@ -296,6 +348,7 @@ impl Client {
     /// _cluster_fetch_stream_single: the connection to `server_id` (reconnecting through a
     /// blocking scan when allowed).
     pub fn stream_for_server(&mut self, server_id: u32, reconnect_ok: bool) -> Result<&mut Conn, Error> {
+        self.check_fork();
         let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else {
             return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Could not find server with id: {server_id}")));
         };
@@ -327,6 +380,7 @@ impl Client {
     /// mongoc-cluster.c reports it ("Failed to send ..." for network errors, which also
     /// invalidate the server and drop its connection).
     pub fn run_command(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
+        self.check_fork();
         let socket_timeout = ms(self.settings.socket_timeout_ms);
         let conn = self.stream_for_server(server_id, true)?;
         let generation = conn.generation as u32;
@@ -379,6 +433,7 @@ impl Client {
 
     /// Drops every connection (mongoc_client_reset / after fork).
     pub fn reset(&mut self) {
+        self.check_fork();
         for n in &mut self.nodes {
             n.conn = None;
             n.handshake = None;

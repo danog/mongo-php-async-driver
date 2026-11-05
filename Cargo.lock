@@ -70,6 +70,7 @@ dependencies = [
 name = "mongo-core"
 version = "0.3.0"
 dependencies = [
+ "libc",
  "mio",
  "serde_json",
 ]

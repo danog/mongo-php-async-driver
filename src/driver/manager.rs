@@ -164,14 +164,43 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
             return;
         }
     };
+    // TLS settings among the driver options request TLS too: no cleartext fallback
+    if !driver_options.is_null() && has_tls_driver_option((*driver_options).value.arr) {
+        throw(E::InvalidArgument, format!("Failed to parse URI options: {}", mongo_core::client::tls_unavailable().message));
+        return;
+    }
     let me = obj::data::<Manager>(call::this(ex));
-    me.client = Some(super::persistent_client(&full, || {
+    let r = super::persistent_client(&full, || {
         let mut s = Settings::from_uri(&uri);
         s.metadata.driver_name = "ext-mongodb:PHP".into();
         s.metadata.driver_version = mongo_core::EXT_VERSION.into();
         s.metadata.platform = php_platform();
         Client::new(uri, s)
-    }));
+    });
+    match r {
+        Ok(c) => me.client = Some(c),
+        // phongo_client: mongoc_client_new_from_uri_with_error failed
+        Err(e) => throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message)),
+    }
+}
+
+/// Driver options that configure TLS (phongo's ca_dir/crl_file, the 1.x TLS keys and any
+/// tls*/ssl* key).
+unsafe fn has_tls_driver_option(ht: *mut sys::HashTable) -> bool {
+    const KEYS: &[&str] = &["ca_dir", "crl_file", "ca_file", "pem_file", "pem_pwd", "context", "allow_invalid_hostname", "weak_cert_validation", "allow_self_signed"];
+    let mut found = false;
+    let mut buf = String::new();
+    hash::each(ht, true, |k, _| {
+        if let hash::Key::Str(_) = k {
+            let key = String::from_utf8_lossy(hash::key_bytes(k, &mut buf)).to_ascii_lowercase();
+            if KEYS.contains(&key.as_str()) || key.starts_with("tls") || key.starts_with("ssl") {
+                found = true;
+                return false;
+            }
+        }
+        true
+    });
+    found
 }
 
 /// phongo's handshake platform string ("PHP 8.4.13 ...")

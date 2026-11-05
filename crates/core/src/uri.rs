@@ -900,6 +900,19 @@ impl Uri {
         Ok(())
     }
 
+    /// mongoc_uri_get_tls: TLS requested (tls/ssl, mongodb+srv's default, or any TLS option).
+    pub fn tls(&self) -> bool {
+        if let Some(OptVal::Bool(b)) = self.options.get("tls") {
+            return *b;
+        }
+        [
+            "tlscertificatekeyfile", "tlscafile", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames", "tlsinsecure",
+            "tlscertificatekeyfilepassword", "tlsdisableocspendpointcheck", "tlsdisablecertificaterevocationcheck",
+        ]
+        .iter()
+        .any(|k| self.options.has(k))
+    }
+
     pub fn auth_mechanism(&self) -> Option<&str> {
         self.credentials.str("authmechanism")
     }

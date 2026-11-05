@@ -20,26 +20,21 @@ pub type ClientRef = Rc<RefCell<Client>>;
 
 thread_local! {
     /// phongo's persistent clients: one client per URI (+ options) per process.
-    static CLIENTS: RefCell<HashMap<String, (u32, ClientRef)>> = RefCell::new(HashMap::new());
+    static CLIENTS: RefCell<HashMap<String, ClientRef>> = RefCell::new(HashMap::new());
 }
 
-/// The client for `key` (created by `make` when absent or created by another process).
-pub fn persistent_client(key: &str, make: impl FnOnce() -> Client) -> ClientRef {
-    let pid = std::process::id();
+/// The client for `key` (created by `make` when absent). A client inherited across fork() is
+/// kept: it resets itself before its next I/O (Client::check_fork), as phongo resets its
+/// persistent clients once per pid.
+pub fn persistent_client(key: &str, make: impl FnOnce() -> Result<Client, Error>) -> Result<ClientRef, Error> {
     CLIENTS.with(|c| {
         let mut m = c.borrow_mut();
-        if let Some((p, cl)) = m.get(key) {
-            if *p == pid {
-                return cl.clone();
-            }
-            // created before a fork: its sockets belong to the parent; leak them
-            if let Some((_, old)) = m.remove(key) {
-                std::mem::forget(old);
-            }
+        if let Some(cl) = m.get(key) {
+            return Ok(cl.clone());
         }
-        let cl = Rc::new(RefCell::new(make()));
-        m.insert(key.to_owned(), (pid, cl.clone()));
-        cl
+        let cl = Rc::new(RefCell::new(make()?));
+        m.insert(key.to_owned(), cl.clone());
+        Ok(cl)
     })
 }
 

@@ -113,7 +113,7 @@ fn client_select_and_command() {
     // an unreachable server: serverSelectionTryOnce error with the scanner's error
     let uri = Uri::parse("mongodb://127.0.0.1:28099/?connectTimeoutMS=200").unwrap();
     let s = Settings::from_uri(&uri);
-    let mut c = Client::new(uri, s);
+    let mut c = Client::new(uri, s).unwrap();
     let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
     assert_eq!(e.message, "No suitable servers found (`serverSelectionTryOnce` set): [connection refused calling hello on '127.0.0.1:28099']");
     // in cooldown right after: no rescan
@@ -122,7 +122,7 @@ fn client_select_and_command() {
     let Some((h, p)) = server() else { return };
     let uri = Uri::parse(&format!("mongodb://{h}:{p}/")).unwrap();
     let s = Settings::from_uri(&uri);
-    let mut c = Client::new(uri, s);
+    let mut c = Client::new(uri, s).unwrap();
     let (id, _) = c.select_server_id(OpType::Write, None, &[]).unwrap();
     assert_eq!(c.td.server(id).unwrap().ty, ServerType::Standalone);
     let mut w = Writer::with_capacity(32);
@@ -130,4 +130,65 @@ fn client_select_and_command() {
     w.utf8(b"$db", b"admin");
     let r = c.run_command(id, "ping", "admin", &w.finish()).unwrap();
     assert!(matches!(get(&r, b"ok"), Some(Value::Double(f)) if f == 1.0));
+}
+
+#[test]
+fn client_refuses_tls() {
+    use mongo_core::client::{Client, Settings};
+    use mongo_core::uri::Uri;
+    for u in ["mongodb://127.0.0.1:28099/?tls=true", "mongodb://127.0.0.1:28099/?ssl=true", "mongodb://127.0.0.1:28099/?tlsCAFile=/x", "mongodb://127.0.0.1:28099/?tlsInsecure=true"] {
+        let uri = Uri::parse(u).unwrap();
+        let s = Settings::from_uri(&uri);
+        let e = Client::new(uri, s).err().unwrap_or_else(|| panic!("{u} accepted"));
+        assert_eq!(e.message, "Can't create SSL client, SSL not enabled in this build.");
+    }
+    let uri = Uri::parse("mongodb://127.0.0.1:28099/?tls=false").unwrap();
+    assert!(Client::new(uri.clone(), Settings::from_uri(&uri)).is_ok());
+}
+
+/// After fork(), the child never touches the parent's connection: it opens its own, and both
+/// processes keep working without mixed-up replies.
+#[cfg(unix)]
+#[test]
+fn client_fork() {
+    use mongo_core::client::{Client, Settings};
+    use mongo_core::topology::OpType;
+    use mongo_core::uri::Uri;
+    let Some((h, p)) = server() else { return };
+    let uri = Uri::parse(&format!("mongodb://{h}:{p}/")).unwrap();
+    let s = Settings::from_uri(&uri);
+    let mut c = Client::new(uri, s).unwrap();
+    let ping = || {
+        let mut w = Writer::with_capacity(32);
+        w.int32(b"ping", 1);
+        w.utf8(b"$db", b"admin");
+        w.finish()
+    };
+    let (id, _) = c.select_server_id(OpType::Read, None, &[]).unwrap();
+    c.run_command(id, "ping", "admin", &ping()).unwrap();
+    let parent_fd = c.conn_fd(id).unwrap();
+    let gen0 = c.generation;
+    let pid = unsafe { libc::fork() };
+    assert!(pid >= 0);
+    if pid == 0 {
+        // child: the inherited connection is left alone, a new one is used
+        let ok = (|| {
+            assert!(!c.same_process());
+            for _ in 0..20 {
+                let (id, _) = c.select_server_id(OpType::Read, None, &[]).ok()?;
+                c.run_command(id, "ping", "admin", &ping()).ok()?;
+            }
+            let fd = c.conn_fd(id)?;
+            (fd != parent_fd && c.generation == gen0 + 1 && c.td.server(id)?.generation(&[0; 12]) == 1).then_some(())
+        })();
+        unsafe { libc::_exit(if ok.is_some() { 0 } else { 1 }) };
+    }
+    for _ in 0..20 {
+        c.run_command(id, "ping", "admin", &ping()).unwrap();
+    }
+    let mut status = 0;
+    unsafe { libc::waitpid(pid, &mut status, 0) };
+    assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0, "child failed: {status}");
+    assert_eq!(c.conn_fd(id), Some(parent_fd));
+    assert_eq!(c.generation, gen0);
 }

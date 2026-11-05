@@ -28,6 +28,8 @@ pub struct Cursor {
     error: Option<(Error, Option<Vec<u8>>)>,
     /// the first batch was taken from the reply
     started: bool,
+    /// the client generation at creation (mongoc_cursor_t.client_generation)
+    client_generation: u32,
 }
 
 impl Default for Cursor {
@@ -48,6 +50,7 @@ impl Default for Cursor {
             max_await_time_ms: 0,
             error: None,
             started: false,
+            client_generation: 0,
         }
     }
 }
@@ -55,9 +58,10 @@ impl Default for Cursor {
 impl Drop for Cursor {
     fn drop(&mut self) {
         unsafe { self.free_current() };
-        // mongoc_cursor_destroy: kill a live server cursor
+        // mongoc_cursor_destroy: kill a live server cursor, unless the client was reset (fork)
+        // since: the cursor belongs to the parent process then
         if self.id != 0 {
-            if let Some(c) = self.client.take() {
+            if let Some(c) = self.client.take().filter(|c| c.try_borrow().is_ok_and(|cl| cl.same_process() && cl.generation == self.client_generation)) {
                 let mut w = Writer::with_capacity(64);
                 w.utf8(b"killCursors", self.coll.as_bytes());
                 let a = w.begin(4, b"cursors");
@@ -100,6 +104,7 @@ impl Cursor {
     /// the reply itself.
     pub fn from_reply(reply: Vec<u8>, client: ClientRef, server_id: u32, db: &str) -> Cursor {
         let mut c = Cursor::default();
+        c.client_generation = client.borrow().generation;
         c.client = Some(client);
         c.server_id = server_id;
         c.db = db.to_owned();
@@ -183,6 +188,17 @@ impl Cursor {
         self.current_doc = None;
         if self.error.is_some() {
             return false;
+        }
+        // mongoc_cursor_next: a cursor of a client reset since (fork) cannot advance
+        if let Some(c) = &self.client {
+            if let Ok(mut cl) = c.try_borrow_mut() {
+                cl.check_fork();
+                if cl.generation != self.client_generation {
+                    let e = Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot advance cursor after client reset");
+                    self.error = Some((e, None));
+                    return false;
+                }
+            }
         }
         self.started = true;
         while self.batch.is_empty() && self.id != 0 {

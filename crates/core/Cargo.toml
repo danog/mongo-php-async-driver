@@ -12,4 +12,5 @@ description = "PHP-independent parts of mongo-php-async-driver: BSON, wire proto
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 
 [dev-dependencies]
+libc = "0.2"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
