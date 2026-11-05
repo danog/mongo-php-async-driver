@@ -33,8 +33,10 @@ fn main() {
         .find_map(|l| l.strip_prefix("PHP API => "))
         .and_then(|v| v.trim().parse().ok())
         .expect("PHP API number from php -i");
+    // ext-php-rs takes the version from `PHP` and the headers from `PHP_CONFIG`: same minor version
     let php_version = run(&php, &["-n", "-r", "echo PHP_VERSION;"]);
-    if php_version != version {
+    let minor = |v: &str| v.split('.').take(2).collect::<Vec<_>>().join(".");
+    if minor(&php_version) != minor(&version) {
         panic!("PHP ({php}) is {php_version} but PHP_CONFIG ({config}) describes {version}: set both to the same PHP");
     }
     let flags = run(&php, &["-n", "-r", "echo (int) PHP_ZTS, (int) PHP_DEBUG;"]);
