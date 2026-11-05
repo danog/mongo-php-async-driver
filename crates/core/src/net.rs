@@ -20,6 +20,23 @@ use crate::wire;
 /// The largest reply accepted before the server's maxMessageSizeBytes is known (libmongoc's
 /// default MONGOC_DEFAULT_MAX_MSG_SIZE, 48 MB).
 pub const DEFAULT_MAX_MSG_SIZE: usize = 48_000_000;
+/// The hard upper bound on any reply, whatever a server advertises (every MongoDB server
+/// advertises 48 MB; libmongoc trusts the advertised int32, we bound it).
+pub const HARD_MAX_MSG_SIZE: usize = 64 * 1024 * 1024;
+/// The receive buffer grows by at most this much per read, so a declared messageLength
+/// reserves memory only as bytes actually arrive.
+const READ_CHUNK: usize = 1024 * 1024;
+
+/// The reply-size cap for a server advertising `advertised` maxMessageSizeBytes: libmongoc caps
+/// replies at the advertised value (mongoc-cluster.c); a non-positive value is ignored (the
+/// default applies) and the result never exceeds HARD_MAX_MSG_SIZE nor goes below the smallest
+/// possible OP_MSG reply.
+pub fn max_message_size_for(advertised: i32) -> usize {
+    if advertised <= 0 {
+        return DEFAULT_MAX_MSG_SIZE;
+    }
+    (advertised as usize).clamp(wire::HEADER_LEN + 5, HARD_MAX_MSG_SIZE)
+}
 
 #[derive(Debug)]
 pub enum NetError {
@@ -113,9 +130,10 @@ impl Conn {
         Err(NetError::Connect(last.unwrap()))
     }
 
-    /// The server's maxMessageSizeBytes, once the handshake told it.
-    pub fn set_max_message_size(&mut self, n: usize) {
-        self.max_msg = n;
+    /// The server's maxMessageSizeBytes, once the handshake told it (bounded, see
+    /// `max_message_size_for`).
+    pub fn set_max_message_size(&mut self, advertised: i32) {
+        self.max_msg = max_message_size_for(advertised);
     }
 
     #[cfg(unix)]
@@ -210,6 +228,7 @@ impl Conn {
             // one reply per request, so bytes beyond it are a protocol error
             let want = if have >= 4 {
                 let n = wire::message_length(&self.rbuf);
+                // validated before anything beyond the header is read or reserved
                 if n < wire::HEADER_LEN as i32 || n as usize > self.max_msg {
                     return Err(NetError::Protocol("invalid reply length"));
                 }
@@ -224,6 +243,7 @@ impl Conn {
             } else {
                 16 * 1024 - have
             };
+            let want = want.min(READ_CHUNK);
             self.rbuf.reserve(want);
             let spare = self.rbuf.spare_capacity_mut();
             // SAFETY: read() only writes into the buffer; we expose the uninitialized tail as
@@ -321,4 +341,58 @@ impl Reactor for MioReactor {
 /// Time left until `deadline` (zero once passed).
 pub fn remaining(deadline: Instant) -> Duration {
     deadline.saturating_duration_since(Instant::now())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn advertised_size_is_bounded() {
+        assert_eq!(max_message_size_for(0), DEFAULT_MAX_MSG_SIZE);
+        assert_eq!(max_message_size_for(-5), DEFAULT_MAX_MSG_SIZE);
+        assert_eq!(max_message_size_for(i32::MIN), DEFAULT_MAX_MSG_SIZE);
+        assert_eq!(max_message_size_for(i32::MAX), HARD_MAX_MSG_SIZE);
+        assert_eq!(max_message_size_for(48_000_000), 48_000_000);
+        assert_eq!(max_message_size_for(3), wire::HEADER_LEN + 5);
+    }
+
+    /// A peer that sends `bytes` then keeps the connection open.
+    fn peer(bytes: Vec<u8>) -> (Conn, std::thread::JoinHandle<()>) {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let h = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            s.write_all(&bytes).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+        });
+        (Conn::connect("127.0.0.1", port, Some(Duration::from_secs(5))).unwrap(), h)
+    }
+
+    #[test]
+    fn oversized_or_negative_message_length_is_rejected() {
+        for len in [i32::MAX, (DEFAULT_MAX_MSG_SIZE + 1) as i32, -1, 0, 15] {
+            let mut hdr = len.to_le_bytes().to_vec();
+            hdr.extend_from_slice(&[0; 12]);
+            let (mut c, h) = peer(hdr);
+            match c.recv(Some(Duration::from_secs(5))) {
+                Err(NetError::Protocol(_)) => {}
+                r => panic!("length {len}: {:?}", r.map(|m| m.len())),
+            }
+            // nothing beyond the first read was reserved for the declared length
+            assert!(c.rbuf.capacity() < 1024 * 1024, "length {len}: capacity {}", c.rbuf.capacity());
+            h.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn lowered_cap_applies() {
+        let mut hdr = 1000i32.to_le_bytes().to_vec();
+        hdr.extend_from_slice(&[0; 12]);
+        let (mut c, h) = peer(hdr);
+        c.set_max_message_size(100);
+        assert!(matches!(c.recv(Some(Duration::from_secs(5))), Err(NetError::Protocol(_))));
+        h.join().unwrap();
+    }
 }

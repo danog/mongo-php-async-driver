@@ -130,6 +130,6 @@ pub fn connect_and_hello(host: &str, port: u16, connect_timeout: Option<Duration
     let reply = run_command(&mut conn, &body, connect_timeout)?;
     let rtt = t0.elapsed().as_millis() as i64;
     let sd = ServerDescription::from_hello(&conn.addr, &reply, rtt);
-    conn.set_max_message_size(sd.max_msg_size.max(crate::net::DEFAULT_MAX_MSG_SIZE as i32) as usize);
+    conn.set_max_message_size(sd.max_msg_size);
     Ok((conn, sd))
 }
