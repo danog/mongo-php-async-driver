@@ -298,13 +298,13 @@ pub use crate::driver::serverapi::zim_MongoDB_Driver_ServerApi___serialize;
 pub use crate::driver::serverapi::zim_MongoDB_Driver_ServerApi___set_state;
 pub use crate::driver::serverapi::zim_MongoDB_Driver_ServerApi___unserialize;
 pub use crate::driver::serverapi::zim_MongoDB_Driver_ServerApi_bsonSerialize;
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription___construct") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHelloResponse(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription_getHelloResponse") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHost(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription_getHost") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getLastUpdateTime(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription_getLastUpdateTime") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getPort(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription_getPort") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getRoundTripTime(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription_getRoundTripTime") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getType(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ServerDescription_getType") }
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription___construct;
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getHelloResponse;
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getHost;
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getLastUpdateTime;
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getPort;
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getRoundTripTime;
+pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getType;
 pub use crate::driver::server::zim_MongoDB_Driver_Server___construct;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeBulkWrite;
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWriteCommand(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Server_executeBulkWriteCommand") }
@@ -317,7 +317,7 @@ pub use crate::driver::server::zim_MongoDB_Driver_Server_getHost;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_getInfo;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_getLatency;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_getPort;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getServerDescription(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Server_getServerDescription") }
+pub use crate::driver::sdam::zim_MongoDB_Driver_Server_getServerDescription;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_getTags;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_getType;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_isArbiter;
@@ -340,11 +340,11 @@ pub use crate::driver::session::zim_MongoDB_Driver_Session_getTransactionState;
 pub use crate::driver::session::zim_MongoDB_Driver_Session_isDirty;
 pub use crate::driver::session::zim_MongoDB_Driver_Session_isInTransaction;
 pub use crate::driver::session::zim_MongoDB_Driver_Session_startTransaction;
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_TopologyDescription___construct") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getServers(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_TopologyDescription_getServers") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getType(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_TopologyDescription_getType") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasReadableServer(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_TopologyDescription_hasReadableServer") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasWritableServer(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_TopologyDescription_hasWritableServer") }
+pub use crate::driver::sdam::zim_MongoDB_Driver_TopologyDescription___construct;
+pub use crate::driver::sdam::zim_MongoDB_Driver_TopologyDescription_getServers;
+pub use crate::driver::sdam::zim_MongoDB_Driver_TopologyDescription_getType;
+pub use crate::driver::sdam::zim_MongoDB_Driver_TopologyDescription_hasReadableServer;
+pub use crate::driver::sdam::zim_MongoDB_Driver_TopologyDescription_hasWritableServer;
 pub use crate::driver::writeresult::zim_MongoDB_Driver_WriteConcernError___construct;
 pub use crate::driver::writeresult::zim_MongoDB_Driver_WriteConcernError_getCode;
 pub use crate::driver::writeresult::zim_MongoDB_Driver_WriteConcernError_getInfo;
@@ -417,8 +417,8 @@ pub use crate::driver::readconcern::init_MongoDB_Driver_ReadConcern;
 pub use crate::driver::readpref::init_MongoDB_Driver_ReadPreference;
 pub use crate::driver::server::init_MongoDB_Driver_Server;
 pub use crate::driver::serverapi::init_MongoDB_Driver_ServerApi;
-pub unsafe fn init_MongoDB_Driver_ServerDescription(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_Driver_TopologyDescription(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::sdam::init_MongoDB_Driver_ServerDescription;
+pub use crate::driver::sdam::init_MongoDB_Driver_TopologyDescription;
 pub use crate::driver::session::init_MongoDB_Driver_Session;
 pub use crate::driver::writeconcern::init_MongoDB_Driver_WriteConcern;
 pub unsafe fn init_MongoDB_Driver_WriteConcernError(_ce: *mut sys::zend_class_entry) {}

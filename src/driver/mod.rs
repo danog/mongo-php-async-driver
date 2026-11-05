@@ -11,6 +11,7 @@ pub mod manager;
 pub mod query;
 pub mod readconcern;
 pub mod readpref;
+pub mod sdam;
 pub mod server;
 pub mod serverapi;
 pub mod session;

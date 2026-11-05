@@ -49,7 +49,7 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut Server {
 }
 
 /// The current description of the server (a copy), or a RuntimeException.
-unsafe fn sd(ex: Ex) -> Option<ServerDescription> {
+pub(crate) unsafe fn sd(ex: Ex) -> Option<ServerDescription> {
     let s = me(ex);
     let d = s.client.as_ref().and_then(|c| c.borrow().td.server(s.server_id).cloned());
     if d.is_none() {
@@ -58,7 +58,7 @@ unsafe fn sd(ex: Ex) -> Option<ServerDescription> {
     d
 }
 
-fn host_port(addr: &str) -> (String, i64) {
+pub(crate) fn host_port(addr: &str) -> (String, i64) {
     match addr.rsplit_once(':') {
         Some((h, p)) => (h.trim_start_matches('[').trim_end_matches(']').to_owned(), p.parse().unwrap_or(27017)),
         None => (addr.to_owned(), 27017),
