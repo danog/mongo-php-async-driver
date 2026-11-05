@@ -80,6 +80,7 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
 }
 
 unsafe extern "C" fn mshutdown(_type: c_int, module_number: c_int) -> sys::zend_result {
+    crate::driver::destroy_persistent_clients();
     sys::zend_unregister_ini_entries(module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }

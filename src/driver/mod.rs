@@ -46,6 +46,21 @@ pub fn persistent_client(key: &str, make: impl FnOnce() -> Result<Client, Error>
     })
 }
 
+/// MSHUTDOWN (phongo_pclient_destroy_all at GSHUTDOWN): the persistent clients are destroyed.
+/// One created by this process ends its pooled server sessions first (mongoc_client_destroy);
+/// connections inherited across fork() are forgotten, never closed or written to.
+pub fn destroy_persistent_clients() {
+    let clients = CLIENTS.with(|c| std::mem::take(&mut *c.borrow_mut()));
+    for (_, c) in clients {
+        if let Ok(mut cl) = c.try_borrow_mut() {
+            cl.check_fork();
+            cl.end_pooled_sessions();
+            // no subscribers are left to notify
+            cl.events.clear();
+        }
+    }
+}
+
 /// Whether `c` is one of the persistent clients.
 pub fn is_persistent(c: &ClientRef) -> bool {
     CLIENTS.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, c)))
