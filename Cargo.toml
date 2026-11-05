@@ -3,7 +3,7 @@ name = "mongo-php-async-driver"
 version = "0.2.0"
 edition = "2021"
 publish = false
-license = "AGPL-3.0-only"
+license = "Apache-2.0"
 repository = "https://github.com/danog/mongo-php-async-driver"
 
 [lib]

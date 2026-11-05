@@ -92,4 +92,4 @@ Written by Daniil Gentili ([@danog](https://github.com/danog)).
 
 ## License
 
-AGPL-3.0, see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE](LICENSE).
