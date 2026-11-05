@@ -84,7 +84,11 @@ start() {
           // the first user goes through the localhost exception, then root authenticates
           if ($i === 1) { $m = new MongoDB\Driver\Manager("mongodb://root:toor@'$H':28015/?directConnection=true"); }
           try { $m->executeCommand("admin", new MongoDB\Driver\Command(["createUser" => $n, "pwd" => $p, "roles" => ["root"], "mechanisms" => $mech])); }
-          catch (Exception $e) { if (strpos($e->getMessage(), "already exists") === false) throw $e; }
+          catch (Exception $e) {
+            // a restarted mongod keeps its users: the localhost exception is closed then
+            if ($i === 0 && $e instanceof MongoDB\Driver\Exception\CommandException && $e->getCode() === 13) { continue; }
+            if (strpos($e->getMessage(), "already exists") === false) throw $e;
+          }
         }' ;;
     all) start standalone; start replset; start sharded ;;
   esac
