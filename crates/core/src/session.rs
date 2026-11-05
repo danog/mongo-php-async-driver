@@ -172,3 +172,60 @@ impl ClientSession {
         }
     }
 }
+
+/// What command assembly needs from an explicit session.
+#[derive(Clone, Debug, Default)]
+pub struct SessionInfo {
+    pub lsid: Vec<u8>,
+    pub cluster_time: Option<Vec<u8>>,
+    pub causal_consistency: bool,
+    pub operation_time: (u32, u32),
+    pub snapshot: bool,
+    pub snapshot_time: Option<(u32, u32)>,
+    pub txn_state: TxnState,
+}
+
+impl ClientSession {
+    pub fn info(&self) -> SessionInfo {
+        SessionInfo {
+            lsid: self.lsid().to_vec(),
+            cluster_time: self.cluster_time.clone(),
+            causal_consistency: self.causal_consistency,
+            operation_time: self.operation_time,
+            snapshot: self.snapshot,
+            snapshot_time: self.snapshot_time,
+            txn_state: self.txn_state,
+        }
+    }
+}
+
+impl SessionInfo {
+    pub fn in_txn(&self) -> bool {
+        matches!(self.txn_state, TxnState::Starting | TxnState::InProgress)
+    }
+
+    /// _mongoc_client_session_append_read_concern: the readConcern to send (None: none).
+    pub fn read_concern(&self, rc: &[u8], is_read: bool, is_write: bool, cmd_name: &str) -> Option<Vec<u8>> {
+        use crate::bson::iter::Iter;
+        if self.txn_state == TxnState::InProgress {
+            return None;
+        }
+        let after_ok = is_read || (is_write && matches!(cmd_name, "aggregate" | "find" | "distinct" | "count"));
+        let has_timestamp = (self.txn_state == TxnState::Starting || after_ok) && self.causal_consistency && self.operation_time != (0, 0);
+        let user_level = Iter::new(rc).is_some_and(|mut it| it.find(b"level"));
+        if !has_timestamp && !self.snapshot && !user_level {
+            return None;
+        }
+        let mut w = crate::bson::writer::Writer::with_capacity(64);
+        w.concat(rc);
+        if self.snapshot {
+            w.utf8(b"level", b"snapshot");
+        }
+        if has_timestamp {
+            w.timestamp(b"afterClusterTime", self.operation_time.0, self.operation_time.1);
+        } else if let (true, Some((t, i))) = (self.snapshot, self.snapshot_time) {
+            w.timestamp(b"atClusterTime", t, i);
+        }
+        Some(w.finish())
+    }
+}

@@ -195,12 +195,12 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(_ex: 
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeBulkWrite;
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeBulkWriteCommand(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Manager_executeBulkWriteCommand") }
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeCommand;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeQuery(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Manager_executeQuery") }
+pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeQuery;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeReadCommand;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeReadWriteCommand;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeWriteCommand;
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Manager_getEncryptedFieldsMap") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadConcern(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Manager_getReadConcern") }
+pub use crate::driver::manager::zim_MongoDB_Driver_Manager_getReadConcern;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_getReadPreference;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_getServers;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_getWriteConcern;
@@ -278,13 +278,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyClosedEvent___con
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct") }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Query___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Query___construct") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ReadConcern___construct") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___set_state(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ReadConcern___set_state") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___unserialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ReadConcern___unserialize") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_bsonSerialize(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ReadConcern_bsonSerialize") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_getLevel(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ReadConcern_getLevel") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_isDefault(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ReadConcern_isDefault") }
+pub use crate::driver::query::zim_MongoDB_Driver_Query___construct;
+pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern___construct;
+pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern___set_state;
+pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern___unserialize;
+pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern_bsonSerialize;
+pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern_getLevel;
+pub use crate::driver::readconcern::zim_MongoDB_Driver_ReadConcern_isDefault;
 pub use crate::driver::readpref::zim_MongoDB_Driver_ReadPreference___construct;
 pub use crate::driver::readpref::zim_MongoDB_Driver_ReadPreference___set_state;
 pub use crate::driver::readpref::zim_MongoDB_Driver_ReadPreference___unserialize;
@@ -309,7 +309,7 @@ pub use crate::driver::server::zim_MongoDB_Driver_Server___construct;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeBulkWrite;
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWriteCommand(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Server_executeBulkWriteCommand") }
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeCommand;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeQuery(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Server_executeQuery") }
+pub use crate::driver::server::zim_MongoDB_Driver_Server_executeQuery;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeReadCommand;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeReadWriteCommand;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeWriteCommand;
@@ -412,8 +412,8 @@ pub unsafe fn init_MongoDB_Driver_ClientEncryption(_ce: *mut sys::zend_class_ent
 pub use crate::driver::command::init_MongoDB_Driver_Command;
 pub use crate::driver::cursor::init_MongoDB_Driver_Cursor;
 pub use crate::driver::manager::init_MongoDB_Driver_Manager;
-pub unsafe fn init_MongoDB_Driver_Query(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_Driver_ReadConcern(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::query::init_MongoDB_Driver_Query;
+pub use crate::driver::readconcern::init_MongoDB_Driver_ReadConcern;
 pub use crate::driver::readpref::init_MongoDB_Driver_ReadPreference;
 pub use crate::driver::server::init_MongoDB_Driver_Server;
 pub unsafe fn init_MongoDB_Driver_ServerApi(_ce: *mut sys::zend_class_entry) {}

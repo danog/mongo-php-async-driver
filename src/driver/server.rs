@@ -167,3 +167,9 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWrite(ex: Ex, rv: 
     let Some(c) = s.client.clone() else { return };
     super::manager::execute_bulk_write(ex, rv, c, Some(s.server_id));
 }
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeQuery(ex: Ex, rv: *mut sys::zval) {
+    let s = me(ex);
+    let Some(c) = s.client.clone() else { return };
+    super::manager::execute_query(ex, rv, c, Some(s.server_id));
+}

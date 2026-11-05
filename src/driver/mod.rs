@@ -7,6 +7,8 @@ pub mod bulkwrite;
 pub mod command;
 pub mod cursor;
 pub mod manager;
+pub mod query;
+pub mod readconcern;
 pub mod readpref;
 pub mod server;
 pub mod session;

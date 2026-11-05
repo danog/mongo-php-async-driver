@@ -218,6 +218,44 @@ pub enum CmdType {
     ReadWrite,
 }
 
+/// The $readPreference contents for `rp` (mode, document).
+pub fn rp_parts(rp: &ReadPreference) -> (ReadMode, Vec<u8>) {
+    let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
+    rp.append_contents(&mut w, rp.mode);
+    (rp.mode, w.finish())
+}
+
+/// phongo_parse_read_concern: the "readConcern" option.
+unsafe fn parse_read_concern(options: *mut sys::zval) -> Result<Option<super::readconcern::ReadConcern>, ()> {
+    if options.is_null() {
+        return Ok(None);
+    }
+    if !zval::is(options, sys::IS_ARRAY) {
+        throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+        return Err(());
+    }
+    let Some(z) = hash::sym_find((*options).value.arr, b"readConcern") else { return Ok(None) };
+    let z = zval::deref(z);
+    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readconcern::CE) {
+        throw(E::InvalidArgument, format!("Expected \"readConcern\" option to be MongoDB\\Driver\\ReadConcern, {} given", zval::type_name(z)));
+        return Err(());
+    }
+    Ok(Some(obj::data::<super::readconcern::ReadConcern>((*z).value.obj).clone()))
+}
+
+/// phongo_validate_dbname
+unsafe fn validate_dbname(db: &[u8]) -> bool {
+    if db.contains(&0) {
+        throw(E::InvalidArgument, "Invalid database name provided: database names may not contain a null byte");
+        return false;
+    }
+    if db.contains(&b'.') {
+        throw(E::InvalidArgument, format!("Invalid database name provided: database names may not contain a '.' character: {}", String::from_utf8_lossy(db)));
+        return false;
+    }
+    true
+}
+
 /// phongo_execute_command for Manager::execute*Command and Server::execute*Command.
 pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef, ty: CmdType, server_id: Option<u32>) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
@@ -227,87 +265,213 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     if sys::zend_parse_parameters(call::num_args(ex), spec.as_ptr(), &mut p, &mut l, &mut command, super::command::CE, &mut options) != 0 {
         return;
     }
-    if !options.is_null() && !zval::is(options, sys::IS_ARRAY) {
-        throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
-        return;
-    }
-    // phongo_parse_read_preference (raw and read commands)
+    let dbb = std::slice::from_raw_parts(p, l);
+    // phongo_parse_read_preference / phongo_parse_session (Manager: before server selection)
     let mut rp: Option<ReadPreference> = None;
-    if !options.is_null() && matches!(ty, CmdType::Raw | CmdType::Read) {
-        match parse_read_preference((*options).value.arr) {
-            Ok(r) => rp = r,
-            Err(()) => return,
+    if matches!(ty, CmdType::Raw | CmdType::Read) {
+        if !options.is_null() && !zval::is(options, sys::IS_ARRAY) {
+            throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+            return;
+        }
+        if !options.is_null() {
+            match parse_read_preference((*options).value.arr) {
+                Ok(r) => rp = r,
+                Err(()) => return,
+            }
         }
     }
-    if rp.is_none() && ty == CmdType::Read {
-        rp = Some(client_read_preference(&client.borrow().uri));
+    let Ok(zsession) = super::parse_session(options, &client) else { return };
+    let sid = match server_id {
+        Some(s) => s,
+        None => {
+            let pinned = zsession.map_or(0, |z| super::session_server_id(z));
+            if pinned > 0 {
+                pinned
+            } else {
+                // phongo_manager_select_server: reads with the given (or, for read commands, the
+                // client's) read preference; write commands select a primary
+                let for_writes = matches!(ty, CmdType::Write | CmdType::ReadWrite);
+                let eff = match (&rp, ty) {
+                    (Some(r), _) => Some(r.clone()),
+                    (None, CmdType::Read) => Some(client_read_preference(&client.borrow().uri)),
+                    _ => None,
+                };
+                let prefs = eff.as_ref().map(ReadPreference::prefs);
+                let op = if for_writes { OpType::Write } else { OpType::Read };
+                match client.borrow_mut().select_server_id(op, prefs.as_ref(), &[]) {
+                    Ok((s, _)) => s,
+                    Err(e) => {
+                        super::throw_error(&e, None);
+                        return;
+                    }
+                }
+            }
+        }
+    };
+    if !validate_dbname(dbb) {
+        return;
     }
-    let db = String::from_utf8_lossy(std::slice::from_raw_parts(p, l)).into_owned();
+    let db = String::from_utf8_lossy(dbb).into_owned();
+    let has_rc = matches!(ty, CmdType::Read | CmdType::ReadWrite);
+    let has_wc = matches!(ty, CmdType::Raw | CmdType::Write | CmdType::ReadWrite);
+    let rc = if has_rc {
+        match parse_read_concern(options) {
+            Ok(r) => r,
+            Err(()) => return,
+        }
+    } else {
+        None
+    };
+    let mut wc: Option<super::writeconcern::WriteConcern> = None;
+    let mut unack = false;
+    if has_wc {
+        match super::parse_write_concern(options) {
+            Ok(w) => wc = w,
+            Err(()) => return,
+        }
+        unack = match &wc {
+            Some(w) => !w.is_acknowledged(),
+            None if ty != CmdType::Raw => !super::writeconcern::WriteConcern::from_uri(&client.borrow().uri).is_acknowledged(),
+            None => false,
+        };
+    }
+    if zsession.is_some() && unack {
+        throw(E::InvalidArgument, "Cannot combine \"session\" option with an unacknowledged write concern");
+        return;
+    }
     let cmd = obj::data::<Command>((*command).value.obj);
     let Some(bson) = cmd.bson.clone() else { return };
     let (batch_size, max_await) = (cmd.batch_size, cmd.max_await_time_ms);
-    let optype = if matches!(ty, CmdType::Write | CmdType::ReadWrite) { OpType::Write } else { OpType::Read };
-    let prefs = rp.as_ref().map(ReadPreference::prefs);
-    let (sid, must_use_primary) = match server_id {
-        Some(s) => (s, false),
-        None => match client.borrow_mut().select_server_id(optype, if optype == OpType::Read { prefs.as_ref() } else { None }, &[]) {
-            Ok(s) => s,
-            Err(e) => {
-                super::throw_error(&e, None);
-                return;
+    // phongo_create_implicit_session (ignoring errors)
+    let mut implicit = if zsession.is_none() && !unack { client.borrow_mut().start_session(true, false).ok() } else { None };
+    // _mongoc_client_command_with_opts
+    let mode_read = matches!(ty, CmdType::Read | CmdType::ReadWrite);
+    let mode_write = matches!(ty, CmdType::Write | CmdType::ReadWrite);
+    let result = {
+        let mut cl = client.borrow_mut();
+        let mut parts = mongo_core::cmdparts::Parts::new(&db, &bson);
+        parts.is_read = mode_read;
+        parts.is_write = mode_write;
+        if matches!(ty, CmdType::Raw | CmdType::Read) {
+            let eff = match (&rp, ty) {
+                (Some(r), _) => Some(r.clone()),
+                (None, CmdType::Read) => Some(client_read_preference(&cl.uri)),
+                _ => None,
+            };
+            parts.read_prefs = eff.as_ref().map(rp_parts);
+        }
+        if let Some(r) = &rc {
+            parts.read_concern = r.to_bson();
+        }
+        if let Some(w) = &wc {
+            parts.set_write_concern(w);
+        } else if mode_write {
+            let cw = super::writeconcern::WriteConcern::from_uri(&cl.uri);
+            if !cw.is_default {
+                parts.set_write_concern(&cw);
             }
-        },
+        }
+        if mode_read && rc.is_none() {
+            let crc = mongo_core::concern::ReadConcern::from_uri(&cl.uri);
+            if !crc.is_default() {
+                parts.read_concern = crc.to_bson();
+            }
+        }
+        parts.session = match (zsession, &implicit) {
+            (Some(z), _) => Some(super::with_session(z, |s| s.info())),
+            (None, Some(s)) => Some(s.info()),
+            _ => None,
+        };
+        cl.operation_id += 1;
+        match cl.assemble(parts, sid, false) {
+            Err(e) => Err(mongo_core::cmdparts::Failure::from(e)),
+            Ok(mut c) => {
+                if c.is_retryable_write {
+                    let n = match (zsession, implicit.as_mut()) {
+                        (Some(z), _) => super::with_session(z, |s| s.next_txn_number()),
+                        (None, Some(s)) => s.next_txn_number(),
+                        _ => 0,
+                    };
+                    mongo_core::bulk::set_txn_number(&mut c.body, n);
+                }
+                let r = cl.run_cmd(&mut c, None);
+                let (Ok(rep) | Err(mongo_core::cmdparts::Failure { reply: rep, .. })) = &r;
+                let network = r.as_ref().is_err_and(|f| f.error.is_network());
+                let feed = |s: &mut mongo_core::session::ClientSession| {
+                    s.handle_reply(true, rep);
+                    if network {
+                        s.mark_dirty();
+                    }
+                };
+                match (zsession, implicit.as_mut()) {
+                    (Some(z), _) => super::with_session(z, feed),
+                    (None, Some(s)) => feed(s),
+                    _ => {}
+                }
+                r
+            }
+        }
     };
-    // the command with $db
-    let mut w = mongo_core::bson::writer::Writer::with_capacity(bson.len() + 32);
-    if let Some(mut it) = mongo_core::bson::iter::Iter::new(&bson) {
-        while it.next() {
-            w.element_from(None, &it);
-        }
-    }
-    if !has_key(&bson, b"$db") {
-        w.utf8(b"$db", db.as_bytes());
-    }
-    // mongoc_cmd_parts_assemble: $readPreference for reads on non-standalone servers
-    if optype == OpType::Read {
-        let cl = client.borrow();
-        let sty = cl.td.server(sid).map(|s| s.ty);
-        let single_direct = cl.td.ty == mongo_core::topology::TopologyType::Single && sty != Some(mongo_core::sdam::ServerType::Mongos);
-        let mut eff = rp.clone().unwrap_or_default();
-        if eff.mode == ReadMode::Primary && single_direct {
-            eff = ReadPreference { mode: ReadMode::PrimaryPreferred, ..Default::default() };
-        }
-        let mode = if must_use_primary { ReadMode::Primary } else { eff.mode };
-        if mode != ReadMode::Primary && sty != Some(mongo_core::sdam::ServerType::Standalone) {
-            let d = w.begin(3, b"$readPreference");
-            eff.append_contents(&mut w, mode);
-            w.end(d);
-        }
-    }
-    let body = w.finish();
-    let name = super::command::name(&bson);
-    let r = client.borrow_mut().run_command(sid, &name, &db, &body);
-    let reply = match r {
+    let reply = match result {
         Ok(r) => r,
-        Err(e) => {
-            super::throw_error(&e, None);
+        Err(f) => {
+            if let Some(mut s) = implicit.take() {
+                client.borrow_mut().end_session(&mut s);
+            }
+            super::throw_error(&f.error, (!f.reply.is_empty()).then_some(&f.reply[..]));
             return;
         }
     };
-    if let Err(e) = mongo_core::cmd::check_ok(&reply) {
-        client.borrow_mut().handle_command_error(sid, &reply);
-        super::throw_error(&e.into_error(), Some(&reply));
-        return;
-    }
-    if matches!(ty, CmdType::Write | CmdType::ReadWrite) {
+    if mode_write {
         if let Some(e) = write_concern_error(&reply) {
+            if let Some(mut s) = implicit.take() {
+                client.borrow_mut().end_session(&mut s);
+            }
             super::throw_error(&e, Some(&reply));
             return;
         }
     }
-    let mut c = Cursor::from_reply(reply, client, sid, &db);
-    c.batch_size = batch_size;
-    c.max_await_time_ms = max_await;
+    let has_cursor = matches!(mongo_core::cmdparts::find(&reply, b"cursor"), Some(mongo_core::bson::iter::Value::Document(_)));
+    let mut c = if has_cursor {
+        Cursor::from_reply(reply, client.clone(), sid, &db)
+    } else {
+        // create_wrapped_command_envelope
+        let mut w = mongo_core::bson::writer::Writer::with_capacity(reply.len() + 64);
+        let cd = w.begin(3, b"cursor");
+        w.int64(b"id", 0);
+        w.utf8(b"ns", format!("{db}.$cmd").as_bytes());
+        let fb = w.begin(4, b"firstBatch");
+        w.document(b"0", &reply);
+        w.end(fb);
+        w.end(cd);
+        Cursor::from_reply(w.finish(), client.clone(), sid, &db)
+    };
+    if has_cursor {
+        if max_await > 0 {
+            c.opts.await_data = true;
+            c.opts.max_await_time_ms = max_await as i64;
+            c.opts.tailable = true;
+        }
+        if batch_size > 0 {
+            c.opts.batch_size = batch_size as i64;
+        }
+        if let Some(mut it) = mongo_core::bson::iter::Iter::new(&bson) {
+            if it.find(b"comment") {
+                let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
+                w.element_from(Some(b"comment"), &it);
+                c.opts.comment = Some(w.finish());
+            }
+        }
+    }
+    if let Some(z) = zsession {
+        c.session = zval::copy(z);
+    }
+    c.set_implicit(implicit);
+    c.database = Some(db.clone());
+    c.zcommand = zval::copy(command);
+    if let Some(r) = &rp {
+        c.zread_preference = super::readpref::new_readpreference(r.clone());
+    }
     *rv = super::cursor::new_cursor(c);
 }
 
@@ -530,4 +694,127 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeBulkWrite(ex: Ex, rv: *mut sys::zval) {
     let Some(c) = client_of(ex) else { return };
     execute_bulk_write(ex, rv, c, None);
+}
+
+/// phongo_execute_query (Manager selects a server with the read preference first).
+pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>) {
+    let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
+    let mut zquery: *mut sys::zval = null_mut();
+    let mut options: *mut sys::zval = null_mut();
+    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zquery, super::query::CE, &mut options) != 0 {
+        return;
+    }
+    let ns = std::slice::from_raw_parts(p, l).to_vec();
+    let mut rp: Option<ReadPreference> = None;
+    if !options.is_null() {
+        if !zval::is(options, sys::IS_ARRAY) {
+            throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+            return;
+        }
+        match parse_read_preference((*options).value.arr) {
+            Ok(r) => rp = r,
+            Err(()) => return,
+        }
+    }
+    let Ok(zsession) = super::parse_session(options, &client) else { return };
+    let sid = match server_id {
+        Some(s) => s,
+        None => {
+            let pinned = zsession.map_or(0, |z| super::session_server_id(z));
+            if pinned > 0 {
+                pinned
+            } else {
+                // inherit the client's read preference
+                let eff = rp.clone().unwrap_or_else(|| client_read_preference(&client.borrow().uri));
+                let prefs = eff.prefs();
+                match client.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]) {
+                    Ok((s, _)) => s,
+                    Err(e) => {
+                        super::throw_error(&e, None);
+                        return;
+                    }
+                }
+            }
+        }
+    };
+    let Some((db, coll)) = super::split_namespace(&ns) else { return };
+    let q = obj::data::<super::query::Query>((*zquery).value.obj);
+    let filter = q.filter.clone().unwrap_or_else(|| mongo_core::bson::writer::Writer::new().finish());
+    let qopts = q.opts.clone().unwrap_or_else(|| mongo_core::bson::writer::Writer::new().finish());
+    // the cursor options (_mongoc_cursor_new_with_opts) and the find command's options
+    let mut co = super::cursor::CursorOpts::default();
+    let mut exhaust = false;
+    let mut fw = mongo_core::bson::writer::Writer::with_capacity(qopts.len());
+    if let Some(mut it) = mongo_core::bson::iter::Iter::new(&qopts) {
+        while it.next() {
+            let v = it.value();
+            let as_i64 = || match v {
+                mongo_core::bson::iter::Value::Int32(_) | mongo_core::bson::iter::Value::Int64(_) | mongo_core::bson::iter::Value::Double(_) | mongo_core::bson::iter::Value::Bool(_) => mongo_core::sdam::as_i64(&v),
+                _ => 0,
+            };
+            let as_bool = || matches!(v, mongo_core::bson::iter::Value::Bool(true));
+            match it.key() {
+                b"batchSize" => co.batch_size = as_i64(),
+                b"limit" => co.limit = as_i64(),
+                b"singleBatch" => co.single_batch = as_bool(),
+                b"tailable" => co.tailable = as_bool(),
+                b"awaitData" => co.await_data = as_bool(),
+                b"comment" => {
+                    let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
+                    w.element_from(Some(b"comment"), &it);
+                    co.comment = Some(w.finish());
+                }
+                b"exhaust" => {
+                    exhaust = as_bool();
+                    continue;
+                }
+                _ => {}
+            }
+            fw.element_from(None, &it);
+        }
+    }
+    co.max_await_time_ms = q.max_await_time_ms as i64;
+    let mut c = super::cursor::Cursor::for_find(client.clone(), sid, &db, &coll, filter, fw.finish());
+    c.opts = co;
+    let read_prefs = rp.clone().unwrap_or_else(|| client_read_preference(&client.borrow().uri));
+    c.read_prefs = Some(rp_parts(&read_prefs));
+    c.read_concern = match &q.read_concern {
+        Some(r) if !r.is_default() => r.to_bson(),
+        Some(_) => Vec::new(),
+        None => {
+            let crc = mongo_core::concern::ReadConcern::from_uri(&client.borrow().uri);
+            if crc.is_default() { Vec::new() } else { crc.to_bson() }
+        }
+    };
+    if exhaust && c.opts.limit != 0 {
+        c.set_error(mongo_core::error::Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot specify both 'exhaust' and 'limit'."));
+    }
+    if let Some(z) = zsession {
+        c.session = zval::copy(z);
+    }
+    if !c.advance_first() {
+        return;
+    }
+    c.database = Some(db);
+    c.collection = Some(coll);
+    c.zquery = zval::copy(zquery);
+    if let Some(r) = &rp {
+        c.zread_preference = super::readpref::new_readpreference(r.clone());
+    }
+    *rv = super::cursor::new_cursor(c);
+}
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeQuery(ex: Ex, rv: *mut sys::zval) {
+    let Some(c) = client_of(ex) else { return };
+    execute_query(ex, rv, c, None);
+}
+
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadConcern(ex: Ex, rv: *mut sys::zval) {
+    if !call::none(ex) {
+        return;
+    }
+    if let Some(c) = client_of(ex) {
+        let rc = mongo_core::concern::ReadConcern::from_uri(&c.borrow().uri);
+        *rv = super::readconcern::new_readconcern(rc);
+    }
 }

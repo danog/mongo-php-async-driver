@@ -254,7 +254,7 @@ pub fn truncate_message(msg: &mut String) {
 }
 
 /// bson_validate with BSON_VALIDATE_EMPTY_KEYS (recursively).
-fn validate_empty_keys(doc: &[u8]) -> Result<(), String> {
+pub fn validate_empty_keys(doc: &[u8]) -> Result<(), String> {
     let Some(mut it) = Iter::new(doc) else { return Err("corrupt BSON".into()) };
     while it.next() {
         if it.key().is_empty() {
@@ -593,9 +593,7 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
     parts.extra.concat(&command.cmd_opts);
     if let Some(s) = &session {
         if acked {
-            parts.explicit_lsid = Some(s.lsid().to_vec());
-            parts.explicit_cluster_time = s.cluster_time.clone();
-            parts.in_txn = s.in_txn();
+            parts.session = Some(s.info());
         }
     }
     let mut cmd = match client.assemble(parts, server_id, false) {
@@ -683,7 +681,7 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
 }
 
 /// bson_iter_overwrite_int64 on the command's "txnNumber".
-fn set_txn_number(body: &mut [u8], n: i64) {
+pub fn set_txn_number(body: &mut [u8], n: i64) {
     let Some(mut it) = Iter::new(body) else { return };
     if it.find(b"txnNumber") {
         let e = it.element_bytes();

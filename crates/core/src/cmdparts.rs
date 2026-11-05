@@ -31,11 +31,8 @@ pub struct Parts<'a> {
     /// MONGOC_CMD_PARTS_ALLOW_TXN_NUMBER_{UNKNOWN (None), YES, NO}
     pub allow_txn_number: Option<bool>,
     pub prohibit_lsid: bool,
-    /// An explicit session's lsid and $clusterTime (None: an implicit session is used).
-    pub explicit_lsid: Option<Vec<u8>>,
-    pub explicit_cluster_time: Option<Vec<u8>>,
-    /// the user asked for a non-default read preference within a transaction (error)
-    pub in_txn: bool,
+    /// An explicit session (None: an implicit session is used when possible).
+    pub session: Option<crate::session::SessionInfo>,
 }
 
 impl<'a> Parts<'a> {
@@ -140,7 +137,8 @@ impl Client {
         if !has_field(parts.body, b"$db") {
             extra.utf8(b"$db", parts.db.as_bytes());
         }
-        if parts.in_txn {
+        let in_txn = parts.session.as_ref().is_some_and(|s| s.in_txn());
+        if in_txn {
             if mode != ReadMode::Primary && !parts.is_write {
                 return Err(Error::new(domain::TRANSACTION, code::TRANSACTION_INVALID_STATE, "Read preference in a transaction must be primary"));
             }
@@ -152,11 +150,11 @@ impl Client {
         out.append_raw_elements(&extra.finish());
         // lsid: the explicit session's, or an implicit one when acknowledged
         let mut temp_session = None;
-        let mut cluster_time = parts.explicit_cluster_time.clone();
+        let mut cluster_time = parts.session.as_ref().and_then(|s| s.cluster_time.clone());
         let lsid = if parts.prohibit_lsid {
             None
-        } else if let Some(l) = &parts.explicit_lsid {
-            Some(l.clone())
+        } else if let Some(s) = &parts.session {
+            Some(s.lsid.clone())
         } else if parts.is_acknowledged && self.td.session_timeout_minutes != crate::sdam::NO_SESSIONS {
             let s = self.pop_server_session();
             let l = s.lsid.clone();
@@ -178,12 +176,12 @@ impl Client {
             && parts.is_write
             && parts.allow_txn_number == Some(true)
             && sd.ty != ServerType::Standalone
-            && !parts.in_txn
+            && !in_txn
             && self.uri.get_bool("retrywrites", true);
         if is_retryable_write {
             out.int64(b"txnNumber", 0);
         }
-        let is_retryable_read = parts.is_read && !parts.is_write && !parts.in_txn && !is_get_more && self.uri.get_bool("retryreads", true);
+        let is_retryable_read = parts.is_read && !parts.is_write && !in_txn && !is_get_more && self.uri.get_bool("retryreads", true);
         if let Some(t) = &self.td.cluster_time {
             cluster_time = match cluster_time {
                 Some(c) if !crate::topology::cluster_time_greater(t, &c) => Some(c),
@@ -204,8 +202,15 @@ impl Client {
                 out.bool(b"apiDeprecationErrors", d);
             }
         }
-        if !is_get_more && !parts.read_concern.is_empty() && !crate::bson::iter::is_empty(&parts.read_concern) {
-            out.document(b"readConcern", &parts.read_concern);
+        if !is_get_more {
+            let rc_given = !parts.read_concern.is_empty() && !crate::bson::iter::is_empty(&parts.read_concern);
+            if let (Some(s), true) = (&parts.session, lsid.is_some()) {
+                if let Some(rc) = s.read_concern(&parts.read_concern, parts.is_read, parts.is_write, &name) {
+                    out.document(b"readConcern", &rc);
+                }
+            } else if rc_given {
+                out.document(b"readConcern", &parts.read_concern);
+            }
         }
         if !parts.write_concern.is_empty() && !crate::bson::iter::is_empty(&parts.write_concern) {
             out.document(b"writeConcern", &parts.write_concern);
@@ -269,4 +274,42 @@ impl Client {
 pub fn find<'a>(doc: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
     let mut it = Iter::new(doc)?;
     it.find(k).then(|| it.value())
+}
+
+impl Client {
+    /// mongoc_client_start_session (_mongoc_topology_pop_server_session)
+    pub fn start_session(&mut self, causal_consistency: bool, snapshot: bool) -> Result<crate::session::ClientSession, Error> {
+        let lb = self.td.ty == TopologyType::LoadBalanced;
+        if !lb && self.td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
+            let has_data = self.td.has_data_node();
+            if !has_data {
+                self.select_server_id(crate::topology::OpType::Read, None, &[])?;
+            }
+            if self.td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
+                return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Server does not support sessions"));
+            }
+        }
+        if causal_consistency && snapshot {
+            return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Only one of causal consistency and snapshot can be enabled."));
+        }
+        let ss = self.pop_server_session();
+        Ok(crate::session::ClientSession {
+            server_session: Some(ss),
+            causal_consistency,
+            snapshot,
+            client_generation: self.generation,
+            ..Default::default()
+        })
+    }
+
+    /// mongoc_client_session_destroy: the server session goes back to the pool (unless the
+    /// client was reset since: it belongs to the parent process then).
+    pub fn end_session(&mut self, cs: &mut crate::session::ClientSession) {
+        self.check_fork();
+        if let Some(ss) = cs.server_session.take() {
+            if cs.client_generation == self.generation {
+                self.push_server_session(ss);
+            }
+        }
+    }
 }
