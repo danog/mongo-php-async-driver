@@ -1,0 +1,159 @@
+<?php
+
+namespace MongoDB\Tests\UnifiedSpecTests;
+
+use MongoDB\Tests\UnifiedSpecTests\Constraint\Matches;
+use stdClass;
+
+use function array_diff;
+use function in_array;
+use function PHPUnit\Framework\assertContains;
+use function PHPUnit\Framework\assertContainsOnly;
+use function PHPUnit\Framework\assertEmpty;
+use function PHPUnit\Framework\assertInstanceOf;
+use function PHPUnit\Framework\assertIsArray;
+use function PHPUnit\Framework\assertIsBool;
+use function PHPUnit\Framework\assertIsString;
+use function PHPUnit\Framework\assertMatchesRegularExpression;
+use function version_compare;
+
+class RunOnRequirement
+{
+    public const TOPOLOGY_SINGLE = 'single';
+    public const TOPOLOGY_REPLICASET = 'replicaset';
+    public const TOPOLOGY_SHARDED = 'sharded';
+    public const TOPOLOGY_SHARDED_REPLICASET = 'sharded-replicaset';
+    public const TOPOLOGY_LOAD_BALANCED = 'load-balanced';
+
+    public const SERVERLESS_REQUIRE = 'require';
+    public const SERVERLESS_FORBID = 'forbid';
+    public const SERVERLESS_ALLOW = 'allow';
+
+    public const VERSION_PATTERN = '/^[0-9]+(\\.[0-9]+){1,2}$/';
+
+    private ?string $minServerVersion = null;
+
+    private ?string $maxServerVersion = null;
+
+    private ?array $topologies = null;
+
+    private ?stdClass $serverParameters = null;
+
+    private ?bool $auth = null;
+
+    private ?string $serverless = null;
+
+    private ?bool $csfle = null;
+
+    private static array $supportedTopologies = [
+        self::TOPOLOGY_SINGLE,
+        self::TOPOLOGY_REPLICASET,
+        self::TOPOLOGY_SHARDED,
+        self::TOPOLOGY_SHARDED_REPLICASET,
+        self::TOPOLOGY_LOAD_BALANCED,
+    ];
+
+    private static array $supportedServerless = [
+        self::SERVERLESS_REQUIRE,
+        self::SERVERLESS_FORBID,
+        self::SERVERLESS_ALLOW,
+    ];
+
+    public function __construct(stdClass $o)
+    {
+        Util::assertHasOnlyKeys($o, ['minServerVersion', 'maxServerVersion', 'topologies', 'serverParameters', 'auth', 'serverless', 'csfle']);
+
+        if (isset($o->minServerVersion)) {
+            assertIsString($o->minServerVersion);
+            assertMatchesRegularExpression(self::VERSION_PATTERN, $o->minServerVersion);
+            $this->minServerVersion = $o->minServerVersion;
+        }
+
+        if (isset($o->maxServerVersion)) {
+            assertIsString($o->maxServerVersion);
+            assertMatchesRegularExpression(self::VERSION_PATTERN, $o->maxServerVersion);
+            $this->maxServerVersion = $o->maxServerVersion;
+        }
+
+        if (isset($o->topologies)) {
+            assertIsArray($o->topologies);
+            assertContainsOnly('string', $o->topologies);
+            assertEmpty(array_diff($o->topologies, self::$supportedTopologies));
+            $this->topologies = $o->topologies;
+        }
+
+        if (isset($o->serverParameters)) {
+            assertInstanceOf(stdClass::class, $o->serverParameters);
+            $this->serverParameters = $o->serverParameters;
+        }
+
+        if (isset($o->auth)) {
+            assertIsBool($o->auth);
+            $this->auth = $o->auth;
+        }
+
+        if (isset($o->serverless)) {
+            assertIsString($o->serverless);
+            assertContains($o->serverless, self::$supportedServerless);
+            $this->serverless = $o->serverless;
+        }
+
+        if (isset($o->csfle)) {
+            assertIsBool($o->csfle);
+            $this->csfle = $o->csfle;
+        }
+    }
+
+    public function isSatisfied(string $serverVersion, string $topology, ServerParameterHelper $serverParameters, bool $isAuthenticated, bool $isClientSideEncryptionSupported): bool
+    {
+        if (isset($this->minServerVersion) && version_compare($serverVersion, $this->minServerVersion, '<')) {
+            return false;
+        }
+
+        if (isset($this->maxServerVersion) && version_compare($serverVersion, $this->maxServerVersion, '>')) {
+            return false;
+        }
+
+        if (isset($this->topologies) && ! $this->isTopologySatisfied($topology)) {
+            return false;
+        }
+
+        if (isset($this->serverParameters)) {
+            foreach ($this->serverParameters as $parameter => $expectedValue) {
+                $constraint = new Matches($expectedValue, null, true, false);
+                if (! $constraint->evaluate($serverParameters->$parameter, '', true)) {
+                    return false;
+                }
+            }
+        }
+
+        if (isset($this->auth) && $isAuthenticated !== $this->auth) {
+            return false;
+        }
+
+        if (isset($this->serverless) && $this->serverless === self::SERVERLESS_REQUIRE) {
+            return false;
+        }
+
+        if (isset($this->csfle) && $isClientSideEncryptionSupported !== $this->csfle) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function isTopologySatisfied(string $topology): bool
+    {
+        if (in_array($topology, $this->topologies)) {
+            return true;
+        }
+
+        /* Ensure "sharded-replicaset" is also accepted for topologies that
+         * only include "sharded" (agnostic about the shard topology) */
+        if ($topology === self::TOPOLOGY_SHARDED_REPLICASET && in_array(self::TOPOLOGY_SHARDED, $this->topologies)) {
+            return true;
+        }
+
+        return false;
+    }
+}

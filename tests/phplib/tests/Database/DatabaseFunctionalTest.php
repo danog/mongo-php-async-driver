@@ -1,0 +1,452 @@
+<?php
+
+namespace MongoDB\Tests\Database;
+
+use MongoDB\BSON\PackedArray;
+use MongoDB\Codec\Encoder;
+use MongoDB\Collection;
+use MongoDB\Database;
+use MongoDB\Driver\BulkWrite;
+use MongoDB\Driver\Cursor;
+use MongoDB\Driver\ReadConcern;
+use MongoDB\Driver\ReadPreference;
+use MongoDB\Driver\WriteConcern;
+use MongoDB\Exception\InvalidArgumentException;
+use MongoDB\Operation\CreateIndexes;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
+use ReflectionClass;
+use TypeError;
+
+use function array_key_exists;
+use function current;
+
+/**
+ * Functional tests for the Database class.
+ */
+class DatabaseFunctionalTest extends FunctionalTestCase
+{
+    #[DataProvider('provideInvalidDatabaseNames')]
+    public function testConstructorDatabaseNameArgument($databaseName, string $expectedExceptionClass): void
+    {
+        $this->expectException($expectedExceptionClass);
+        // TODO: Move to unit test once ManagerInterface can be mocked (PHPC-378)
+        new Database($this->manager, $databaseName);
+    }
+
+    public static function provideInvalidDatabaseNames()
+    {
+        return [
+            [null, TypeError::class],
+            ['', InvalidArgumentException::class],
+            ['foo.bar', InvalidArgumentException::class],
+            ["foo\0bar", InvalidArgumentException::class],
+        ];
+    }
+
+    #[DataProvider('provideInvalidConstructorOptions')]
+    public function testConstructorOptionTypeChecks(array $options): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new Database($this->manager, $this->getDatabaseName(), $options);
+    }
+
+    public static function provideInvalidConstructorOptions()
+    {
+        return self::createOptionDataProvider([
+            'builderEncoder' => self::getInvalidObjectValues(),
+            'readConcern' => self::getInvalidReadConcernValues(),
+            'readPreference' => self::getInvalidReadPreferenceValues(),
+            'typeMap' => self::getInvalidArrayValues(),
+            'writeConcern' => self::getInvalidWriteConcernValues(),
+        ]);
+    }
+
+    public function testGetManager(): void
+    {
+        $this->assertSame($this->manager, $this->database->getManager());
+    }
+
+    public function testToString(): void
+    {
+        $this->assertEquals($this->getDatabaseName(), (string) $this->database);
+    }
+
+    public function getGetDatabaseName(): void
+    {
+        $this->assertEquals($this->getDatabaseName(), $this->database->getDatabaseName());
+    }
+
+    public function testCommand(): void
+    {
+        $command = ['ping' => 1];
+        $options = [
+            'readPreference' => new ReadPreference(ReadPreference::PRIMARY),
+        ];
+
+        $cursor = $this->database->command($command, $options);
+
+        $this->assertInstanceOf(Cursor::class, $cursor);
+        $commandResult = current($cursor->toArray());
+
+        $this->assertCommandSucceeded($commandResult);
+        $this->assertObjectHasProperty('ok', $commandResult);
+        $this->assertSame(1, (int) $commandResult->ok);
+    }
+
+    public function testCommandDoesNotInheritReadPreference(): void
+    {
+        if (! $this->isReplicaSet()) {
+            $this->markTestSkipped('Test only applies to replica sets');
+        }
+
+        $this->database = new Database($this->manager, $this->getDatabaseName(), ['readPreference' => new ReadPreference(ReadPreference::SECONDARY)]);
+
+        $command = ['ping' => 1];
+
+        $cursor = $this->database->command($command);
+
+        $this->assertInstanceOf(Cursor::class, $cursor);
+        $this->assertTrue($cursor->getServer()->isPrimary());
+    }
+
+    public function testCommandAppliesTypeMapToCursor(): void
+    {
+        $command = ['ping' => 1];
+        $options = [
+            'readPreference' => new ReadPreference(ReadPreference::PRIMARY),
+            'typeMap' => ['root' => 'array'],
+        ];
+
+        $cursor = $this->database->command($command, $options);
+
+        $this->assertInstanceOf(Cursor::class, $cursor);
+        $commandResult = current($cursor->toArray());
+
+        $this->assertCommandSucceeded($commandResult);
+        $this->assertIsArray($commandResult);
+        $this->assertArrayHasKey('ok', $commandResult);
+        $this->assertSame(1, (int) $commandResult['ok']);
+    }
+
+    #[DataProvider('provideInvalidDocumentValues')]
+    public function testCommandCommandArgumentTypeCheck($command): void
+    {
+        $this->expectException($command instanceof PackedArray ? InvalidArgumentException::class : TypeError::class);
+        $this->database->command($command);
+    }
+
+    public function testDrop(): void
+    {
+        $bulkWrite = new BulkWrite();
+        $bulkWrite->insert(['x' => 1]);
+
+        $writeResult = $this->manager->executeBulkWrite($this->getNamespace(), $bulkWrite);
+        $this->assertEquals(1, $writeResult->getInsertedCount());
+
+        $this->database->drop();
+        $this->assertCollectionCount($this->getNamespace(), 0);
+    }
+
+    public function testDropCollection(): void
+    {
+        $bulkWrite = new BulkWrite();
+        $bulkWrite->insert(['x' => 1]);
+
+        $writeResult = $this->manager->executeBulkWrite($this->getNamespace(), $bulkWrite);
+        $this->assertEquals(1, $writeResult->getInsertedCount());
+
+        $this->database->dropCollection($this->getCollectionName());
+        $this->assertCollectionDoesNotExist($this->getCollectionName());
+    }
+
+    public function testGetSelectsCollectionAndInheritsOptions(): void
+    {
+        $databaseOptions = ['writeConcern' => new WriteConcern(WriteConcern::MAJORITY)];
+
+        $database = new Database($this->manager, $this->getDatabaseName(), $databaseOptions);
+        $collection = $database->{$this->getCollectionName()};
+        $debug = $collection->__debugInfo();
+
+        $this->assertSame($this->manager, $debug['manager']);
+        $this->assertSame($this->getDatabaseName(), $debug['databaseName']);
+        $this->assertSame($this->getCollectionName(), $debug['collectionName']);
+        $this->assertInstanceOf(WriteConcern::class, $debug['writeConcern']);
+        $this->assertSame(WriteConcern::MAJORITY, $debug['writeConcern']->getW());
+    }
+
+    #[Group('matrix-testing-exclude-server-4.2-driver-4.0-topology-sharded_cluster')]
+    #[Group('matrix-testing-exclude-server-4.4-driver-4.0-topology-sharded_cluster')]
+    #[Group('matrix-testing-exclude-server-5.0-driver-4.0-topology-sharded_cluster')]
+    public function testModifyCollection(): void
+    {
+        $this->database->createCollection($this->getCollectionName());
+
+        $indexes = [['key' => ['lastAccess' => 1], 'expireAfterSeconds' => 3]];
+        $createIndexes = new CreateIndexes($this->getDatabaseName(), $this->getCollectionName(), $indexes);
+        $createIndexes->execute($this->getPrimaryServer());
+
+        $commandResult = $this->database->modifyCollection(
+            $this->getCollectionName(),
+            ['index' => ['keyPattern' => ['lastAccess' => 1], 'expireAfterSeconds' => 1000]],
+            ['typeMap' => ['root' => 'array', 'document' => 'array']],
+        );
+        $this->assertCommandSucceeded($commandResult);
+
+        $commandResult = (array) $commandResult;
+
+        if (array_key_exists('raw', $commandResult)) {
+            /* Sharded environment, where we only assert if a shard had a successful update. For
+             * non-primary shards that don't have chunks for the collection, the result contains a
+             * "ns does not exist" error. */
+            foreach ($commandResult['raw'] as $shard) {
+                if (array_key_exists('ok', $shard) && $shard['ok'] == 1) {
+                    $this->assertSame(3, $shard['expireAfterSeconds_old']);
+                    $this->assertSame(1000, $shard['expireAfterSeconds_new']);
+                }
+            }
+        } else {
+            $this->assertSame(3, $commandResult['expireAfterSeconds_old']);
+            $this->assertSame(1000, $commandResult['expireAfterSeconds_new']);
+        }
+    }
+
+    public function testRenameCollectionToSameDatabase(): void
+    {
+        $toCollectionName = $this->getCollectionName() . '.renamed';
+        $toCollection = new Collection($this->manager, $this->getDatabaseName(), $toCollectionName);
+
+        $bulkWrite = new BulkWrite();
+        $bulkWrite->insert(['_id' => 1]);
+
+        $writeResult = $this->manager->executeBulkWrite($this->getNamespace(), $bulkWrite);
+        $this->assertEquals(1, $writeResult->getInsertedCount());
+
+        $this->database->renameCollection(
+            $this->getCollectionName(),
+            $toCollectionName,
+            null,
+            ['dropTarget' => true],
+        );
+        $this->assertCollectionDoesNotExist($this->getCollectionName());
+        $this->assertCollectionExists($toCollectionName);
+
+        $this->assertSameDocument(['_id' => 1], $toCollection->findOne());
+        $toCollection->drop();
+    }
+
+    public function testRenameCollectionToDifferentDatabase(): void
+    {
+        $toDatabaseName = $this->getDatabaseName() . '_renamed';
+        $toDatabase = new Database($this->manager, $toDatabaseName);
+
+        /* When renaming an unsharded collection, mongos requires the source
+        * and target database to both exist on the primary shard. In practice, this
+        * means we need to create the target database explicitly.
+        * See: https://mongodb.com/docs/manual/reference/command/renameCollection/#unsharded-collections
+        */
+        if ($this->isShardedCluster()) {
+            $toDatabase->foo->insertOne(['_id' => 1]);
+        }
+
+        $toCollectionName = $this->getCollectionName() . '.renamed';
+        $toCollection = new Collection($this->manager, $toDatabaseName, $toCollectionName);
+
+        $bulkWrite = new BulkWrite();
+        $bulkWrite->insert(['_id' => 1]);
+
+        $writeResult = $this->manager->executeBulkWrite($this->getNamespace(), $bulkWrite);
+        $this->assertEquals(1, $writeResult->getInsertedCount());
+
+        $this->database->renameCollection(
+            $this->getCollectionName(),
+            $toCollectionName,
+            $toDatabaseName,
+        );
+        $this->assertCollectionDoesNotExist($this->getCollectionName());
+        $this->assertCollectionExists($toCollectionName, $toDatabaseName);
+
+        $this->assertSameDocument(['_id' => 1], $toCollection->findOne());
+
+        $toDatabase->drop();
+    }
+
+    public function testSelectCollectionInheritsOptions(): void
+    {
+        $databaseOptions = [
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'typeMap' => ['root' => 'array'],
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $database = new Database($this->manager, $this->getDatabaseName(), $databaseOptions);
+        $collection = $database->selectCollection($this->getCollectionName());
+        $debug = $collection->__debugInfo();
+
+        $this->assertSame($this->manager, $debug['manager']);
+        $this->assertSame($this->getDatabaseName(), $debug['databaseName']);
+        $this->assertSame($this->getCollectionName(), $debug['collectionName']);
+        $this->assertInstanceOf(ReadConcern::class, $debug['readConcern']);
+        $this->assertSame(ReadConcern::LOCAL, $debug['readConcern']->getLevel());
+        $this->assertInstanceOf(ReadPreference::class, $debug['readPreference']);
+        $this->assertSame(ReadPreference::SECONDARY_PREFERRED, $debug['readPreference']->getModeString());
+        $this->assertIsArray($debug['typeMap']);
+        $this->assertSame(['root' => 'array'], $debug['typeMap']);
+        $this->assertInstanceOf(WriteConcern::class, $debug['writeConcern']);
+        $this->assertSame(WriteConcern::MAJORITY, $debug['writeConcern']->getW());
+    }
+
+    public function testSelectCollectionPassesOptions(): void
+    {
+        $collectionOptions = [
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'typeMap' => ['root' => 'array'],
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $collection = $this->database->selectCollection($this->getCollectionName(), $collectionOptions);
+        $debug = $collection->__debugInfo();
+
+        $this->assertInstanceOf(ReadConcern::class, $debug['readConcern']);
+        $this->assertSame(ReadConcern::LOCAL, $debug['readConcern']->getLevel());
+        $this->assertInstanceOf(ReadPreference::class, $debug['readPreference']);
+        $this->assertSame(ReadPreference::SECONDARY_PREFERRED, $debug['readPreference']->getModeString());
+        $this->assertIsArray($debug['typeMap']);
+        $this->assertSame(['root' => 'array'], $debug['typeMap']);
+        $this->assertInstanceOf(WriteConcern::class, $debug['writeConcern']);
+        $this->assertSame(WriteConcern::MAJORITY, $debug['writeConcern']->getW());
+    }
+
+    public function testGetGridFSBucketInheritsOptions(): void
+    {
+        $databaseOptions = [
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $database = new Database($this->manager, $this->getDatabaseName(), $databaseOptions);
+        $bucket = $database->getGridFSBucket();
+        $debug = $bucket->__debugInfo();
+
+        $this->assertSame($this->manager, $debug['manager']);
+        $this->assertSame($this->getDatabaseName(), $debug['databaseName']);
+        $this->assertSame('fs', $debug['bucketName']);
+        $this->assertSame(261120, $debug['chunkSizeBytes']);
+        $this->assertInstanceOf(ReadConcern::class, $debug['readConcern']);
+        $this->assertSame(ReadConcern::LOCAL, $debug['readConcern']->getLevel());
+        $this->assertInstanceOf(ReadPreference::class, $debug['readPreference']);
+        $this->assertSame(ReadPreference::SECONDARY_PREFERRED, $debug['readPreference']->getModeString());
+        $this->assertInstanceOf(WriteConcern::class, $debug['writeConcern']);
+        $this->assertSame(WriteConcern::MAJORITY, $debug['writeConcern']->getW());
+    }
+
+    public function testGetGridFSBucketPassesOptions(): void
+    {
+        $bucketOptions = [
+            'bucketName' => 'custom_fs',
+            'chunkSizeBytes' => 8192,
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $database = new Database($this->manager, $this->getDatabaseName());
+        $bucket = $database->getGridFSBucket($bucketOptions);
+        $debug = $bucket->__debugInfo();
+
+        $this->assertSame($this->getDatabaseName(), $debug['databaseName']);
+        $this->assertSame('custom_fs', $debug['bucketName']);
+        $this->assertSame(8192, $debug['chunkSizeBytes']);
+        $this->assertInstanceOf(ReadConcern::class, $debug['readConcern']);
+        $this->assertSame(ReadConcern::LOCAL, $debug['readConcern']->getLevel());
+        $this->assertInstanceOf(ReadPreference::class, $debug['readPreference']);
+        $this->assertSame(ReadPreference::SECONDARY_PREFERRED, $debug['readPreference']->getModeString());
+        $this->assertInstanceOf(WriteConcern::class, $debug['writeConcern']);
+        $this->assertSame(WriteConcern::MAJORITY, $debug['writeConcern']->getW());
+    }
+
+    public function testSelectGridFSBucketPassesOptions(): void
+    {
+        $bucketOptions = [
+            'bucketName' => 'custom_fs',
+            'chunkSizeBytes' => 8192,
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $database = new Database($this->manager, $this->getDatabaseName());
+        $bucket = $database->selectGridFSBucket($bucketOptions);
+        $debug = $bucket->__debugInfo();
+
+        $this->assertSame($this->getDatabaseName(), $debug['databaseName']);
+        $this->assertSame('custom_fs', $debug['bucketName']);
+        $this->assertSame(8192, $debug['chunkSizeBytes']);
+        $this->assertInstanceOf(ReadConcern::class, $debug['readConcern']);
+        $this->assertSame(ReadConcern::LOCAL, $debug['readConcern']->getLevel());
+        $this->assertInstanceOf(ReadPreference::class, $debug['readPreference']);
+        $this->assertSame(ReadPreference::SECONDARY_PREFERRED, $debug['readPreference']->getModeString());
+        $this->assertInstanceOf(WriteConcern::class, $debug['writeConcern']);
+        $this->assertSame(WriteConcern::MAJORITY, $debug['writeConcern']->getW());
+    }
+
+    public function testWithOptionsInheritsOptions(): void
+    {
+        $databaseOptions = [
+            'builderEncoder' => $this->createMock(Encoder::class),
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'typeMap' => ['root' => 'array'],
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $database = new Database($this->manager, $this->getDatabaseName(), $databaseOptions);
+        $clone = $database->withOptions();
+        $debug = $clone->__debugInfo();
+
+        $this->assertSame($this->manager, $debug['manager']);
+        $this->assertSame($this->getDatabaseName(), $debug['databaseName']);
+
+        foreach ($databaseOptions as $key => $value) {
+            $this->assertSame($value, $debug[$key]);
+        }
+
+        // autoEncryptionEnabled is an internal option not reported via debug info
+        $database = new Database($this->manager, $this->getDatabaseName(), ['autoEncryptionEnabled' => true]);
+        $clone = $database->withOptions();
+
+        $rc = new ReflectionClass($clone);
+        $rp = $rc->getProperty('autoEncryptionEnabled');
+
+        $this->assertSame(true, $rp->getValue($clone));
+    }
+
+    public function testWithOptionsPassesOptions(): void
+    {
+        $databaseOptions = [
+            'builderEncoder' => $this->createMock(Encoder::class),
+            'readConcern' => new ReadConcern(ReadConcern::LOCAL),
+            'readPreference' => new ReadPreference(ReadPreference::SECONDARY_PREFERRED),
+            'typeMap' => ['root' => 'array'],
+            'writeConcern' => new WriteConcern(WriteConcern::MAJORITY),
+        ];
+
+        $clone = $this->database->withOptions($databaseOptions);
+        $debug = $clone->__debugInfo();
+
+        foreach ($databaseOptions as $key => $value) {
+            $this->assertSame($value, $debug[$key]);
+        }
+
+        // autoEncryptionEnabled is an internal option not reported via debug info
+        $clone = $this->database->withOptions(['autoEncryptionEnabled' => true]);
+
+        $rc = new ReflectionClass($clone);
+        $rp = $rc->getProperty('autoEncryptionEnabled');
+
+        $this->assertSame(true, $rp->getValue($clone));
+    }
+}

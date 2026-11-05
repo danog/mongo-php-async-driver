@@ -1,0 +1,25 @@
+--TEST--
+MongoDB\BSON\Symbol serialization (__serialize and __unserialize)
+--FILE--
+<?php
+
+$test = MongoDB\BSON\Document::fromJSON('{ "symbol": {"$symbol": "symbolValue"} }')->toPHP()->symbol;
+
+var_dump($symbol = $test);
+var_dump($s = serialize($symbol));
+var_dump(unserialize($s));
+
+?>
+===DONE===
+<?php exit(0); ?>
+--EXPECTF--
+object(MongoDB\BSON\Symbol)#%d (%d) {
+  ["symbol"]=>
+  string(11) "symbolValue"
+}
+string(63) "O:19:"MongoDB\BSON\Symbol":1:{s:6:"symbol";s:11:"symbolValue";}"
+object(MongoDB\BSON\Symbol)#%d (%d) {
+  ["symbol"]=>
+  string(11) "symbolValue"
+}
+===DONE===

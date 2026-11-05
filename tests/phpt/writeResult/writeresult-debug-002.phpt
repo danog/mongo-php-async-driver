@@ -1,0 +1,120 @@
+--TEST--
+MongoDB\Driver\WriteResult debug output with errors
+--SKIPIF--
+<?php require __DIR__ . "/../utils/basic-skipif.inc"; ?>
+<?php skip_if_not_replica_set(); ?>
+<?php skip_if_not_clean(); ?>
+--FILE--
+<?php
+require_once __DIR__ . "/../utils/basic.inc";
+
+$manager = create_test_manager();
+
+$bulk = new MongoDB\Driver\BulkWrite(['ordered' => false]);
+$bulk->update(['x' => 1], ['$set' => ['y' => 1]], ['upsert' => true]);
+$bulk->update(['x' => 2], ['$set' => ['y' => 2]], ['upsert' => true]);
+$bulk->insert(['_id' => 1]);
+$bulk->insert(['_id' => 1]);
+$bulk->insert(['_id' => 2]);
+$bulk->insert(['_id' => 2]);
+$bulk->insert(['_id' => 3]);
+$bulk->insert(['_id' => 3]);
+
+try {
+    /* We assume that the replica set does not have 30 nodes */
+    $result = $manager->executeBulkWrite(NS, $bulk, ['writeConcern' => new MongoDB\Driver\WriteConcern(30)]);
+} catch (MongoDB\Driver\Exception\BulkWriteException $e) {
+    var_dump($e->getWriteResult());
+}
+
+?>
+===DONE===
+<?php exit(0); ?>
+--EXPECTF--
+object(MongoDB\Driver\WriteResult)#%d (%d) {
+  ["insertedCount"]=>
+  int(3)
+  ["matchedCount"]=>
+  int(0)
+  ["modifiedCount"]=>
+  int(0)
+  ["deletedCount"]=>
+  int(0)
+  ["upsertedCount"]=>
+  int(2)
+  ["server"]=>
+  object(MongoDB\Driver\Server)#%d (%d) {
+    %a
+  }
+  ["upsertedIds"]=>
+  array(2) {
+    [0]=>
+    object(MongoDB\BSON\ObjectId)#%d (%d) {
+      ["oid"]=>
+      string(24) "%x"
+    }
+    [1]=>
+    object(MongoDB\BSON\ObjectId)#%d (%d) {
+      ["oid"]=>
+      string(24) "%x"
+    }
+  }
+  ["writeErrors"]=>
+  array(3) {
+    [0]=>
+    object(MongoDB\Driver\WriteError)#%d (%d) {
+      ["message"]=>
+      string(%d) "E11000 duplicate key %S phongo.writeResult_writeresult_debug_002%s dup key: { %S: 1 }"
+      ["code"]=>
+      int(11000)
+      ["index"]=>
+      int(3)
+      ["info"]=>
+      NULL
+    }
+    [1]=>
+    object(MongoDB\Driver\WriteError)#%d (%d) {
+      ["message"]=>
+      string(%d) "E11000 duplicate key %S phongo.writeResult_writeresult_debug_002%s dup key: { %S: 2 }"
+      ["code"]=>
+      int(11000)
+      ["index"]=>
+      int(5)
+      ["info"]=>
+      NULL
+    }
+    [2]=>
+    object(MongoDB\Driver\WriteError)#%d (%d) {
+      ["message"]=>
+      string(%d) "E11000 duplicate key %S phongo.writeResult_writeresult_debug_002%s dup key: { %S: 3 }"
+      ["code"]=>
+      int(11000)
+      ["index"]=>
+      int(7)
+      ["info"]=>
+      NULL
+    }
+  }
+  ["writeConcernError"]=>
+  object(MongoDB\Driver\WriteConcernError)#%d (%d) {
+    ["message"]=>
+    string(29) "Not enough data-bearing nodes"
+    ["code"]=>
+    int(100)
+    ["info"]=>
+    %a
+  }
+  ["writeConcern"]=>
+  object(MongoDB\Driver\WriteConcern)#%d (3) {
+    ["w"]=>
+    int(30)
+    ["j"]=>
+    NULL
+    ["wtimeout"]=>
+    int(0)
+  }
+  ["errorReplies"]=>
+  array(0) {
+  }
+}
+===DONE===

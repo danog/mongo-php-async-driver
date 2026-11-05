@@ -1,0 +1,28 @@
+--TEST--
+MongoDB\Driver\WriteResult::getServer()
+--SKIPIF--
+<?php require __DIR__ . "/../utils/basic-skipif.inc"; ?>
+<?php skip_if_not_live(); ?>
+<?php skip_if_not_clean(); ?>
+--FILE--
+<?php
+require_once __DIR__ . "/../utils/basic.inc";
+
+$manager = create_test_manager();
+$server = $manager->selectServer(new MongoDB\Driver\ReadPreference(MongoDB\Driver\ReadPreference::PRIMARY));
+
+$bulk = new MongoDB\Driver\BulkWrite;
+$bulk->insert(['x' => 1]);
+
+$result = $server->executeBulkWrite(NS, $bulk);
+
+var_dump($result->getServer() == $server);
+var_dump($result->server == $server);
+
+?>
+===DONE===
+<?php exit(0); ?>
+--EXPECT--
+bool(true)
+bool(true)
+===DONE===

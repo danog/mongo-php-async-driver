@@ -1,0 +1,37 @@
+mongo-php-async-driver
+Copyright 2024-present Daniil Gentili
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It contains code ported to Rust from, and tests copied from, the following projects, all
+licensed under the Apache License, Version 2.0:
+
+- MongoDB PHP Driver (mongo-php-driver, "phongo"), https://github.com/mongodb/mongo-php-driver
+  Copyright 2014-present MongoDB, Inc.
+  Ported: the PHP classes, BSON encoding/decoding layer and driver logic.
+  Copied: tests/phpt/ (from tests/ at tag 2.5.6).
+
+- MongoDB C Driver (libmongoc and libbson), https://github.com/mongodb/mongo-c-driver
+  Copyright 2009-present MongoDB, Inc.
+  Ported: BSON, Decimal128, Extended JSON, URI parsing, SDAM, server selection, connection
+  pooling, wire protocol, sessions, retries, authentication.
+
+- libmongocrypt, https://github.com/mongodb/libmongocrypt
+  Copyright 2019-present MongoDB, Inc.
+  Ported: client-side field level encryption and Queryable Encryption.
+
+- MongoDB PHP Library (mongo-php-library, "PHPLIB"), https://github.com/mongodb/mongo-php-library
+  Copyright 2015-present MongoDB, Inc.
+  Copied: tests/phplib/ (from tests/, phpunit.xml.dist and composer.json at tag 2.5.0).
+
+- MongoDB Rust Driver (mongodb and bson crates), https://github.com/mongodb/mongo-rust-driver
+  Copyright 2017-present MongoDB, Inc.
+  Ported: parts of the implementation (e.g. SCRAM) and of its spec-test runners.
+
+The MongoDB Specifications (https://github.com/mongodb/specifications), whose test files the
+test suites read, are licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+3.0 United States License. They are not part of this repository: tests/spec is a git submodule
+pointing to that repository.
+
+The NOTICE and THIRD_PARTY_NOTICES files of the projects above apply to the ported code and the
+copied tests.

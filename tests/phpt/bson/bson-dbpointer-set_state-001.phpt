@@ -1,0 +1,27 @@
+--TEST--
+MongoDB\BSON\DBPointer::__set_state()
+--FILE--
+<?php
+
+$dbPointer = MongoDB\BSON\Document::fromJSON('{ "dbref": {"$dbPointer": {"$ref": "phongo.test", "$id" : { "$oid" : "5a2e78accd485d55b4050000" }  }} }')->toPHP()->dbref;
+
+$s = var_export($dbPointer, true);
+echo $s, "\n";
+
+var_dump(eval('return ' . $s . ';'));
+
+?>
+===DONE===
+<?php exit(0); ?>
+--EXPECTF--
+%r\\?%rMongoDB\BSON\DBPointer::__set_state(array(
+   'ref' => 'phongo.test',
+   'id' => '5a2e78accd485d55b4050000',
+))
+object(MongoDB\BSON\DBPointer)#%d (%d) {
+  ["ref"]=>
+  string(11) "phongo.test"
+  ["id"]=>
+  string(24) "5a2e78accd485d55b4050000"
+}
+===DONE===

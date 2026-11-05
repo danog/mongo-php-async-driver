@@ -1,0 +1,61 @@
+<?php
+
+namespace MongoDB\Tests\Operation;
+
+use Iterator;
+use MongoDB\Model\IndexInfo;
+use MongoDB\Operation\InsertOne;
+use MongoDB\Operation\ListIndexes;
+use MongoDB\Tests\CommandObserver;
+
+class ListIndexesFunctionalTest extends FunctionalTestCase
+{
+    public function testListIndexesForNewlyCreatedCollection(): void
+    {
+        $this->dropCollection($this->getDatabaseName(), $this->getCollectionName());
+
+        $insertOne = new InsertOne($this->getDatabaseName(), $this->getCollectionName(), ['x' => 1]);
+        $writeResult = $insertOne->execute($this->getPrimaryServer());
+        $this->assertEquals(1, $writeResult->getInsertedCount());
+
+        $operation = new ListIndexes($this->getDatabaseName(), $this->getCollectionName());
+        $indexes = $operation->execute($this->getPrimaryServer());
+
+        $this->assertInstanceOf(Iterator::class, $indexes);
+
+        $this->assertCount(1, $indexes);
+
+        foreach ($indexes as $index) {
+            $this->assertInstanceOf(IndexInfo::class, $index);
+            $this->assertEquals(['_id' => 1], $index->getKey());
+        }
+    }
+
+    public function testListIndexesForNonexistentCollection(): void
+    {
+        $this->dropCollection($this->getDatabaseName(), $this->getCollectionName());
+
+        $operation = new ListIndexes($this->getDatabaseName(), $this->getCollectionName());
+        $indexes = $operation->execute($this->getPrimaryServer());
+
+        $this->assertCount(0, $indexes);
+    }
+
+    public function testSessionOption(): void
+    {
+        (new CommandObserver())->observe(
+            function (): void {
+                $operation = new ListIndexes(
+                    $this->getDatabaseName(),
+                    $this->getCollectionName(),
+                    ['session' => $this->createSession()],
+                );
+
+                $operation->execute($this->getPrimaryServer());
+            },
+            function (array $event): void {
+                $this->assertObjectHasProperty('lsid', $event['started']->getCommand());
+            },
+        );
+    }
+}
