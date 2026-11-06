@@ -30,6 +30,7 @@ pub mod cloud_creds;
 pub mod log;
 pub mod net;
 pub mod ocsp;
+pub mod scan;
 pub mod sdam;
 pub mod session;
 pub mod srv;

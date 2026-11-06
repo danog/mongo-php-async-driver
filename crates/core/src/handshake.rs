@@ -127,32 +127,43 @@ pub fn run_command(conn: &mut Conn, body: &[u8], timeout: Option<Duration>) -> R
     Ok(run_msg(conn, body, &[], false, timeout)?.unwrap_or_default())
 }
 
-/// Sends an OP_MSG (body + optional document sequence); with `more_to_come` no reply is
-/// read (unacknowledged writes) and None is returned.
-pub fn run_msg(conn: &mut Conn, body: &[u8], payload: crate::wire::Payloads<'_>, more_to_come: bool, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, NetError> {
+/// The OP_MSG for `body` (+ document sequences), compressed with the connection's compressor
+/// when the command may be.
+pub fn build_msg(compressor: Option<(u8, i32)>, body: &[u8], payload: crate::wire::Payloads<'_>, more_to_come: bool) -> Result<Vec<u8>, NetError> {
     let mut m = MsgBuilder::new(next_request_id(), if more_to_come { wire::FLAG_MORE_TO_COME } else { 0 });
     m.body(body);
     for (id, docs) in payload {
         m.sequence_raw(id, docs);
     }
-    let mut msg = m.finish();
-    if let Some((id, level)) = conn.compressor {
+    let msg = m.finish();
+    if let Some((id, level)) = compressor {
         if crate::compress::is_compressible(crate::compress::command_name(body)) {
-            msg = wire::compress_message(&msg, id, level).map_err(|_| NetError::Protocol("could not compress the message"))?;
+            return wire::compress_message(&msg, id, level).map_err(|_| NetError::Protocol("could not compress the message"));
         }
     }
+    Ok(msg)
+}
+
+/// The body document of a reply (decompressed first when OP_COMPRESSED, bounded by `max`).
+pub fn reply_body(reply: &[u8], max: usize) -> Result<Vec<u8>, NetError> {
+    if wire::op_code(reply) == wire::OP_COMPRESSED {
+        let full = wire::decompress_message(reply, max).map_err(NetError::Protocol)?;
+        return Ok(wire::parse_reply(&full).map_err(NetError::Protocol)?.body.to_vec());
+    }
+    Ok(wire::parse_reply(reply).map_err(NetError::Protocol)?.body.to_vec())
+}
+
+/// Sends an OP_MSG (body + optional document sequence); with `more_to_come` no reply is
+/// read (unacknowledged writes) and None is returned.
+pub fn run_msg(conn: &mut Conn, body: &[u8], payload: crate::wire::Payloads<'_>, more_to_come: bool, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, NetError> {
+    let msg = build_msg(conn.compressor, body, payload, more_to_come)?;
     if more_to_come {
         conn.send(&msg, timeout)?;
         return Ok(None);
     }
     let max = conn.max_message_size();
     let reply = conn.roundtrip(&msg, timeout)?;
-    if wire::op_code(reply) == wire::OP_COMPRESSED {
-        let full = wire::decompress_message(reply, max).map_err(NetError::Protocol)?;
-        return Ok(Some(wire::parse_reply(&full).map_err(NetError::Protocol)?.body.to_vec()));
-    }
-    let r = wire::parse_reply(reply).map_err(NetError::Protocol)?;
-    Ok(Some(r.body.to_vec()))
+    reply_body(reply, max).map(Some)
 }
 
 /// The compressor of a handshake reply's `compression` list (as a server description holds it).

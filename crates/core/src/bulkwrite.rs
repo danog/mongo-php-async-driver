@@ -359,7 +359,7 @@ impl BulkWrite {
         let sel = if opts.server_id != 0 {
             client.stream_for_server(opts.server_id, true).map(|_| ()).and_then(|_| client.check_server_for_session(opts.server_id, session.as_deref_mut())).map(|_| opts.server_id)
         } else {
-            client.select_for_session(OpType::Write, None, session.as_deref_mut(), &[]).map(|r| r.0)
+            client.select_for_optype(OpType::Write, None, session.as_deref_mut(), &[]).map(|r| r.0)
         };
         let mut sid = match sel {
             Ok(s) => s,
@@ -435,7 +435,7 @@ impl BulkWrite {
             };
             // a previous retry may have invalidated the stream: select again (without the session)
             if client.stream_for_server(cmd.server_id, false).is_err() {
-                match client.select_for_session(OpType::Write, None, None, &[]) {
+                match client.select_for_optype(OpType::Write, None, None, &[]) {
                     Ok((s, _)) => cmd.server_id = s,
                     Err(e) => {
                         exc.set_error(e);

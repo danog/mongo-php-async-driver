@@ -72,7 +72,7 @@ impl std::fmt::Display for NetError {
 }
 
 /// A handshake I/O error: rustls's own errors (verification) carry their description.
-fn tls_io_err(e: io::Error) -> NetError {
+pub(crate) fn tls_io_err(e: io::Error) -> NetError {
     if let Some(r) = e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) {
         return NetError::Tls(crate::tls::describe(r));
     }
@@ -293,6 +293,122 @@ impl Conn {
         Ok(Conn { stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))), read_timeout: t, write_timeout: t, ..self })
     }
 
+    /// Starts a non-blocking connect to `sa` (mongoc_socket_new + mongoc_socket_connect with a
+    /// zero timeout, as the topology scanner's TCP initiator does): the connect's own result is
+    /// ignored, poll(2) reports completion or failure (an immediate ECONNREFUSED, as macOS gives
+    /// on loopback, shows as POLLHUP). `addr` is the server address as the topology names it.
+    #[cfg(unix)]
+    pub fn connect_nonblocking(sa: std::net::SocketAddr, addr: &str) -> io::Result<Conn> {
+        use std::os::fd::FromRawFd;
+        let family = if sa.is_ipv4() { libc::AF_INET } else { libc::AF_INET6 };
+        // SAFETY: plain socket creation; the descriptor is owned by the TcpStream right away
+        let fd = unsafe { libc::socket(family, libc::SOCK_STREAM, 0) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let stream = unsafe { TcpStream::from_raw_fd(fd) };
+        // SAFETY: fcntl/setsockopt on the descriptor we own
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            #[cfg(target_vendor = "apple")]
+            {
+                // writes to a closed peer must fail, not raise SIGPIPE (std's sockets do this too)
+                let one: libc::c_int = 1;
+                libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_NOSIGPIPE, (&one as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t);
+            }
+        }
+        stream.set_nonblocking(true)?;
+        stream.set_nodelay(true)?;
+        let (storage, len) = sockaddr(&sa);
+        // SAFETY: a sockaddr of the given length; the result is deliberately ignored
+        let _ = unsafe { libc::connect(fd, (&storage as *const libc::sockaddr_storage).cast(), len) };
+        Ok(Conn {
+            stream: Stream::Plain(stream),
+            addr: addr.to_owned(),
+            rbuf: Vec::new(),
+            max_msg: DEFAULT_MAX_MSG_SIZE,
+            nonblocking: true,
+            read_timeout: None,
+            write_timeout: None,
+            generation: 0,
+            registered: false,
+            compressor: None,
+        })
+    }
+
+    /// Wraps the (non-blocking) socket in a TLS client whose handshake `try_handshake` drives.
+    pub fn tls_begin(self, config: std::sync::Arc<rustls::ClientConfig>, name: rustls::pki_types::ServerName<'static>) -> Result<Conn, NetError> {
+        let sock = match self.stream {
+            Stream::Plain(s) => s,
+            Stream::Tls(_) => return Err(NetError::Tls("already TLS".into())),
+        };
+        let conn = rustls::ClientConnection::new(config, name).map_err(|e| NetError::Tls(crate::tls::describe(&e)))?;
+        Ok(Conn { stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))), ..self })
+    }
+
+    /// Advances a non-blocking TLS handshake: None once it is complete (nothing left to send),
+    /// else what the socket must become ready for.
+    pub fn try_handshake(&mut self) -> Result<Option<Interest>, NetError> {
+        let Stream::Tls(t) = &mut self.stream else { return Ok(None) };
+        loop {
+            if t.conn.wants_write() {
+                match t.conn.write_tls(&mut t.sock) {
+                    Ok(_) => continue,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Some(Interest::Write)),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => return Err(tls_io_err(e)),
+                }
+            }
+            if !t.conn.is_handshaking() {
+                return Ok(None);
+            }
+            match t.conn.read_tls(&mut t.sock) {
+                Ok(0) => return Err(tls_io_err(io::ErrorKind::UnexpectedEof.into())),
+                Ok(_) => {
+                    if let Err(e) = t.conn.process_new_packets() {
+                        // the alert, if the socket takes it
+                        let _ = t.conn.write_tls(&mut t.sock);
+                        return Err(NetError::Tls(crate::tls::describe(&e)));
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Some(Interest::Read)),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(tls_io_err(e)),
+            }
+        }
+    }
+
+    /// Non-blocking: writes the TLS records still buffered (plain TCP buffers nothing); true
+    /// once everything is on the wire.
+    pub fn try_flush(&mut self) -> Result<bool, NetError> {
+        let Stream::Tls(t) = &mut self.stream else { return Ok(true) };
+        while t.conn.wants_write() {
+            match t.conn.write_tls(&mut t.sock) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(io_err(e)),
+            }
+        }
+        Ok(true)
+    }
+
+    /// mongoc_socket_check_closed: the peer closed the connection (readable without data, or a
+    /// socket error). One poll(2), plus a MSG_PEEK recv when readable.
+    #[cfg(unix)]
+    pub fn check_closed(&self) -> bool {
+        let fd = self.raw_fd();
+        let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd; a zero timeout
+        if unsafe { libc::poll(&mut p, 1, 0) } <= 0 || p.revents == 0 {
+            return false;
+        }
+        let mut b = 0u8;
+        // SAFETY: a one-byte buffer we own; MSG_PEEK leaves the data in the socket
+        let r = unsafe { libc::recv(fd, (&mut b as *mut u8).cast(), 1, libc::MSG_PEEK | libc::MSG_DONTWAIT) };
+        r < 1
+    }
+
     #[cfg(unix)]
     pub fn raw_fd(&self) -> std::os::fd::RawFd {
         std::os::fd::AsRawFd::as_raw_fd(self.stream.tcp())
@@ -491,6 +607,65 @@ impl Reactor for MioReactor {
             }
             ready.extend(self.events.iter().map(|e| e.token().0));
             return Ok(());
+        }
+    }
+}
+
+/// The C socket address of `sa`.
+#[cfg(unix)]
+fn sockaddr(sa: &std::net::SocketAddr) -> (libc::sockaddr_storage, libc::socklen_t) {
+    // SAFETY: an all-zero sockaddr_storage is valid; the casts write within its size
+    let mut st: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let len = match sa {
+        std::net::SocketAddr::V4(a) => {
+            let p = unsafe { &mut *(&mut st as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in>() };
+            p.sin_family = libc::AF_INET as libc::sa_family_t;
+            p.sin_port = a.port().to_be();
+            p.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) };
+            #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+            {
+                p.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+            }
+            std::mem::size_of::<libc::sockaddr_in>()
+        }
+        std::net::SocketAddr::V6(a) => {
+            let p = unsafe { &mut *(&mut st as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in6>() };
+            p.sin6_family = libc::AF_INET6 as libc::sa_family_t;
+            p.sin6_port = a.port().to_be();
+            p.sin6_addr = libc::in6_addr { s6_addr: a.ip().octets() };
+            p.sin6_flowinfo = a.flowinfo();
+            p.sin6_scope_id = a.scope_id();
+            #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+            {
+                p.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
+            }
+            std::mem::size_of::<libc::sockaddr_in6>()
+        }
+    };
+    (st, len as libc::socklen_t)
+}
+
+/// poll(2) over `fds` until one is ready or `deadline` passes (None: no limit); EINTR is
+/// retried. The wait of a scan (libmongoc's _mongoc_stream_poll_internal); the timeout is rounded
+/// up to whole milliseconds so that an unexpired deadline never spins.
+#[cfg(unix)]
+pub fn poll_fds(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<usize> {
+    loop {
+        let ms: libc::c_int = match deadline {
+            None => -1,
+            Some(d) => {
+                let left = d.saturating_duration_since(Instant::now());
+                left.as_micros().div_ceil(1000).min(libc::c_int::MAX as u128) as libc::c_int
+            }
+        };
+        // SAFETY: a valid, exclusively borrowed pollfd array of the given length
+        let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, ms) };
+        if n >= 0 {
+            return Ok(n as usize);
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
         }
     }
 }

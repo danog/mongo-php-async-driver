@@ -508,7 +508,7 @@ impl Client {
                 deprioritized.push(cmd.server_id);
             }
             backoff.wait(is_overload, &reply);
-            let sel = self.select_for_session(OpType::Write, None, session.as_deref_mut(), &deprioritized);
+            let sel = self.select_for_optype(OpType::Write, None, session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { break };
             cmd.server_id = sid;
             retry_server = Some(sid);
@@ -547,7 +547,7 @@ impl Client {
             let reply = reply.to_vec();
             backoff.wait(is_overload, &reply);
             let prefs = cmd.read_prefs.clone();
-            let sel = self.select_for_session(OpType::Read, prefs.as_ref(), session.as_deref_mut(), &deprioritized);
+            let sel = self.select_for_optype(OpType::Read, prefs.as_ref(), session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { return r };
             cmd.server_id = sid;
         }
@@ -596,6 +596,16 @@ impl Client {
                 Ok(r)
             }
         }
+    }
+
+    /// The selection of _mongoc_cluster_stream_for_optype: select_for_session, then the
+    /// connection check of mongoc_cluster_check_interval; a failed check selects once more.
+    pub fn select_for_optype(&mut self, optype: OpType, rp: Option<&crate::topology::ReadPrefs>, mut cs: Option<&mut ClientSession>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
+        let r = self.select_for_session(optype, rp, cs.as_deref_mut(), deprioritized)?;
+        if self.check_interval(r.0) {
+            return Ok(r);
+        }
+        self.select_for_session(optype, rp, cs, deprioritized)
     }
 
     /// mongoc_cluster_stream_for_server's session rules: a pinned session only runs on its
@@ -921,7 +931,7 @@ impl Client {
 
     /// mongoc_client_session_start_transaction
     pub fn start_transaction(&mut self, cs: &mut ClientSession, opts: Option<&crate::session::TxnOpts>) -> Result<(), Error> {
-        self.select_for_session(OpType::Write, None, Some(cs), &[])?;
+        self.select_for_optype(OpType::Write, None, Some(cs), &[])?;
         cs.start_transaction(opts)
     }
 
@@ -1040,7 +1050,7 @@ impl Client {
     /// mongoc_client_write_command_with_opts("admin", body, {session, writeConcern, maxTimeMS})
     /// for the transaction commands.
     fn write_command_in_session(&mut self, body: &[u8], wc: Option<&crate::concern::WriteConcern>, max_time_ms: Option<i64>, cs: &mut ClientSession) -> Result<Vec<u8>, Failure> {
-        let sid = match self.select_for_session(OpType::Write, None, Some(cs), &[]) {
+        let sid = match self.select_for_optype(OpType::Write, None, Some(cs), &[]) {
             Ok((s, _)) => s,
             Err(e) => {
                 let mut reply = Vec::new();

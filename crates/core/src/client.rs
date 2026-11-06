@@ -1,7 +1,8 @@
 //! A single-threaded client (libmongoc's mongoc_topology_t in single-threaded mode, its topology
-//! scanner and the single-threaded cluster): blocking scans that obey the cooldown, the server
-//! selection loop with serverSelectionTryOnce, and one connection per server, shared by the
-//! scanner and the commands (as libmongoc does when single-threaded).
+//! scanner and the single-threaded cluster): blocking scans that obey the cooldown and check
+//! every server at once (crate::scan), the server selection loop with serverSelectionTryOnce,
+//! and one connection per server, shared by the scanner and the commands (as libmongoc does when
+//! single-threaded).
 
 use crate::log;
 use std::time::Duration;
@@ -22,6 +23,8 @@ pub struct Settings {
     pub server_selection_try_once: bool,
     pub local_threshold_ms: i64,
     pub min_heartbeat_ms: i64,
+    /// socketCheckIntervalMS: an idle connection is pinged before an operation selects it again
+    pub socket_check_interval_ms: i64,
     pub metadata: Metadata,
     pub hello: HelloOpts,
     /// TLS settings (None: plain TCP)
@@ -30,6 +33,12 @@ pub struct Settings {
 
 /// MONGOC_DEFAULT_SOCKETTIMEOUTMS
 pub const DEFAULT_SOCKET_TIMEOUT_MS: i64 = 1000 * 60 * 5;
+/// MONGOC_TOPOLOGY_SOCKET_CHECK_INTERVAL_MS
+pub const SOCKET_CHECK_INTERVAL_MS: i64 = 5000;
+/// CHECK_CLOSED_DURATION_MSEC: an idle connection is checked for a peer close after this long
+const CHECK_CLOSED_DURATION_MS: i64 = 1000;
+/// DNS_CACHE_TIMEOUT_MS: a node's resolved addresses are reused for this long
+const DNS_CACHE_TIMEOUT_MS: i64 = 10 * 60 * 1000;
 
 impl Settings {
     pub fn from_uri(uri: &Uri) -> Self {
@@ -41,6 +50,7 @@ impl Settings {
             server_selection_try_once: uri.get_bool("serverselectiontryonce", true),
             local_threshold_ms: i("localthresholdms", tp::LOCAL_THRESHOLD_MS),
             min_heartbeat_ms: tp::MIN_HEARTBEAT_FREQUENCY_MS,
+            socket_check_interval_ms: i("socketcheckintervalms", SOCKET_CHECK_INTERVAL_MS),
             metadata: Metadata { appname: uri.options.str("appname").map(str::to_owned), ..Default::default() },
             hello: HelloOpts {
                 load_balanced: uri.get_bool("loadbalanced", false),
@@ -72,6 +82,20 @@ struct Node {
     auth: NodeAuth,
     /// the server's saslSupportedMechs, negotiated in the node's first handshake
     mechs: Option<crate::auth::SaslMechs>,
+    /// the resolved addresses and when (monotonic usec) they were resolved
+    dns: Option<(Vec<std::net::SocketAddr>, i64)>,
+    /// the address the last connection succeeded with (reused without happy eyeballs)
+    successful: Option<std::net::SocketAddr>,
+}
+
+/// A scan in progress: its checks and its bounds.
+struct ScanRun {
+    probes: Vec<crate::scan::Probe>,
+    /// addresses checked in this scan (lower case)
+    seen: std::collections::HashSet<String>,
+    /// addresses re-checked after a failure
+    retried: std::collections::HashSet<String>,
+    discovered: usize,
 }
 
 /// The authentication state of a node's connection (scanner_node->has_auth,
@@ -223,7 +247,7 @@ impl Client {
         let mut added = Vec::new();
         for s in &self.td.servers {
             if !self.nodes.iter().any(|n| n.id == s.id) {
-                self.nodes.push(Node { id: s.id, addr: s.addr.clone(), conn: None, handshake: None, last_failed: -1, last_error: None, last_used: -1, auth: NodeAuth::default(), mechs: None });
+                self.nodes.push(Node { id: s.id, addr: s.addr.clone(), conn: None, handshake: None, last_failed: -1, last_error: None, last_used: -1, auth: NodeAuth::default(), mechs: None, dns: None, successful: None });
                 added.push(s.id);
             }
         }
@@ -264,73 +288,315 @@ impl Client {
         w.finish()
     }
 
-    /// Checks one node: a hello on its connection, or connect + handshake. Ok((reply, rtt)), or
-    /// the error and whether it happened while setting up the stream (name resolution, a UNIX
-    /// domain socket's connect: libmongoc reports those without " calling hello on ...").
-    fn check_node(&mut self, i: usize) -> Result<(Vec<u8>, i64), (Error, bool)> {
-        let connect_timeout = ms(self.settings.connect_timeout_ms);
+    /// mongoc_topology_scanner_node_setup: starts the check of node `id` (HeartbeatStarted).
+    /// An existing connection gets the monitoring hello; else the address is resolved (cached
+    /// for DNS_CACHE_TIMEOUT_MS) and one check per address starts, each HAPPY_EYEBALLS_DELAY
+    /// after the previous one (only the address that last succeeded, when known). Name
+    /// resolution and UNIX-socket connect errors fail the check at once.
+    fn node_setup(&mut self, id: u32, run: &mut ScanRun) {
+        use crate::scan::Probe;
+        let Some(i) = self.nodes.iter().position(|n| n.id == id) else { return };
+        self.heartbeat_started(id);
         let t0 = std::time::Instant::now();
-        if let Some(mut conn) = self.nodes[i].conn.take() {
+        let timeout = ms(self.settings.connect_timeout_ms);
+        if let Some(conn) = self.nodes[i].conn.take() {
             let hello_ok = self.nodes[i].handshake.as_ref().is_some_and(|h| h.hello_ok);
             let cmd = self.check_command(hello_ok);
-            match handshake::run_command(&mut conn, &cmd, connect_timeout) {
-                Ok(r) => {
-                    self.nodes[i].conn = Some(conn);
-                    return Ok((r, t0.elapsed().as_millis() as i64));
-                }
-                Err(e) => return Err((net_check_error(e), false)),
-            }
+            let probe = match crate::handshake::build_msg(None, &cmd, &[], false) {
+                Ok(msg) => Probe::with_stream(id, conn, msg, timeout, false, None),
+                Err(e) => return self.setup_failed(id, net_check_error(e), t0),
+            };
+            run.probes.push(probe);
+            return;
         }
-        // a TLS configuration that failed to load fails the check before any connection
-        if let Some(Err(e)) = &self.tls {
-            return Err((e.clone(), false));
-        }
-        let addr = &self.nodes[i].addr;
-        // the host parser's AF_UNIX rule (a '/' and ".sock"): the address is the path
-        let (host, mut conn) = if addr.contains('/') && addr.contains(".sock") {
-            (addr.clone(), Conn::connect_unix(addr).map_err(|e| (net_check_error(e), true))?)
-        } else {
-            let (host, port) = split_host_port(addr);
-            let conn = Conn::connect(&host, port, connect_timeout).map_err(|e| match e {
-                NetError::Resolve(_) => (Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{host}'")), true),
-                e => (net_check_error(e), false),
-            })?;
-            (host, conn)
-        };
-        // mongoc_stream_tls_new_with_hostname + the handshake, bounded by connectTimeoutMS
-        match &self.tls {
-            None => {}
-            Some(Err(e)) => return Err((e.clone(), false)),
-            Some(Ok(cfg)) => {
-                let name = crate::tls::server_name(&host).map_err(|e| (e, false))?;
-                conn = conn.into_tls(cfg.clone(), name, connect_timeout).map_err(|e| (net_check_error(e), false))?;
-            }
-        }
-        // single-threaded libmongoc negotiates the mechanism in a node's first handshake and
-        // starts a speculative authentication in each one
+        // a new connection: new authentication state; single-threaded libmongoc negotiates the
+        // mechanism in a node's first handshake and starts a speculative authentication in each
+        // one (in the first check of the node only, when it has several addresses)
         let negotiate = self.nodes[i].mechs.is_none();
         let speculative = crate::auth::speculative_start(&self.uri);
-        let body = handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, speculative.as_ref().map(|s| &s.0[..]));
-        let reply = handshake::run_command(&mut conn, &body, connect_timeout).map_err(|e| (net_check_error(e), false))?;
-        let rtt = t0.elapsed().as_millis() as i64;
-        let speculative_reply = crate::auth::speculative_reply(&reply);
-        // the speculativeAuthenticate reply is seen by the authentication only
-        let reply = crate::auth::redact_hello(&reply).into_owned();
-        if negotiate && self.settings.hello.sasl_user.is_some() {
-            self.nodes[i].mechs = Some(crate::auth::parse_sasl_mechs(&reply));
+        let with_spec = handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, speculative.as_ref().map(|s| &s.0[..]));
+        let plain = if speculative.is_some() { handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, None) } else { Vec::new() };
+        self.nodes[i].auth = NodeAuth { has_auth: false, speculative: Vec::new(), scram: speculative.and_then(|s| s.1) };
+        let addr = self.nodes[i].addr.clone();
+        let unix = addr.contains('/') && addr.contains(".sock");
+        let host = if unix { addr.clone() } else { split_host_port(&addr).0 };
+        let tls: crate::scan::TlsSetup = match &self.tls {
+            None => None,
+            Some(Err(e)) => Some(Err(e.clone())),
+            Some(Ok(cfg)) => Some(crate::tls::server_name(&host).map(|n| (cfg.clone(), n))),
+        };
+        let msg = |first: bool| {
+            let body = if first || plain.is_empty() { &with_spec } else { &plain };
+            crate::handshake::build_msg(None, body, &[], false)
+        };
+        if unix {
+            // the host parser's AF_UNIX rule (a '/' and ".sock"): a blocking connect at setup
+            match Conn::connect_unix(&addr) {
+                Ok(conn) => match msg(true) {
+                    Ok(m) => run.probes.push(Probe::with_stream(id, conn, m, timeout, true, tls)),
+                    Err(e) => self.setup_failed(id, net_check_error(e), t0),
+                },
+                Err(e) => self.setup_failed(id, net_check_error(e), t0),
+            }
+            return;
         }
-        self.nodes[i].auth = NodeAuth { has_auth: false, speculative: speculative_reply, scram: speculative.and_then(|s| s.1) };
-        let sd = ServerDescription::from_hello(&self.nodes[i].addr, &reply, rtt);
-        conn.set_max_message_size(sd.max_msg_size);
-        conn.compressor = handshake::negotiated(&sd, &self.settings.hello);
-        self.nodes[i].handshake = Some(sd);
-        self.nodes[i].conn = Some(conn);
-        Ok((reply, rtt))
+        let now = monotonic_usec();
+        let n = &mut self.nodes[i];
+        if n.dns.as_ref().is_some_and(|(_, at)| now - at > DNS_CACHE_TIMEOUT_MS * 1000) {
+            n.dns = None;
+            n.successful = None;
+        }
+        if n.dns.is_none() {
+            let (h, port) = split_host_port(&addr);
+            match crate::net::resolve(&h, port) {
+                Ok(a) => n.dns = Some((a, now)),
+                Err(_) => {
+                    let e = Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{h}'"));
+                    return self.setup_failed(id, e, t0);
+                }
+            }
+        }
+        let targets: Vec<std::net::SocketAddr> = match n.successful {
+            Some(a) => vec![a],
+            None => n.dns.as_ref().map(|d| d.0.clone()).unwrap_or_default(),
+        };
+        for (k, sa) in targets.into_iter().enumerate() {
+            match msg(k == 0) {
+                Ok(m) => run.probes.push(Probe::connect(id, &addr, sa, crate::scan::HAPPY_EYEBALLS_DELAY * k as u32, m, timeout, tls.clone())),
+                Err(e) => return self.setup_failed(id, net_check_error(e), t0),
+            }
+        }
     }
 
-    /// mongoc_topology_scan_once: one blocking scan of every node (sequential). As libmongoc's
-    /// scanner: every node's heartbeat starts first, nodes discovered during the scan join it,
-    /// and a known server whose check fails is checked once more before the scan ends.
+    /// The setup of a check failed (mongoc_topology_scanner_node_setup's failure path and
+    /// _mongoc_topology_scanner_setup_err_cb): HeartbeatFailed with the error as it is.
+    fn setup_failed(&mut self, id: u32, e: Error, t0: std::time::Instant) {
+        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
+        n.last_error = Some(e.clone());
+        let addr = n.addr.clone();
+        let duration_us = t0.elapsed().as_micros() as i64;
+        let error = e.clone();
+        self.td.events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error });
+        if self.td.ty != TopologyType::LoadBalanced {
+            self.td.handle_hello(id, None, RTT_UNSET, Some(&e));
+        }
+    }
+
+    /// mongoc_async_run over the scan's checks: polls every started check at once, starts the
+    /// delayed ones when due, times out the late ones. Checks started by the callbacks (retries,
+    /// discovered servers) join the loop.
+    fn run_scan(&mut self, run: &mut ScanRun) {
+        use crate::scan::State;
+        let start = std::time::Instant::now();
+        for p in &mut run.probes {
+            p.start = start;
+        }
+        let mut fds: Vec<libc::pollfd> = Vec::new();
+        let mut polled: Vec<usize> = Vec::new();
+        while !run.probes.is_empty() {
+            fds.clear();
+            polled.clear();
+            let mut timer: Option<std::time::Instant> = None;
+            let soonest = |t: &mut Option<std::time::Instant>, at: std::time::Instant| *t = Some(t.map_or(at, |x| x.min(at)));
+            let now = std::time::Instant::now();
+            let mut i = 0;
+            while i < run.probes.len() {
+                if !run.probes[i].done && run.probes[i].state == State::PendingConnect {
+                    if run.probes[i].delay_until <= now {
+                        if !run.probes[i].initiate() {
+                            self.probe_failed(run, i, "connection error");
+                        }
+                    } else {
+                        soonest(&mut timer, run.probes[i].delay_until);
+                    }
+                }
+                let p = &run.probes[i];
+                if !p.done {
+                    if let Some(fd) = p.fd() {
+                        fds.push(libc::pollfd { fd, events: p.events, revents: 0 });
+                        polled.push(i);
+                        if let Some(d) = p.deadline() {
+                            soonest(&mut timer, d);
+                        }
+                    }
+                }
+                i += 1;
+            }
+            if run.probes.iter().all(|p| p.done) {
+                break;
+            }
+            if fds.is_empty() {
+                if let Some(t) = timer {
+                    std::thread::sleep(t.saturating_duration_since(std::time::Instant::now()));
+                }
+            } else if let Err(e) = crate::net::poll_fds(&mut fds, timer) {
+                // no readiness can be learnt: every polled check fails
+                for &i in &polled {
+                    run.probes[i].error = Some(Error::new(domain::STREAM, code::STREAM_SOCKET, e.to_string()));
+                    run.probes[i].state = State::Error;
+                }
+            }
+            for (k, &i) in polled.iter().enumerate() {
+                let rev = fds[k].revents;
+                if run.probes[i].done {
+                    continue;
+                }
+                // a hang-up with data still to read (macOS reports a peer's close so, Linux
+                // does not) is read first: the reply, or the TLS alert, says more
+                if rev & libc::POLLERR != 0 || (rev & libc::POLLHUP != 0 && rev & libc::POLLIN == 0) {
+                    run.probes[i].poll_error(rev & libc::POLLHUP != 0);
+                }
+                if rev & run.probes[i].events != 0 || run.probes[i].state == State::Error {
+                    self.run_probe(run, i);
+                }
+            }
+            let now = std::time::Instant::now();
+            let mut i = 0;
+            while i < run.probes.len() {
+                let p = &mut run.probes[i];
+                if !p.done {
+                    if p.state != State::PendingConnect && p.timed_out(now) {
+                        p.timeout_error();
+                        self.probe_failed(run, i, "connection timeout");
+                    } else if p.state == State::Cancelled {
+                        self.probe_failed(run, i, "connection error");
+                    }
+                }
+                i += 1;
+            }
+            run.probes.retain(|p| !p.done);
+        }
+    }
+
+    /// mongoc_async_cmd_run for a ready check.
+    fn run_probe(&mut self, run: &mut ScanRun, i: usize) {
+        if run.probes[i].state == crate::scan::State::Send {
+            self.probe_connected(run, i);
+        }
+        match run.probes[i].step() {
+            crate::scan::Step::Progress => {}
+            crate::scan::Step::Success(reply) => self.probe_succeeded(run, i, reply),
+            crate::scan::Step::Failed => self.probe_failed(run, i, "connection error"),
+        }
+    }
+
+    /// _async_connected: the first of a node's checks to connect cancels the others.
+    fn probe_connected(&mut self, run: &mut ScanRun, i: usize) {
+        let (node, addr) = (run.probes[i].node, run.probes[i].addr);
+        for (k, p) in run.probes.iter_mut().enumerate() {
+            if k != i && p.node == node && !p.done {
+                p.cancel();
+            }
+        }
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node) {
+            n.successful = addr;
+        }
+    }
+
+    /// _async_success: HeartbeatSucceeded, the connection becomes the node's (a new one
+    /// completes its handshake), the topology learns the reply.
+    fn probe_succeeded(&mut self, run: &mut ScanRun, i: usize, reply: Vec<u8>) {
+        let p = &mut run.probes[i];
+        p.done = true;
+        let elapsed = p.start.elapsed();
+        let (id, fresh) = (p.node, p.fresh);
+        let Some(mut conn) = p.conn.take() else { return };
+        // a server removed during the scan: its connection is closed
+        let Some(ni) = self.nodes.iter().position(|n| n.id == id) else { return };
+        let duration_us = elapsed.as_micros() as i64;
+        let rtt = elapsed.as_millis() as i64;
+        let speculative_reply = if fresh { crate::auth::speculative_reply(&reply) } else { Vec::new() };
+        // the speculativeAuthenticate reply is seen by the authentication only
+        let reply = crate::auth::redact_hello(&reply).into_owned();
+        let n = &mut self.nodes[ni];
+        n.last_used = monotonic_usec();
+        n.last_failed = -1;
+        let addr = n.addr.clone();
+        self.td.events.push(|| crate::apm::Event::HeartbeatSucceeded { addr, duration_us, reply: reply.clone() });
+        let n = &mut self.nodes[ni];
+        if fresh {
+            if n.mechs.is_none() && self.settings.hello.sasl_user.is_some() {
+                n.mechs = Some(crate::auth::parse_sasl_mechs(&reply));
+            }
+            n.auth.speculative = speculative_reply;
+            let sd = ServerDescription::from_hello(&n.addr, &reply, rtt);
+            conn.set_max_message_size(sd.max_msg_size);
+            conn.compressor = handshake::negotiated(&sd, &self.settings.hello);
+            n.handshake = Some(sd);
+        }
+        n.conn = Some(conn);
+        // in load balanced mode, scanning only establishes connections
+        if self.td.ty != TopologyType::LoadBalanced {
+            self.td.handle_hello(id, Some(&reply), rtt, None);
+            self.join_discovered(run);
+        }
+    }
+
+    /// _async_error_or_timeout: a node fails when its last check fails without a connection
+    /// (HeartbeatFailed, cooldown, pool cleared, a known server re-checked once); a failed
+    /// check with siblings left starts them sooner.
+    fn probe_failed(&mut self, run: &mut ScanRun, i: usize, default_msg: &str) {
+        let p = &mut run.probes[i];
+        p.done = true;
+        let elapsed = p.start.elapsed();
+        let id = p.node;
+        let error = p.error.take();
+        drop(p.conn.take());
+        let Some(ni) = self.nodes.iter().position(|n| n.id == id) else { return };
+        let now = monotonic_usec();
+        self.nodes[ni].last_used = now;
+        let siblings = run.probes.iter().filter(|q| q.node == id && !q.done).count();
+        if self.nodes[ni].conn.is_some() || siblings > 0 {
+            let back = crate::scan::HAPPY_EYEBALLS_DELAY;
+            for q in run.probes.iter_mut().filter(|q| q.node == id && !q.done) {
+                q.delay_until = q.delay_until.checked_sub(back).unwrap_or(q.delay_until);
+            }
+            return;
+        }
+        let n = &mut self.nodes[ni];
+        n.last_failed = now;
+        n.dns = None;
+        n.successful = None;
+        n.handshake = None;
+        let raw = error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, default_msg));
+        let last = Error::new(domain::CLIENT, code::STREAM_CONNECT, format!("{} calling hello on '{}'", raw.message, n.addr));
+        n.last_error = Some(last.clone());
+        let addr = n.addr.clone();
+        let duration_us = elapsed.as_micros() as i64;
+        self.td.events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error: last });
+        if self.td.ty == TopologyType::LoadBalanced {
+            return;
+        }
+        // a failed check clears the pool; a known server becomes Unknown and is checked once
+        // more in this scan (_mongoc_topology_scanner_cb)
+        self.td.clear_connection_pool(id, &crate::sdam::ZERO_OID);
+        let known = self.td.server(id).is_some_and(|s| s.ty != ServerType::Unknown);
+        self.td.handle_hello(id, None, RTT_UNSET, Some(&raw));
+        if known && run.retried.insert(addr_lc(&self.nodes, id)) {
+            self.node_setup(id, run);
+        } else {
+            self.join_discovered(run);
+        }
+    }
+
+    /// mongoc_topology_reconcile during a scan: servers the topology gained join the scan
+    /// (bounded, see scan_once).
+    fn join_discovered(&mut self, run: &mut ScanRun) {
+        for added in self.reconcile_nodes() {
+            let a = addr_lc(&self.nodes, added);
+            if run.discovered >= MAX_DISCOVERED_PER_SCAN || !run.seen.insert(a) {
+                continue;
+            }
+            run.discovered += 1;
+            self.node_setup(added, run);
+        }
+    }
+
+    /// mongoc_topology_scan_once: one scan of every node, all checked at once (libmongoc's
+    /// single-threaded scanner: non-blocking connects and hellos in one poll loop). Every node's
+    /// heartbeat starts first (a failed name resolution fails at once), nodes discovered during
+    /// the scan join it, and a known server whose check fails is checked once more before the
+    /// scan ends.
     ///
     /// Bounded (safety): an address is checked at most once per scan plus one retry (libmongoc
     /// also never re-adds an address within a scan), and at most MAX_DISCOVERED_PER_SCAN
@@ -351,67 +617,13 @@ impl Client {
         }
         self.reconcile_nodes();
         let now = monotonic_usec();
-        let mut queue: std::collections::VecDeque<u32> = self.nodes.iter().filter(|n| !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))).map(|n| n.id).collect();
-        let mut seen: std::collections::HashSet<String> = queue.iter().filter_map(|id| self.nodes.iter().find(|n| n.id == *id)).map(|n| n.addr.to_ascii_lowercase()).collect();
-        let mut retried: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut discovered = 0usize;
-        for &id in &queue {
-            self.heartbeat_started(id);
+        let ids: Vec<u32> = self.nodes.iter().filter(|n| !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))).map(|n| n.id).collect();
+        let seen = ids.iter().filter_map(|id| self.nodes.iter().find(|n| n.id == *id)).map(|n| n.addr.to_ascii_lowercase()).collect();
+        let mut run = ScanRun { probes: Vec::new(), seen, retried: Default::default(), discovered: 0 };
+        for id in ids {
+            self.node_setup(id, &mut run);
         }
-        while let Some(id) = queue.pop_front() {
-            let Some(i) = self.nodes.iter().position(|n| n.id == id) else { continue };
-            let t0 = std::time::Instant::now();
-            let result = self.check_node(i);
-            let duration_us = t0.elapsed().as_micros() as i64;
-            // in load balanced mode, scanning only establishes connections
-            let lb = self.td.ty == TopologyType::LoadBalanced;
-            match result {
-                Ok((reply, rtt)) => {
-                    let n = &mut self.nodes[i];
-                    n.last_used = monotonic_usec();
-                    n.last_failed = -1;
-                    n.last_error = None;
-                    let addr = n.addr.clone();
-                    self.td.events.push(|| crate::apm::Event::HeartbeatSucceeded { addr, duration_us, reply: reply.clone() });
-                    if !lb {
-                        self.td.handle_hello(id, Some(&reply), rtt, None);
-                    }
-                }
-                Err((e, setup)) => {
-                    let n = &mut self.nodes[i];
-                    n.conn = None;
-                    n.handshake = None;
-                    n.last_used = monotonic_usec();
-                    n.last_failed = n.last_used;
-                    let last = if setup { e.clone() } else { Error::new(domain::CLIENT, code::STREAM_CONNECT, format!("{} calling hello on '{}'", e.message, n.addr)) };
-                    n.last_error = Some(last.clone());
-                    let addr = n.addr.clone();
-                    self.td.events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error: last });
-                    if !lb {
-                        // a failed check clears the pool; a known server becomes Unknown only
-                        // after one more check (_mongoc_topology_scanner_cb)
-                        self.td.clear_connection_pool(id, &crate::sdam::ZERO_OID);
-                        let known = self.td.server(id).is_some_and(|s| s.ty != ServerType::Unknown);
-                        self.td.handle_hello(id, None, RTT_UNSET, Some(&e));
-                        if known && retried.insert(addr_lc(&self.nodes, id)) {
-                            self.heartbeat_started(id);
-                            queue.push_back(id);
-                            continue;
-                        }
-                    }
-                }
-            }
-            // a scan may add or remove servers (replica-set discovery); new addresses join this scan
-            for added in self.reconcile_nodes() {
-                let a = addr_lc(&self.nodes, added);
-                if discovered >= MAX_DISCOVERED_PER_SCAN || !seen.insert(a) {
-                    continue;
-                }
-                discovered += 1;
-                self.heartbeat_started(added);
-                queue.push_back(added);
-            }
-        }
+        self.run_scan(&mut run);
         // _mongoc_topology_scanner_finish: "[e1] [e2]", last domain/code win
         let mut msg = String::new();
         let mut last: Option<&Error> = None;
@@ -427,6 +639,49 @@ impl Client {
         self.scan_error = last.map(|e| Error::new(e.domain, e.code, msg));
         self.last_scan = monotonic_usec();
         self.stale = false;
+    }
+
+    /// mongoc_cluster_check_interval (single-threaded): before an operation that selected
+    /// `server_id` by operation type uses its connection, a connection idle for a second is
+    /// checked for a peer close, and one idle for socketCheckIntervalMS is pinged (unmonitored).
+    /// A failed check disconnects and invalidates the server: false, the caller selects once
+    /// more. False also when the server has no connection (as libmongoc).
+    pub fn check_interval(&mut self, server_id: u32) -> bool {
+        let Some(n) = self.nodes.iter().find(|n| n.id == server_id) else { return false };
+        let Some(conn) = n.conn.as_ref() else { return false };
+        let now = monotonic_usec();
+        let idle_from = n.last_used;
+        if idle_from + 1000 * CHECK_CLOSED_DURATION_MS < now && conn.check_closed() {
+            let e = Error::new(domain::STREAM, code::STREAM_SOCKET, "connection closed");
+            self.disconnect_node(server_id);
+            self.td.invalidate_server(server_id, &e);
+            return false;
+        }
+        if idle_from + 1000 * self.settings.socket_check_interval_ms < now {
+            let mut w = crate::bson::writer::Writer::with_capacity(16);
+            w.int32(b"ping", 1);
+            let body = w.finish();
+            let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new("admin", &body) };
+            let r = self.assemble(parts, server_id, false).and_then(|cmd| {
+                let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?.unwrap_or_default();
+                self.td.update_cluster_time(&reply);
+                crate::cmd::check_ok(&reply).map_err(|e| e.into_error())
+            });
+            if let Err(e) = r {
+                self.disconnect_node(server_id);
+                self.td.invalidate_server(server_id, &e);
+                return false;
+            }
+        }
+        true
+    }
+
+    /// mongoc_cluster_disconnect_node
+    fn disconnect_node(&mut self, server_id: u32) {
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
+            n.conn = None;
+            n.handshake = None;
+        }
     }
 
     /// mongoc_topology_select_server_id (single-threaded): a server-selection error ends with

@@ -511,7 +511,7 @@ impl BulkOperation {
             let sel = if self.server_id != 0 {
                 client.stream_for_server(self.server_id, true).map(|_| self.server_id).and_then(|s| client.check_server_for_session(s, session.as_deref_mut()).map(|_| (s, false)))
             } else {
-                client.select_for_session(OpType::Write, None, session.as_deref_mut(), &[])
+                client.select_for_optype(OpType::Write, None, session.as_deref_mut(), &[])
             };
             let sid = match sel {
                 Ok((s, _)) => s,
