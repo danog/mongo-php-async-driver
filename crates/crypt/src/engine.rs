@@ -911,6 +911,7 @@ struct Checked {
     index_type: Option<IndexType>,
     query_type: Option<QueryType>,
     range: Option<crate::range::RangeOpts>,
+    text: Option<crate::text::TextOpts>,
     key: KeySel,
 }
 
@@ -934,6 +935,11 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     // mongocrypt_ctx_setopt_algorithm_range
     let range = match &o.range_opts {
         Some(r) => Some(crate::range::RangeOpts::parse(r)?),
+        None => None,
+    };
+    // mongocrypt_ctx_setopt_algorithm_text
+    let text = match &o.string_opts {
+        Some(t) => Some(crate::text::TextOpts::parse(t)?),
         None => None,
     };
     // mongocrypt_ctx_setopt_query_type
@@ -1045,7 +1051,7 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     if expression && !is_range_query {
         return Err("EncryptExpression may only be used for range queries.".into());
     }
-    Ok(Checked { fle1, index_type, query_type, range, key })
+    Ok(Checked { fle1, index_type, query_type, range, text, key })
 }
 
 impl Crypt {
@@ -1062,8 +1068,52 @@ impl Crypt {
                 let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
                 self.encrypt_range(io, value, &key_id, c.range.as_ref().expect("checked: range opts are required"), o.contention_factor.unwrap_or(0))
             }
+            (None, Some(IndexType::String)) => {
+                let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
+                let text = c.text.as_ref().expect("checked: string opts are required");
+                self.encrypt_text(io, value, &key_id, text, c.query_type, o.contention_factor.unwrap_or(0))
+            }
             _ => Err("Queryable Encryption's range and string algorithms are not supported by this build yet".into()),
         }
+    }
+
+    /// `_fle2_finalize_explicit` for the string algorithm: FLE2InsertUpdatePayloadV2 with text
+    /// search token sets, or FLE2FindTextPayload for prefix/suffix/substring queries
+    fn encrypt_text<I: Io>(&self, io: &mut I, value: &[u8], key_id: &[u8; 16], text: &crate::text::TextOpts, q: Option<QueryType>, cf: i64) -> Result<Vec<u8>, I::Error> {
+        use crate::text::Which;
+        // explicit_encrypt_init: the TextOpts become a FLE2TextSearchInsertSpec
+        let which = match q {
+            None => None,
+            Some(QueryType::Prefix) => Some(Which::Prefix),
+            Some(QueryType::Suffix) => Some(Which::Suffix),
+            Some(QueryType::Substring) => Some(Which::Substring),
+            Some(q) => return Err(format!("Unexpected query type: {}\n", q.name()).into()),
+        };
+        let spec_doc = text.to_insert_spec(value, which)?;
+        let mut kb = KeyBroker::new(&self.kms, &self.cache);
+        kb.request_id(key_id);
+        self.fetch(&mut kb, io)?;
+        let key = kb.key_by_id(key_id).map_err(|_| "unable to retrieve key")?;
+        // _mongocrypt_marking_to_ciphertext
+        let mut it = Iter::new(&spec_doc).ok_or("invalid input BSON, must contain 'v'")?;
+        if !it.find(b"v") {
+            return Err("invalid input BSON, must contain 'v'".into());
+        }
+        let spec = crate::text::InsertSpec::parse(&it.value())?;
+        let mut out = Vec::new();
+        if q.is_some() {
+            out.push(crate::text::SUBTYPE_FIND_TEXT);
+            out.extend(crate::text::find_payload(&spec, &key, cf)?);
+        } else {
+            // the value as a BSON value: the spec's "v" (a string)
+            let mut v = Vec::with_capacity(spec.v.len() + 5);
+            v.extend_from_slice(&((spec.v.len() + 1) as i32).to_le_bytes());
+            v.extend_from_slice(&spec.v);
+            v.push(0);
+            out.push(crate::fle2::SUBTYPE_IUP_V2);
+            out.extend(crate::text::insert_payload(&spec, key_id, &key, key_id, &key, &v, cf)?);
+        }
+        Ok(out)
     }
 
     /// `_fle2_finalize_explicit` for the Unindexed and Indexed (equality) algorithms

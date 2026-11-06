@@ -3,7 +3,7 @@ name = "mongo-crypt"
 version = "0.3.0"
 edition = "2021"
 publish = false
-license = "Apache-2.0"
+license = "Apache-2.0 AND SSPL-1.0"
 description = "Client-side field level encryption and Queryable Encryption for mongo-php-async-driver: a pure-Rust port of libmongocrypt"
 
 [dependencies]

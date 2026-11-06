@@ -1,7 +1,8 @@
 mongo-php-async-driver
 Copyright 2024-present Daniil Gentili
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+This product is licensed under the Apache License, Version 2.0 (see LICENSE), except for the
+files listed under "Server Side Public License" below.
 
 It contains code ported to Rust from, and tests copied from, the following projects, all
 licensed under the Apache License, Version 2.0:
@@ -60,3 +61,12 @@ pointing to that repository.
 
 The NOTICE and THIRD_PARTY_NOTICES files of the projects above apply to the ported code and the
 copied tests.
+
+Server Side Public License
+--------------------------
+The files in crates/crypt/src/unicode/ (mod.rs, case_fold_map.rs, diacritic_fold_map.rs) are
+ported from libmongocrypt's src/unicode/ (fold.c, case-fold-map.c, diacritic-fold-map.c), which
+MongoDB, Inc. licenses under the Server Side Public License, version 1 (Copyright (C)
+2025-present MongoDB, Inc.). Those files remain under the SSPL v1 (see LICENSE-SSPL) and keep
+MongoDB's license notice. They implement the Unicode case and diacritic folding of Queryable
+Encryption string search.

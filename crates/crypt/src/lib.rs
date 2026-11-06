@@ -11,3 +11,5 @@ pub mod fle2;
 pub mod range;
 pub mod kms;
 pub mod kmip;
+pub mod unicode;
+pub mod text;

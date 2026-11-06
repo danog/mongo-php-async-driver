@@ -958,9 +958,46 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
         }
         o.range_opts = Some(w.finish());
     }
-    if opt(options, b"stringOpts").is_some() {
-        throw_crypt("Queryable Encryption's string algorithm is not supported by this build yet");
-        return None;
+    if let Some(so) = opt(options, b"stringOpts") {
+        // phongo_clientencryption_encrypt_string_opts_from_zval + append_bson_string_opts: a
+        // non-array stringOpts (or per-index value) gives empty options
+        let mut w = Writer::with_capacity(128);
+        if zval::is(so, sys::IS_ARRAY) {
+            for k in [&b"caseSensitive"[..], b"diacriticSensitive"] {
+                if let Some(z) = opt(so, k) {
+                    w.bool(k, sys::zend_is_true(z));
+                }
+            }
+            for (name, fields) in [
+                (&b"prefix"[..], &[&b"strMaxQueryLength"[..], b"strMinQueryLength"][..]),
+                (b"suffix", &[b"strMaxQueryLength", b"strMinQueryLength"]),
+                (b"substring", &[b"strMaxLength", b"strMaxQueryLength", b"strMinQueryLength"]),
+            ] {
+                let Some(per) = opt(so, name) else { continue };
+                let mut vals: Vec<(&[u8], i32)> = Vec::new();
+                if zval::is(per, sys::IS_ARRAY) {
+                    for f in fields {
+                        if let Some(z) = opt(per, f) {
+                            let v = sys::zval_get_long_func(z, false);
+                            if v < i32::MIN as i64 || v > i32::MAX as i64 {
+                                throw(E::InvalidArgument, format!("Expected \"{}\" to be a 32-bit integer, {v} given", String::from_utf8_lossy(f)));
+                                return None;
+                            }
+                            vals.push((f, v as i32));
+                        }
+                    }
+                }
+                // append_bson_string_per_index_opts: strMaxLength, strMaxQueryLength, strMinQueryLength
+                let p = w.begin(mongo_core::bson::iter::T_DOCUMENT, name);
+                for f in [&b"strMaxLength"[..], b"strMaxQueryLength", b"strMinQueryLength"] {
+                    if let Some((_, v)) = vals.iter().find(|(k, _)| *k == f) {
+                        w.int32(f, *v);
+                    }
+                }
+                w.end(p);
+            }
+        }
+        o.string_opts = Some(w.finish());
     }
     Some(o)
 }

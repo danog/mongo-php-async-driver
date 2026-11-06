@@ -3,7 +3,7 @@ name = "mongo-php-async-driver"
 version = "0.3.0"
 edition = "2021"
 publish = false
-license = "Apache-2.0"
+license = "Apache-2.0 AND SSPL-1.0"
 repository = "https://github.com/danog/mongo-php-async-driver"
 description = "A pure-Rust, drop-in replacement for the PHP mongodb extension, with fiber-aware async I/O"
 
