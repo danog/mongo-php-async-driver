@@ -158,18 +158,18 @@ pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite_count;
 pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite_delete;
 pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite_insert;
 pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite_update;
-pub use crate::driver::manager::zim_MongoDB_Driver_ClientEncryption___construct;
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_addKeyAltName(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_addKeyAltName") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_createDataKey") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_decrypt(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_decrypt") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_deleteKey(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_deleteKey") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_encrypt(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_encrypt") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_encryptExpression(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_encryptExpression") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKey(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_getKey") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKeyByAltName(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_getKeyByAltName") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKeys(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_getKeys") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_removeKeyAltName(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_removeKeyAltName") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey") }
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption___construct;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_addKeyAltName;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_createDataKey;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_decrypt;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_deleteKey;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_encrypt;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_encryptExpression;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_getKey;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_getKeyByAltName;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_getKeys;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_removeKeyAltName;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey;
 pub use crate::driver::command::zim_MongoDB_Driver_Command___construct;
 pub use crate::driver::cursor::zim_MongoDB_Driver_Cursor___construct;
 pub use crate::driver::cursor::zim_MongoDB_Driver_Cursor_current;
@@ -191,7 +191,7 @@ pub use crate::driver::zim_MongoDB_Driver_Exception_CommandException_getResultDo
 pub use crate::driver::writeresult::zim_MongoDB_Driver_Exception_RuntimeException_hasErrorLabel;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager___construct;
 pub use crate::driver::apm::zim_MongoDB_Driver_Manager_addSubscriber;
-pub use crate::driver::manager::zim_MongoDB_Driver_Manager_createClientEncryption;
+pub use crate::driver::clientencryption::zim_MongoDB_Driver_Manager_createClientEncryption;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeBulkWrite;
 pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Manager_executeBulkWriteCommand;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeCommand;
@@ -408,7 +408,7 @@ pub unsafe fn init_MongoDB_Driver_CursorInterface(_ce: *mut sys::zend_class_entr
 pub use crate::driver::bulkwrite::init_MongoDB_Driver_BulkWrite;
 pub use crate::driver::bulkwritecommand::init_MongoDB_Driver_BulkWriteCommand;
 pub use crate::driver::bulkwritecommand::init_MongoDB_Driver_BulkWriteCommandResult;
-pub unsafe fn init_MongoDB_Driver_ClientEncryption(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::clientencryption::init_MongoDB_Driver_ClientEncryption;
 pub use crate::driver::command::init_MongoDB_Driver_Command;
 pub use crate::driver::cursor::init_MongoDB_Driver_Cursor;
 pub use crate::driver::manager::init_MongoDB_Driver_Manager;

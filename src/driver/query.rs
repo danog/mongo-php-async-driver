@@ -55,6 +55,15 @@ pub unsafe fn init_MongoDB_Driver_Query(c: *mut sys::zend_class_entry) {
     h.clone_obj = None;
 }
 
+/// phongo_query_init(&query, NULL, NULL): an empty Query (ClientEncryption::getKeys)
+pub unsafe fn new_empty() -> sys::zval {
+    let z = crate::zend::obj::new_zval(CE);
+    let q = crate::zend::obj::data::<Query>(z.value.obj);
+    q.filter = Some(Writer::new().finish());
+    q.opts = Some(Writer::new().finish());
+    z
+}
+
 fn has_empty_keys(d: &[u8]) -> bool {
     mongo_core::bulk::validate_empty_keys(d).is_err()
 }

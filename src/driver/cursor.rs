@@ -506,6 +506,17 @@ impl Cursor {
         }
     }
 
+    /// The next document of an internal find (the key vault): None at the end
+    pub fn next_raw(&mut self) -> Result<Option<Vec<u8>>, (Error, Option<Vec<u8>>)> {
+        if self.next_doc() {
+            return Ok(self.current_doc.take());
+        }
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
+    }
+
     pub fn set_error(&mut self, e: Error) {
         self.error = Some((e, None));
     }

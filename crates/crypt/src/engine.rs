@@ -159,12 +159,39 @@ impl Crypt {
             }
             None => crypto::random(crypto::KEY_LEN)?,
         };
-        let encrypted = match self.kms.get(&kek.kmsid) {
-            Some(crate::opts::Creds::Local { key }) => crypto::wrap_key(key, &material)?,
-            Some(_) => return Err("remote KMS providers are not supported by this build yet".into()),
-            None => return Err(format!("KMS provider `{}` is not configured", kek.kmsid)),
-        };
+        let encrypted = self.wrap(kek, &material)?;
         key_document(kek, &encrypted, alt_names)
+    }
+
+    /// The datakey context's KMS step: `material` encrypted with `kek`
+    fn wrap(&self, kek: &Kek, material: &[u8]) -> std::result::Result<Vec<u8>, String> {
+        match self.kms.get(&kek.kmsid) {
+            Some(crate::opts::Creds::Local { key }) => crypto::wrap_key(key, material),
+            Some(_) => Err("remote KMS providers are not supported by this build yet".into()),
+            None if self.kms.need_credentials.contains(&kek.kms_type()) && !kek.kmsid.contains(':') => {
+                Err("on-demand KMS credentials are not supported by this build yet".into())
+            }
+            None => Err(format!("requested kms provider required by datakey is not configured: `{}`", kek.kmsid)),
+        }
+    }
+
+    /// `mongocrypt_ctx_rewrap_many_datakey_init` for one key document: its id and the
+    /// `{masterKey, keyMaterial}` to `$set` (re-encrypted with `new_kek`, or with its own KEK)
+    pub fn rewrap(&self, doc: &[u8], new_kek: Option<&Kek>) -> std::result::Result<([u8; 16], Vec<u8>), String> {
+        let key = crate::key::KeyDoc::parse(doc)?;
+        let material = match self.kms.get(&key.kek.kmsid) {
+            None => return Err(format!("KMS provider `{}` is not configured", key.kek.kmsid)),
+            Some(crate::opts::Creds::Local { key: kek }) => crypto::unwrap_key(kek, &key.key_material)?,
+            Some(_) => return Err("remote KMS providers are not supported by this build yet".into()),
+        };
+        let kek = new_kek.unwrap_or(&key.kek);
+        let encrypted = self.wrap(kek, &material)?;
+        let mut w = Writer::with_capacity(256);
+        let p = w.begin(T_DOCUMENT, b"masterKey");
+        kek.append(&mut w)?;
+        w.end(p);
+        w.binary(b"keyMaterial", 0, &encrypted);
+        Ok((key.id, w.finish()))
     }
 }
 
@@ -177,7 +204,8 @@ pub fn key_document(kek: &Kek, encrypted_material: &[u8], alt_names: &[Vec<u8>])
     w.binary(b"_id", crate::bson::SUBTYPE_UUID, &uuid);
     if !alt_names.is_empty() {
         let p = w.begin(T_ARRAY, b"keyAltNames");
-        for (i, n) in alt_names.iter().enumerate() {
+        // libmongocrypt prepends each keyAltName to its list: the document has them reversed
+        for (i, n) in alt_names.iter().rev().enumerate() {
             w.utf8(i.to_string().as_bytes(), n);
         }
         w.end(p);

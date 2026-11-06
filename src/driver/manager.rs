@@ -489,21 +489,6 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(ex: Ex
     let _ = call::none(ex);
 }
 
-/// Manager::createClientEncryption(array $options): phongo_clientencryption_init of a build
-/// without libmongocrypt
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(ex: Ex, _rv: *mut sys::zval) {
-    let mut a: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
-        return;
-    }
-    throw(E::Runtime, no_cse("Cannot configure clientEncryption object."));
-}
-
-/// ClientEncryption::__construct(array $options): as createClientEncryption
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption___construct(ex: Ex, rv: *mut sys::zval) {
-    zim_MongoDB_Driver_Manager_createClientEncryption(ex, rv);
-}
-
 /// PHP_VERSION
 fn php_version() -> String {
     std::ffi::CStr::from_bytes_with_nul(sys::PHP_VERSION).map(|c| c.to_string_lossy().into_owned()).unwrap_or_default()

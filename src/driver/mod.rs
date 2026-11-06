@@ -7,6 +7,7 @@ pub mod apm;
 pub mod apm_sdam;
 pub mod bulkwrite;
 pub mod bulkwritecommand;
+pub mod clientencryption;
 pub mod command;
 pub mod cursor;
 pub mod log;

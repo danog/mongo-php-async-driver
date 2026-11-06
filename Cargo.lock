@@ -963,6 +963,7 @@ dependencies = [
  "ext-php-rs",
  "libc",
  "mongo-core",
+ "mongo-crypt",
 ]
 
 [[package]]
