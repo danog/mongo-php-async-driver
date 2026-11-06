@@ -376,8 +376,16 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
             php_version()
         )
     });
-    let Some(hs) = handshake_data(driver_options) else { return };
-    log::debug(PHONGO, || format!("Setting driver handshake data: {{ name: '{}', version: '{}', platform: '{}' }}", hs.0, hs.1, hs.2));
+    // phongo_set_handshake_data: an invalid "driver" option throws, but phongo goes on: the client
+    // is created (with libmongoc's own handshake data, which its creation freezes) and stored,
+    // and the constructor throws at the end
+    let hs = match handshake_data(driver_options) {
+        Some(hs) => {
+            log::debug(PHONGO, || format!("Setting driver handshake data: {{ name: '{}', version: '{}', platform: '{}' }}", hs.0, hs.1, hs.2));
+            hs
+        }
+        None => Default::default(),
+    };
     let hs = HANDSHAKE.get_or_init(|| hs).clone();
     // phongo checks the option after creating the client: a client error comes first
     let api = super::serverapi::from_driver_options(driver_options);
@@ -796,11 +804,7 @@ unsafe fn parse_read_preference(options: *mut sys::HashTable) -> Result<Option<R
 pub fn client_read_preference(uri: &Uri) -> ReadPreference {
     let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
     for (i, set) in uri.read_tags.iter().enumerate() {
-        let d = w.begin(3, i.to_string().as_bytes());
-        for (k, v) in set {
-            w.utf8(k.as_bytes(), v.as_bytes());
-        }
-        w.end(d);
+        w.document(i.to_string().as_bytes(), set);
     }
     ReadPreference { mode: uri.read_mode, tags: w.finish(), max_staleness_seconds: uri.max_staleness_seconds as i64, hedge: None }
 }

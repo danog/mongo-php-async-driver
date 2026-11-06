@@ -112,7 +112,12 @@ pub struct Uri {
     pub credentials: Opts,
     pub compressors: Vec<String>,
     pub read_mode: ReadMode,
-    pub read_tags: Vec<Vec<(String, String)>>,
+    /// readPreferenceTags: one BSON document per tag set (strings from the URI string; any
+    /// BSON types from the Manager's uriOptions, as mongoc_read_prefs_set_tags keeps them).
+    pub read_tags: Vec<Vec<u8>>,
+    /// The BSON types of the authMechanismProperties values that are not strings (only the
+    /// Manager's uriOptions can give them): finalize refuses them by type, as libmongoc does.
+    pub mechanism_property_types: Vec<(String, u8)>,
     pub max_staleness_seconds: i32,
     pub read_concern_level: Option<String>,
     pub write_concern: WriteConcern,
@@ -524,6 +529,7 @@ impl Uri {
             compressors: Vec::new(),
             read_mode: ReadMode::Primary,
             read_tags: Vec::new(),
+            mechanism_property_types: Vec::new(),
             max_staleness_seconds: NO_MAX_STALENESS,
             read_concern_level: None,
             write_concern: WriteConcern::default(),
@@ -703,20 +709,20 @@ impl Uri {
             format!("Value for URI option \"{key}\" contains is invalid: {e}")
         })?;
         if key.eq_ignore_ascii_case("readpreferencetags") {
-            let mut tags = Vec::new();
+            let mut tags = crate::bson::writer::Writer::with_capacity(32);
             let mut r = value.as_str();
             while !r.is_empty() {
                 let (entry, rest) = r.split_once(',').unwrap_or((r, ""));
                 r = rest;
                 match entry.split_once(':') {
-                    Some((k, v)) => tags.push((k.to_owned(), v.to_owned())),
+                    Some((k, v)) => tags.utf8(k.as_bytes(), v.as_bytes()),
                     None => {
                         self.warn(format!("Unsupported value for \"readpreferencetags\": \"{value}\""));
                         return Err(format!("Unsupported value for \"{key}\": \"{value}\""));
                     }
                 }
             }
-            self.read_tags.push(tags);
+            self.read_tags.push(tags.finish());
             return Ok(());
         }
         let existing = self.raw.get(key).or_else(|| options.get(key)).cloned();
@@ -865,6 +871,31 @@ impl Uri {
     pub fn set_mechanism_properties_pub(&mut self, props: Vec<(String, String)>) {
         self.set_mechanism_properties(props);
     }
+    /// mongoc_uri_set_mechanism_properties with a BSON document: string values as they are,
+    /// the others as text with their BSON type kept for finalize's type check.
+    pub fn set_mechanism_properties_bson(&mut self, doc: &[u8]) {
+        use crate::bson::iter::{Iter, Value};
+        let (mut props, mut types) = (Vec::new(), Vec::new());
+        if let Some(mut it) = Iter::new(doc) {
+            while it.next() {
+                let k = String::from_utf8_lossy(it.key()).into_owned();
+                let v = match it.value() {
+                    Value::Utf8(s) => String::from_utf8_lossy(s).into_owned(),
+                    Value::Bool(b) => b.to_string(),
+                    Value::Int32(i) => i.to_string(),
+                    Value::Int64(i) => i.to_string(),
+                    Value::Double(f) => f.to_string(),
+                    _ => String::new(),
+                };
+                if !matches!(it.value(), Value::Utf8(_)) {
+                    types.push((k.clone(), it.type_code()));
+                }
+                props.push((k, v));
+            }
+        }
+        self.set_mechanism_properties(props);
+        self.mechanism_property_types = types;
+    }
     /// Whether authMechanismProperties are set (mongoc_uri_get_mechanism_properties).
     pub fn has_mechanism_properties(&self) -> bool {
         self.credentials.has("authmechanismproperties")
@@ -925,6 +956,7 @@ impl Uri {
     }
 
     fn set_mechanism_properties(&mut self, props: Vec<(String, String)>) {
+        self.mechanism_property_types.clear();
         self.credentials.0.retain(|(k, _)| k != "authmechanismproperties");
         self.credentials.0.push(("authmechanismproperties".into(), OptVal::Doc(props)));
     }
@@ -1234,7 +1266,7 @@ impl Uri {
             "GSSAPI" => {
                 req_user(user.as_deref(), &m)?;
                 self.default_external(source.as_deref(), &m)?;
-                check_props(props.as_deref(), &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST"], "GSSAPI")?;
+                check_props(props.as_deref(), &self.mechanism_property_types, &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST"], "GSSAPI")?;
                 if let Some(p) = &props {
                     if let Some((_, v)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("CANONICALIZE_HOST_NAME")) {
                         if !v.eq_ignore_ascii_case("true") && !v.eq_ignore_ascii_case("false") {
@@ -1251,7 +1283,7 @@ impl Uri {
             "MONGODB-AWS" => {
                 allowed_user(user.as_deref(), &m)?;
                 self.default_external(source.as_deref(), &m)?;
-                check_props(props.as_deref(), &["AWS_SESSION_TOKEN"], "MONGODB-AWS")?;
+                check_props(props.as_deref(), &self.mechanism_property_types, &["AWS_SESSION_TOKEN"], "MONGODB-AWS")?;
                 if user.is_none() != pass.is_none() {
                     return Err(format!("'{m}' authentication mechanism does not accept a username or a password without the other"));
                 }
@@ -1260,7 +1292,7 @@ impl Uri {
                 allowed_user(user.as_deref(), &m)?;
                 self.default_external(source.as_deref(), &m)?;
                 prohibit_pass(pass.as_deref(), &m)?;
-                check_props(props.as_deref(), &["ENVIRONMENT", "TOKEN_RESOURCE"], "MONGODB-OIDC")?;
+                check_props(props.as_deref(), &self.mechanism_property_types, &["ENVIRONMENT", "TOKEN_RESOURCE"], "MONGODB-OIDC")?;
                 if let Some(p) = &props {
                     if let Some((_, env)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("ENVIRONMENT")) {
                         let Some(&(name, user_ok, token_req)) = OIDC_ENVS.iter().find(|(n, _, _)| n == env) else {
@@ -1384,14 +1416,48 @@ fn prohibit_pass(p: Option<&str>, m: &str) -> R<()> {
     }
     Ok(())
 }
-/// _supported_mechanism_properties_check (URI properties are always strings)
-fn check_props(props: Option<&[(String, String)]>, supported: &[&str], m: &str) -> R<()> {
+/// _supported_mechanism_properties_check: every supported property is a string; `types` lists
+/// the values that are not (by key: BSON type code).
+fn check_props(props: Option<&[(String, String)]>, types: &[(String, u8)], supported: &[&str], m: &str) -> R<()> {
     for (k, _) in props.unwrap_or(&[]) {
         if !supported.iter().any(|s| s.eq_ignore_ascii_case(k)) {
             return Err(format!("Unsupported '{m}' authentication mechanism property: '{k}'"));
         }
+        if let Some((_, t)) = types.iter().find(|(tk, _)| tk == k) {
+            // libmongoc's message (its arguments in this order)
+            return Err(format!("'{k}' authentication mechanism property '{m}' has incorrect type '{}', should be 'UTF8'", bson_type_name(*t)));
+        }
     }
     Ok(())
+}
+
+/// _mongoc_bson_type_to_str
+fn bson_type_name(t: u8) -> &'static str {
+    match t {
+        0x00 => "EOD",
+        0x01 => "DOUBLE",
+        0x02 => "UTF8",
+        0x03 => "DOCUMENT",
+        0x04 => "ARRAY",
+        0x05 => "BINARY",
+        0x06 => "UNDEFINED",
+        0x07 => "OID",
+        0x08 => "BOOL",
+        0x09 => "DATE_TIME",
+        0x0A => "NULL",
+        0x0B => "REGEX",
+        0x0C => "DBPOINTER",
+        0x0D => "CODE",
+        0x0E => "SYMBOL",
+        0x0F => "CODEWSCOPE",
+        0x10 => "INT32",
+        0x11 => "TIMESTAMP",
+        0x12 => "INT64",
+        0x13 => "DECIMAL128",
+        0x7F => "MAXKEY",
+        0xFF => "MINKEY",
+        _ => "Unknown",
+    }
 }
 
 /// mongoc_uri_options_validate_names

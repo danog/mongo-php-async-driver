@@ -940,12 +940,17 @@ pub struct AppErrorOutcome {
     pub stale: bool,
 }
 
-/// _match_tag_set: every (tag, value) of the set is in the server's tags (exact match).
+/// _match_tag_set: every (tag, value) of the set is in the server's tags (exact match; a
+/// server value that is not a string reads as "", as bson_iter_utf8 gives it).
 fn match_tag_set(tags: &[u8], set: &[(String, String)]) -> bool {
     use crate::bson::iter::{Iter, Value};
     set.iter().all(|(k, v)| {
         let Some(mut it) = Iter::new(tags) else { return false };
-        it.find(k.as_bytes()) && matches!(it.value(), Value::Utf8(s) if s == v.as_bytes())
+        it.find(k.as_bytes())
+            && match it.value() {
+                Value::Utf8(s) => s == v.as_bytes(),
+                _ => v.is_empty(),
+            }
     })
 }
 
@@ -1003,5 +1008,30 @@ pub fn wire_version_to_server_version(v: i32) -> &'static str {
         25 => "8.0",
         29 => "9.0",
         _ => "Unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::match_tag_set;
+    use crate::bson::writer::Writer;
+
+    #[test]
+    fn tag_values_read_as_bson_iter_utf8() {
+        let mut w = Writer::with_capacity(64);
+        w.utf8(b"dc", b"ny");
+        w.utf8(b"empty", b"");
+        w.int32(b"n", 1);
+        let tags = w.finish();
+        let set = |p: &[(&str, &str)]| p.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        assert!(match_tag_set(&tags, &set(&[("dc", "ny")])));
+        assert!(!match_tag_set(&tags, &set(&[("dc", "NY")])));
+        assert!(!match_tag_set(&tags, &set(&[("rack", "")])));
+        // a read preference value that is not a string reads as "": it matches empty values,
+        // and a server value that is not a string reads as "" too
+        assert!(match_tag_set(&tags, &set(&[("empty", "")])));
+        assert!(match_tag_set(&tags, &set(&[("n", "")])));
+        assert!(!match_tag_set(&tags, &set(&[("n", "1")])));
+        assert!(match_tag_set(&tags, &set(&[])));
     }
 }

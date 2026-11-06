@@ -52,26 +52,6 @@ fn utf8<'a>(key: &str, v: &Value<'a>) -> Result<&'a str, String> {
     }
 }
 
-/// A document's (key, value) pairs as strings (libmongoc keeps the BSON values; true and
-/// false become "true" and "false", as libmongoc reads CANONICALIZE_HOST_NAME).
-fn string_pairs(d: &[u8]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let Some(mut it) = Iter::new(d) else { return out };
-    while it.next() {
-        let k = String::from_utf8_lossy(it.key()).into_owned();
-        let v = match it.value() {
-            Value::Utf8(s) => String::from_utf8_lossy(s).into_owned(),
-            Value::Bool(b) => b.to_string(),
-            Value::Int32(i) => i.to_string(),
-            Value::Int64(i) => i.to_string(),
-            Value::Double(f) => f.to_string(),
-            _ => String::new(),
-        };
-        out.push((k, v));
-    }
-    out
-}
-
 fn is(key: &str, name: &str) -> bool {
     key.eq_ignore_ascii_case(name)
 }
@@ -116,7 +96,7 @@ fn apply_generic(u: &mut Uri, doc: &[u8]) -> R {
             u.set_auth_source(utf8(key, &v)?);
         } else if is(key, "authmechanismproperties") {
             let Value::Document(d) = v else { return Err(invalid(key, &v, "array or object")) };
-            u.set_mechanism_properties_pub(string_pairs(d));
+            u.set_mechanism_properties_bson(d);
         } else if is(key, "gssapiservicename") {
             if u.has_mechanism_properties() {
                 return Err(format!("authMechanismProperties SERVICE_NAME already set, ignoring \"{key}\""));
@@ -171,7 +151,7 @@ fn apply_rp(u: &mut Uri, doc: &[u8]) -> R {
             if let Some(mut t) = Iter::new(a) {
                 while t.next() {
                     match t.value() {
-                        Value::Document(d) => sets.push(string_pairs(d)),
+                        Value::Document(d) => sets.push(d.to_vec()),
                         _ => return Err("Read preference tags must be an array of zero or more documents".into()),
                     }
                 }

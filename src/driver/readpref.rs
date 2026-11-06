@@ -50,9 +50,13 @@ impl ReadPreference {
                 if let Value::Document(d) = it.value() {
                     if let Some(mut t) = Iter::new(d) {
                         while t.next() {
-                            if let Value::Utf8(v) = t.value() {
-                                set.push((String::from_utf8_lossy(t.key()).into_owned(), String::from_utf8_lossy(v).into_owned()));
-                            }
+                            // bson_iter_utf8: a value of another type reads as "" (it matches
+                            // only an empty server tag, as in libmongoc's _match_tag_set)
+                            let v = match t.value() {
+                                Value::Utf8(v) => String::from_utf8_lossy(v).into_owned(),
+                                _ => String::new(),
+                            };
+                            set.push((String::from_utf8_lossy(t.key()).into_owned(), v));
                         }
                     }
                 }
