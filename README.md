@@ -33,7 +33,9 @@ for the network, so other fibers run. It needs `revolt/event-loop` (`composer re
 revolt/event-loop`; the class is looked up by name, the extension has no dependency on it):
 without it, a call inside a fiber throws a `RuntimeException`. Concurrent operations of one
 Manager each use their own connections, at most `maxPoolSize` (default 100) at once; a fiber
-finding them all in use waits at most `serverSelectionTimeoutMS`. Object destructors, the GC and
+finding them all in use waits at most `serverSelectionTimeoutMS`. A `Cursor` or `Session` is used
+by one fiber at a time: using one while another fiber's operation holds it throws a
+`LogicException`. Object destructors, the GC and
 shutdown never suspend. Details and every difference from ext-mongodb: `DIVERGENCES.md`.
 Benchmark: `tools/bench/fibers.php`.
 

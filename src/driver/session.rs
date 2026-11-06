@@ -159,7 +159,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_advanceClusterTime(ex: Ex, _
     if call::has_exception() {
         return;
     }
-    super::aio::lock(&cs).advance_cluster_time(&doc);
+    let Some(mut b) = super::aio::lock_or_throw(&cs) else { return };
+    b.advance_cluster_time(&doc);
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_advanceOperationTime(ex: Ex, _rv: *mut sys::zval) {
@@ -180,7 +181,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_advanceOperationTime(ex: Ex,
     // Z_LVAL of whatever the methods returned (the interface declares int)
     let (tv, iv) = (t.value.lval as u32, i.value.lval as u32);
     drop((t, i));
-    super::aio::lock(&cs).advance_operation_time(tv, iv);
+    let Some(mut b) = super::aio::lock_or_throw(&cs) else { return };
+    b.advance_operation_time(tv, iv);
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getClusterTime(ex: Ex, rv: *mut sys::zval) {
@@ -188,7 +190,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getClusterTime(ex: Ex, rv: *
     if !call::none(ex) {
         return;
     }
-    let t = super::aio::lock_ref(&cs).cluster_time.clone();
+    let Some(t) = super::aio::lock_ref_or_throw(&cs).map(|b| b.cluster_time.clone()) else { return };
     match t {
         None => zval::write(rv, zval::null()),
         Some(t) => {
@@ -204,7 +206,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getLogicalSessionId(ex: Ex, 
     if !call::none(ex) {
         return;
     }
-    let l = super::aio::lock_ref(&cs).lsid().to_vec();
+    let Some(l) = super::aio::lock_ref_or_throw(&cs).map(|b| b.lsid().to_vec()) else { return };
     if let Some(z) = super::to_zval_no_odm(&l) {
         zval::write(rv, z);
     }
@@ -215,7 +217,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getOperationTime(ex: Ex, rv:
     if !call::none(ex) {
         return;
     }
-    let (t, i) = super::aio::lock_ref(&cs).operation_time;
+    let Some((t, i)) = super::aio::lock_ref_or_throw(&cs).map(|b| b.operation_time) else { return };
     zval::write(rv, if (t, i) == (0, 0) { zval::null() } else { crate::bson::types::new_timestamp(i, t) });
 }
 
@@ -224,19 +226,19 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getServer(ex: Ex, rv: *mut s
     if !call::none(ex) {
         return;
     }
-    let sid = super::aio::lock_ref(&cs).pinned_server_id;
+    let Some(sid) = super::aio::lock_ref_or_throw(&cs).map(|b| b.pinned_server_id) else { return };
     zval::write(rv, match (sid, me(ex).client.clone()) {
         (0, _) | (_, None) => zval::null(),
         (s, Some(c)) => super::server::new_server(c, s, me(ex).manager.obj()),
     });
 }
 
-/// phongo_transaction_options_to_zval
-unsafe fn txn_options_zval(s: &Session) -> sys::zval {
-    let Some(cs) = s.cs.as_ref() else { return zval::null() };
-    let cs = super::aio::lock_ref(&cs);
+/// phongo_transaction_options_to_zval (None: the LogicException of a session in use is thrown)
+unsafe fn txn_options_zval(s: &Session) -> Option<sys::zval> {
+    let Some(cs) = s.cs.as_ref() else { return Some(zval::null()) };
+    let cs = super::aio::lock_ref_or_throw(cs)?;
     if !cs.in_txn() {
-        return zval::null();
+        return Some(zval::null());
     }
     let ht = hash::new(4);
     if cs.txn.max_commit_time_ms != 0 {
@@ -251,14 +253,16 @@ unsafe fn txn_options_zval(s: &Session) -> sys::zval {
     if let Some(w) = cs.txn.write_concern.as_ref().filter(|w| !w.is_default) {
         hash::str_update(ht, b"writeConcern", super::writeconcern::new_writeconcern(w.clone()));
     }
-    zval::arr(ht)
+    Some(zval::arr(ht))
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getTransactionOptions(ex: Ex, rv: *mut sys::zval) {
     if live(ex, "getTransactionOptions").is_none() || !call::none(ex) {
         return;
     }
-    zval::write(rv, txn_options_zval(me(ex)));
+    if let Some(z) = txn_options_zval(me(ex)) {
+        zval::write(rv, z);
+    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getTransactionState(ex: Ex, rv: *mut sys::zval) {
@@ -266,7 +270,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getTransactionState(ex: Ex, 
     if !call::none(ex) {
         return;
     }
-    let st = super::aio::lock_ref(&cs).txn_state;
+    let Some(st) = super::aio::lock_ref_or_throw(&cs).map(|b| b.txn_state) else { return };
     zval::write(rv, zval::string(state_str(st).as_bytes()));
 }
 
@@ -287,12 +291,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_startTransaction(ex: Ex, _rv
     let s = me(ex);
     let Some(client) = s.client.clone() else { return };
     let r = {
+        let Some(mut b) = super::aio::lock_or_throw(&cs) else { return };
         let mut cl = client.checkout();
-        let mut b = super::aio::lock(&cs);
-        cl.start_transaction(&mut b, opts.as_ref())
+        let r = cl.start_transaction(&mut b, opts.as_ref());
+        (r, b.txn_state == TxnState::Starting)
     };
+    let (r, starting) = r;
     super::apm::flush(&client);
-    if super::aio::lock_ref(&cs).txn_state == TxnState::Starting {
+    if starting {
         s.txn_rp = rp.unwrap_or_else(|| s.default_rp.clone());
     }
     if let Err(e) = r {
@@ -307,8 +313,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_commitTransaction(ex: Ex, _r
     }
     let Some(client) = me(ex).client.clone() else { return };
     let r = {
+        let Some(mut b) = super::aio::lock_or_throw(&cs) else { return };
         let mut cl = client.checkout();
-        let mut b = super::aio::lock(&cs);
         cl.commit_transaction(&mut b)
     };
     super::apm::flush(&client);
@@ -324,8 +330,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_abortTransaction(ex: Ex, _rv
     }
     let Some(client) = me(ex).client.clone() else { return };
     let r = {
+        let Some(mut b) = super::aio::lock_or_throw(&cs) else { return };
         let mut cl = client.checkout();
-        let mut b = super::aio::lock(&cs);
         cl.abort_transaction(&mut b)
     };
     super::apm::flush(&client);
@@ -338,20 +344,27 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_endSession(ex: Ex, _rv: *mut
     if !call::none(ex) {
         return;
     }
+    if me(ex).cs.as_ref().is_some_and(|c| super::aio::lock_or_throw(c).is_none()) {
+        return;
+    }
     end(me(ex));
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_isDirty(ex: Ex, rv: *mut sys::zval) {
     let Some(cs) = live(ex, "isDirty") else { return };
     if call::none(ex) {
-        zval::write(rv, zval::bool(super::aio::lock_ref(&cs).dirty()));
+        if let Some(b) = super::aio::lock_ref_or_throw(&cs) {
+            zval::write(rv, zval::bool(b.dirty()));
+        }
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_isInTransaction(ex: Ex, rv: *mut sys::zval) {
     let Some(cs) = live(ex, "isInTransaction") else { return };
     if call::none(ex) {
-        zval::write(rv, zval::bool(super::aio::lock_ref(&cs).in_txn()));
+        if let Some(b) = super::aio::lock_ref_or_throw(&cs) {
+            zval::write(rv, zval::bool(b.in_txn()));
+        }
     }
 }
 
@@ -364,7 +377,7 @@ unsafe extern "C" fn debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> 
         hash::str_update(ht, b"ended", zval::bool(true));
         return ht;
     };
-    let cs = super::aio::lock_ref(&rc);
+    let Some(cs) = super::aio::lock_ref_or_throw(&rc) else { return ht };
     let tm = super::debug_typemap();
     match super::to_zval(cs.lsid(), &tm) {
         Some(z) => hash::str_update(ht, b"logicalSessionId", z),
@@ -390,6 +403,6 @@ unsafe extern "C" fn debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> 
     hash::str_update(ht, b"inTransaction", zval::bool(cs.in_txn()));
     hash::str_update(ht, b"transactionState", zval::string(state_str(cs.txn_state).as_bytes()));
     drop(cs);
-    hash::str_update(ht, b"transactionOptions", txn_options_zval(s));
+    hash::str_update(ht, b"transactionOptions", txn_options_zval(s).unwrap_or_else(zval::null));
     ht
 }

@@ -37,9 +37,13 @@ pub mod code {
     pub const STREAM_CONNECT: u32 = 5;
     pub const STREAM_NOT_ESTABLISHED: u32 = 6;
     pub const CLIENT_NOT_READY: u32 = 7;
-    /// A driver call in a fiber without revolt/event-loop (this port's; libmongoc's
-    /// MONGOC_ERROR_CLIENT_NOT_READY code, a RuntimeException)
-    pub const CLIENT_NO_EVENT_LOOP: u32 = CLIENT_NOT_READY;
+    /// A driver call in a fiber without revolt/event-loop (this port's, no libmongoc code: a
+    /// RuntimeException with code 0, see [`super::Error::php_code`]; non-zero here because a
+    /// zero code means "no error" to the bulk paths)
+    pub const CLIENT_NO_EVENT_LOOP: u32 = 0x7fff_0001;
+    /// A Session used while another fiber's operation holds it (this port's: a LogicException
+    /// with code 0)
+    pub const CLIENT_SESSION_IN_USE: u32 = 0x7fff_0002;
     pub const CLIENT_TOO_BIG: u32 = 8;
     pub const CLIENT_TOO_SMALL: u32 = 9;
     pub const CLIENT_GETNONCE: u32 = 10;
@@ -114,6 +118,14 @@ impl Error {
     }
     pub fn server(domain: u32, code: u32, message: impl Into<String>) -> Self {
         Error { domain, code, category: Category::Server, message: message.into() }
+    }
+    /// The PHP exception code: `code`, except 0 for this port's own errors.
+    pub fn php_code(&self) -> i64 {
+        if self.domain == domain::CLIENT && matches!(self.code, code::CLIENT_NO_EVENT_LOOP | code::CLIENT_SESSION_IN_USE) {
+            0
+        } else {
+            self.code as i64
+        }
     }
     /// _mongoc_error_append: `s` appended within bson_error_t's 504-byte message buffer.
     pub fn append(&mut self, s: &str) {

@@ -532,7 +532,7 @@ pub unsafe fn execute(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: 
         Some(s) => s,
         None => {
             // phongo_manager_select_server(for_writes)
-            let pinned = session.map_or(0, |z| super::session_server_id(z));
+            let Some(pinned) = super::session_server_id(session) else { return };
             if pinned > 0 {
                 pinned
             } else {
@@ -576,9 +576,10 @@ unsafe fn execute_bulkwritecommand(rv: *mut sys::zval, client: &ClientRef, bwc: 
         let mut cl = client.checkout();
         match session {
             Some(z) => super::with_session(z, |s| bwc.bw.execute(&mut cl, &opts, Some(s))),
-            None => bwc.bw.execute(&mut cl, &opts, None),
+            None => Some(bwc.bw.execute(&mut cl, &opts, None)),
         }
     };
+    let Some(ret) = ret else { return };
     super::apm::flush(client);
     zval::write(rv, new_result(ret.res.as_ref()));
     let Some(exc) = ret.exc else { return };
@@ -599,7 +600,7 @@ unsafe fn execute_bulkwritecommand(rv: *mut sys::zval, client: &ClientRef, bwc: 
         super::throw_code(exception_ce(), &format!("Bulk write failed due to previous {name}: {}", exc.error.message), 0)
     } else {
         let msg = if has_top_level_error { exc.error.message.as_str() } else { "Bulk write failed" };
-        super::throw_code(exception_ce(), msg, exc.error.code as i64)
+        super::throw_code(exception_ce(), msg, exc.error.php_code())
     };
     init_props(ex_obj, &exc, ret.res.is_some().then_some(&*rv));
     super::add_error_labels(ex_obj, error_reply);

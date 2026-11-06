@@ -128,6 +128,7 @@ pub(crate) unsafe fn lookup(n: &CStr) -> *mut sys::zend_class_entry {
 /// phongo_exception_from_mongoc_domain
 pub(crate) unsafe fn exception_ce(e: &Error) -> *mut sys::zend_class_entry {
     let n: &CStr = match (e.domain, e.code) {
+        (domain::CLIENT, code::CLIENT_SESSION_IN_USE) => c"mongodb\\driver\\exception\\logicexception",
         (domain::CLIENT, code::CLIENT_AUTHENTICATE) => c"mongodb\\driver\\exception\\authenticationexception",
         (domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_ARG) => c"mongodb\\driver\\exception\\invalidargumentexception",
         (domain::COMMAND, code::COMMAND_INVALID_ARG) => c"mongodb\\driver\\exception\\invalidargumentexception",
@@ -157,14 +158,14 @@ unsafe fn update_prop(o: *mut sys::zend_object, name: &[u8], v: *mut sys::zval) 
 pub unsafe fn throw_error(e: &Error, reply: Option<&[u8]>) {
     let ex;
     if let Some(r) = reply.filter(|_| (e.domain == domain::SERVER && e.code != 50) || e.domain == domain::WRITE_CONCERN) {
-        ex = throw_code(lookup(c"mongodb\\driver\\exception\\commandexception"), &e.message, e.code as i64);
+        ex = throw_code(lookup(c"mongodb\\driver\\exception\\commandexception"), &e.message, e.php_code());
         let tm = crate::bson::decode::TypeMap::default();
         let st = crate::bson::decode::State::new(&tm);
         if let Some(mut z) = crate::bson::decode::to_zval(r, &st) {
             update_prop(ex, b"resultDocument", &mut z);
         }
     } else {
-        ex = throw_code(exception_ce(e), &e.message, e.code as i64);
+        ex = throw_code(exception_ce(e), &e.message, e.php_code());
     }
     if let Some(r) = reply {
         add_error_labels(ex, r);
@@ -314,9 +315,13 @@ unsafe fn session_belongs_to(z: *mut sys::zval, client: &ClientRef) -> bool {
     session::of(z).client.as_ref().is_some_and(|c| Rc::ptr_eq(c, client))
 }
 
-/// The server a Session is pinned to (0: none).
-pub unsafe fn session_server_id(z: *mut sys::zval) -> u32 {
-    session::of(z).cs.as_ref().map_or(0, |c| aio::lock_ref(c).pinned_server_id)
+/// The server the operation's Session is pinned to (0: none, or no Session). None: the
+/// session is in use by another fiber (the LogicException is thrown).
+pub unsafe fn session_server_id(z: Option<*mut sys::zval>) -> Option<u32> {
+    match z.and_then(|z| session::of(z).cs.as_ref()) {
+        Some(c) => aio::lock_ref_or_throw(c).map(|b| b.pinned_server_id),
+        None => Some(0),
+    }
 }
 
 /// The client session of the Session object `z` (an ended one: a fresh, empty state).
@@ -324,11 +329,12 @@ pub unsafe fn session_rc(z: *mut sys::zval) -> Rc<RefCell<mongo_core::session::C
     session::of(z).cs.clone().unwrap_or_default()
 }
 
-/// Runs `f` with the client session of the Session object `z`.
-pub unsafe fn with_session<R>(z: *mut sys::zval, f: impl FnOnce(&mut mongo_core::session::ClientSession) -> R) -> R {
+/// Runs `f` with the client session of the Session object `z`. None: the session is in use
+/// by another fiber (the LogicException is thrown, `f` not run).
+pub unsafe fn with_session<R>(z: *mut sys::zval, f: impl FnOnce(&mut mongo_core::session::ClientSession) -> R) -> Option<R> {
     let cs = session::of(z).cs.clone().unwrap_or_default();
-    let mut b = aio::lock(&cs);
-    f(&mut b)
+    let mut b = aio::lock_or_throw(&cs)?;
+    Some(f(&mut b))
 }
 
 /// phongo_parse_write_concern: the "writeConcern" option.

@@ -519,34 +519,29 @@ fn sleep(d: Duration) -> io::Result<()> {
     poll(&mut [], Some(Instant::now() + d)).map(|_| ())
 }
 
-/// Borrows a Session's state mutably. Another fiber's operation may hold it across a wait:
-/// then this one waits for it (1 ms sleeps) instead of failing; without suspension the
-/// borrow is the plain one (a conflict is a bug and panics, as before).
-pub fn lock<T>(c: &RefCell<T>) -> std::cell::RefMut<'_, T> {
-    loop {
-        match c.try_borrow_mut() {
-            Ok(b) => return b,
-            Err(_) if mongo_core::aio::active() => {
-                if mongo_core::aio::sleep(Duration::from_millis(1)).is_err() {
-                    return c.borrow_mut();
-                }
-            }
-            Err(_) => return c.borrow_mut(),
-        }
-    }
+/// The error of a Session used while another fiber's operation holds it.
+pub fn session_in_use() -> mongo_core::error::Error {
+    use mongo_core::error::{code, domain, Error};
+    Error::new(domain::CLIENT, code::CLIENT_SESSION_IN_USE, "The session is in use by another fiber")
 }
 
-/// `lock` for a shared borrow.
-pub fn lock_ref<T>(c: &RefCell<T>) -> std::cell::Ref<'_, T> {
-    loop {
-        match c.try_borrow() {
-            Ok(b) => return b,
-            Err(_) if mongo_core::aio::active() => {
-                if mongo_core::aio::sleep(Duration::from_millis(1)).is_err() {
-                    return c.borrow();
-                }
-            }
-            Err(_) => return c.borrow(),
-        }
-    }
+/// Borrows a Session's state mutably. Another fiber's operation may hold it across a wait:
+/// then this fails with [`session_in_use`] (a LogicException) instead of waiting.
+pub fn lock<T>(c: &RefCell<T>) -> Result<std::cell::RefMut<'_, T>, mongo_core::error::Error> {
+    c.try_borrow_mut().map_err(|_| session_in_use())
+}
+
+/// `lock` for a shared borrow (fails only while an operation holds the session).
+pub fn lock_ref<T>(c: &RefCell<T>) -> Result<std::cell::Ref<'_, T>, mongo_core::error::Error> {
+    c.try_borrow().map_err(|_| session_in_use())
+}
+
+/// `lock` that throws the LogicException on failure.
+pub unsafe fn lock_or_throw<T>(c: &RefCell<T>) -> Option<std::cell::RefMut<'_, T>> {
+    lock(c).map_err(|e| super::throw_error(&e, None)).ok()
+}
+
+/// `lock_ref` that throws the LogicException on failure.
+pub unsafe fn lock_ref_or_throw<T>(c: &RefCell<T>) -> Option<std::cell::Ref<'_, T>> {
+    lock_ref(c).map_err(|e| super::throw_error(&e, None)).ok()
 }

@@ -589,7 +589,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     let sid = match server_id {
         Some(s) => s,
         None => {
-            let pinned = zsession.map_or(0, |z| super::session_server_id(z));
+            let Some(pinned) = super::session_server_id(zsession) else { return };
             if pinned > 0 {
                 pinned
             } else {
@@ -657,7 +657,14 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     let zs_rc = zsession.map(|z| super::session_rc(z));
     let result = {
         let mut cl = client.checkout();
-        let mut guard = zs_rc.as_ref().map(|r| super::aio::lock(r));
+        let mut guard = match zs_rc.as_ref().map(|r| super::aio::lock(r)).transpose() {
+            Ok(g) => g,
+            Err(e) => {
+                drop(cl);
+                super::throw_error(&e, None);
+                return;
+            }
+        };
         let mut sess: Option<&mut mongo_core::session::ClientSession> = match guard.as_deref_mut() {
             Some(g) => Some(g),
             None => implicit.as_mut(),
@@ -963,7 +970,7 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
         Some(s) => s,
         None => {
             // phongo_manager_select_server(for_writes)
-            let pinned = session.map_or(0, |z| super::session_server_id(z));
+            let Some(pinned) = super::session_server_id(session) else { return };
             if pinned > 0 {
                 pinned
             } else {
@@ -1001,13 +1008,14 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     if let Some(w) = &wc_opt {
         bw.write_concern = Some(w.clone());
     }
-    let (ok, reply, error) = {
+    let r = {
         let mut cl = client.checkout();
         match session {
             Some(z) => super::with_session(z, |s| bw.bulk.execute(&mut cl, &db, &coll, &wc, Some(s))),
-            None => bw.bulk.execute(&mut cl, &db, &coll, &wc, None),
+            None => Some(bw.bulk.execute(&mut cl, &db, &coll, &wc, None)),
         }
     };
+    let Some((ok, reply, error)) = r else { return };
     bw.executed = true;
     super::apm::flush(&client);
     let result = super::writeresult::new_writeresult(reply.clone(), client.clone(), bw.bulk.server_id, wc, mgr);
@@ -1029,7 +1037,7 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
         let msg = format!("Bulk write failed due to previous {name}: {}", error.message);
         super::throw_code(bwe, &msg, 0)
     } else {
-        super::throw_code(bwe, &error.message, error.code as i64)
+        super::throw_code(bwe, &error.message, error.php_code())
     };
     super::add_error_labels(ex_obj, &reply);
     // phongo_add_exception_prop("writeResult")
@@ -1065,7 +1073,7 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
     let sid = match server_id {
         Some(s) => s,
         None => {
-            let pinned = zsession.map_or(0, |z| super::session_server_id(z));
+            let Some(pinned) = super::session_server_id(zsession) else { return };
             if pinned > 0 {
                 pinned
             } else {

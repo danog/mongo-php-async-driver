@@ -321,7 +321,7 @@ pub(crate) unsafe fn error_object(error: &mongo_core::error::Error) -> sys::zval
     let exc = sys::zend_ce_exception;
     let mut m = zval::string(error.message.as_bytes());
     sys::zend_update_property(exc, eo, c"message".as_ptr(), 7, &mut m);
-    let mut code = zval::long(error.code as i64);
+    let mut code = zval::long(error.php_code());
     sys::zend_update_property(exc, eo, c"code".as_ptr(), 4, &mut code);
     ze
 }
