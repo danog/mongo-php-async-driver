@@ -23,6 +23,7 @@ foreach ([
     'mongodb://127.0.0.1/?tlsCertificateKeyFilePassword=s3cr3t%2',
     'mongodb://k@127.0.0.1/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:s3cr3t%2',
     'mongodb://user:s3cr3t@127.0.0.1/?tlsCertificateKeyFilePassword=s3c@r3t&w=-5',
+    'mongodb://127.0.0.1/?sslClientCertificateKeyPassword=s3cr3t1&tlsCertificateKeyFilePassword=s3cr3t2',
 ] as $uri) {
     try {
         new MongoDB\Driver\Manager($uri);
@@ -43,3 +44,4 @@ Failed to parse MongoDB URI: 'mongodb://user:******@127.0.0.1/'. Password must n
 Failed to parse MongoDB URI: 'mongodb://127.0.0.1/?tlsCertificateKeyFilePassword=******'. Value for URI option "tlsCertificateKeyFilePassword" contains is invalid: ******.
 Failed to parse MongoDB URI: 'mongodb://k@127.0.0.1/?authMechanism=MONGODB-AWS&authMechanismProperties=******'. Value for URI option "authMechanismProperties" contains is invalid: ******.
 Failed to parse MongoDB URI: 'mongodb://user:******@127.0.0.1/?tlsCertificateKeyFilePassword=******&w=-5'. Error while parsing the 'w' URI option: Unsupported w value [w=-5].
+Failed to parse MongoDB URI: 'mongodb://127.0.0.1/?sslClientCertificateKeyPassword=******&tlsCertificateKeyFilePassword=******'. Deprecated option 'sslclientcertificatekeypassword=******' conflicts with canonical name 'tlscertificatekeyfilepassword=******'.

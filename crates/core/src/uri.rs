@@ -1405,6 +1405,8 @@ fn validate_names(a: &Opts, b: &Opts) -> R<()> {
         for other in [a, b] {
             if let Some((_, OptVal::Str(cval))) = other.0.iter().find(|(k, _)| k == canon) {
                 if cval != value {
+                    // safety: the reference quotes both values, also for the password options
+                    let (value, cval) = if is_secret_option(key) || is_secret_option(canon) { (REDACTED, REDACTED) } else { (value.as_str(), cval.as_str()) };
                     return Err(format!("Deprecated option '{key}={value}' conflicts with canonical name '{canon}={cval}'"));
                 }
             }
@@ -1461,6 +1463,7 @@ mod redact_tests {
             "mongodb://k@h/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:s3cr3t%2",
             "mongodb://u:s3c@r3t@h/",
             "mongodb://u:s3c/r3t@h/",
+            "mongodb://h/?sslClientCertificateKeyPassword=s3cr3t1&tlsCertificateKeyFilePassword=s3cr3t2",
         ] {
             let e = Uri::parse(bad).unwrap_err();
             assert!(!e.contains("s3c") && !e.contains("r3t"), "{bad}: {e}");
