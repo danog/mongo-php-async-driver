@@ -286,7 +286,7 @@ pub fn type_info32(value: i32, bounds: Option<(i32, i32)>) -> Result<Ost<u32>> {
     }
     if value > max || value < min {
         return Err(format!(
-            "Value must be greater than or equal to the minimum value and less than or equal to the maximum value, got min: {min}, max: {max}, value: {value}"
+            "Value must be greater than or equal to the minimum value and less than or equal to the maximum value, got min: {min}, max: {max}, value: {REDACTED}"
         ));
     }
     let m = encode_i32(min);
@@ -301,12 +301,16 @@ pub fn type_info64(value: i64, bounds: Option<(i64, i64)>) -> Result<Ost<u64>> {
     }
     if value > max || value < min {
         return Err(format!(
-            "Value must be greater than or equal to the minimum value and less than or equal to the maximum value, got min: {min}, max: {max}, value: {value}"
+            "Value must be greater than or equal to the minimum value and less than or equal to the maximum value, got min: {min}, max: {max}, value: {REDACTED}"
         ));
     }
     let m = encode_i64(min);
     Ok(Ost { value: encode_i64(value) - m, max: encode_i64(max) - m })
 }
+
+/// What stands for a plaintext value (or its order-preserving encoding) in error messages:
+/// libmongocrypt prints them, which would leak what was being encrypted into logs (safety divergence)
+const REDACTED: &str = "<redacted>";
 
 const SCALED_DOUBLE_BOUNDS: f64 = 9007199254740992.0;
 
@@ -376,7 +380,7 @@ pub fn type_info_double(mut value: f64, bounds: Option<(f64, f64)>, precision: O
                 "Value must be greater than or equal to the minimum value and less than or equal to the maximum value, got min: {}, max: {}, value: {}",
                 g(min),
                 g(max),
-                g(value)
+                REDACTED
             ));
         }
     }
@@ -570,10 +574,10 @@ mod tests {
 /// `MinCoverGenerator` (32- or 64-bit): the edges and the trim factor used
 fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usize, tf: Option<i32>) -> Result<(Vec<String>, i32)> {
     if range_min > range_max {
-        return Err(format!("Range min ({range_min}) must be less than or equal to range max ({range_max}) for range search"));
+        return Err(format!("Range min ({REDACTED}) must be less than or equal to range max ({REDACTED}) for range search"));
     }
     if range_max > max {
-        return Err(format!("Range max ({range_max}) must be less than or equal to max ({max}) for range search"));
+        return Err(format!("Range max ({REDACTED}) must be less than or equal to max ({max}) for range search"));
     }
     if sparsity == 0 {
         return Err("Sparsity must be > 0".into());
@@ -634,13 +638,13 @@ fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usiz
 fn adjust_bounds(lo: &mut u64, inc_lo: bool, min: u64, hi: &mut u64, inc_hi: bool, max: u64) -> Result<()> {
     if !inc_lo {
         if *lo >= max {
-            return Err(format!("Lower bound ({lo}) must be less than the range maximum ({max}) if lower bound is excluded from range."));
+            return Err(format!("Lower bound ({REDACTED}) must be less than the range maximum ({max}) if lower bound is excluded from range."));
         }
         *lo += 1;
     }
     if !inc_hi {
         if *hi <= min {
-            return Err(format!("Upper bound ({hi}) must be greater than the range minimum ({min}) if upper bound is excluded from range."));
+            return Err(format!("Upper bound ({REDACTED}) must be greater than the range minimum ({min}) if upper bound is excluded from range."));
         }
         *hi -= 1;
     }
@@ -651,16 +655,16 @@ fn adjust_bounds(lo: &mut u64, inc_lo: bool, min: u64, hi: &mut u64, inc_hi: boo
 fn check_bounds<T: PartialOrd + Copy>(lo: T, inc_lo: bool, hi: T, inc_hi: bool, b: Option<(T, T)>, f: &dyn Fn(T) -> String) -> Result<()> {
     if let Some((min, max)) = b {
         if hi < min {
-            return Err(format!("Upper bound ({}) must be greater than or equal to the range minimum ({})", f(hi), f(min)));
+            return Err(format!("Upper bound ({}) must be greater than or equal to the range minimum ({})", REDACTED, f(min)));
         }
         if !inc_hi && !(min < hi) {
-            return Err(format!("Upper bound ({}) must be greater than the range minimum ({}) if upper bound is excluded from range", f(hi), f(min)));
+            return Err(format!("Upper bound ({}) must be greater than the range minimum ({}) if upper bound is excluded from range", REDACTED, f(min)));
         }
         if max < lo {
-            return Err(format!("Lower bound ({}) must be less than or equal to the range maximum ({})", f(lo), f(max)));
+            return Err(format!("Lower bound ({}) must be less than or equal to the range maximum ({})", REDACTED, f(max)));
         }
         if !inc_lo && !(lo < max) {
-            return Err(format!("Lower bound ({}) must be less than the range maximum ({}) if lower bound is excluded from range", f(lo), f(max)));
+            return Err(format!("Lower bound ({}) must be less than the range maximum ({}) if lower bound is excluded from range", REDACTED, f(max)));
         }
     }
     Ok(())
@@ -795,8 +799,9 @@ struct DriverSpec {
 
 /// `mc_FLE2RangeFindDriverSpec_parse`
 fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
-    let json = mongo_core::bson::json::to_json(input, mongo_core::bson::json::Mode::Canonical, false).unwrap_or_default();
-    let err = |m: String| format!("{m}: {}", String::from_utf8_lossy(&json));
+    // libmongocrypt appends the expression as Extended JSON: it holds the plaintext query values,
+    // so only the structural message is kept (safety divergence)
+    let err = |m: String| m;
     let mut it = Iter::new(input).ok_or_else(|| err("error unable to find '$and'".into()))?;
     if !it.next() || it.key() != b"$and" {
         return Err(err("error unable to find '$and'".into()));
