@@ -30,7 +30,7 @@ The upstream suites are carried over and run against both this extension and ext
 
 - `tests/phpt`: ext-mongodb's PHPT suite (2.5.6), run with `tools/phpt.sh`, compared with
   `tools/phpt-diff.sh`;
-- `tests/phplib`: PHPLIB's tests (2.5.0);
+- `tests/phplib`: PHPLIB's tests (2.5.1);
 - `tests/spec`: the MongoDB specifications, as a submodule (`git submodule update --init`).
 
 `tools/topo.sh` starts the standalone, replica-set and sharded topologies the suites use.

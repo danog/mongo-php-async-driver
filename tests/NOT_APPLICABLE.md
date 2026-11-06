@@ -56,18 +56,32 @@ without message, a missing key in ClientEncryption::deleteKey()); they are track
 | Atlas search index tests | need Atlas: skipped |
 | Kerberos, MONGODB-AWS, MONGODB-OIDC auth tests | need a KDC / AWS / an identity provider: not runnable on ct |
 
-### PHPLIB 2.5.0 results (tools/phplib.sh; ours vs the reference on the same topologies)
+### PHPLIB 2.5.1 results (tools/phplib.sh; ours vs the reference on the same topologies)
 
 Pending features, not bugs to hide (they fail on ours until the feature lands):
 
 | Tests | Reason |
 |---|---|
-| `ClientTest::testCreateClientEncryption*` (3), `ClientTest::testConstructorAutoEncryptionOpts` (2), CSFLE spec/prose tests | client-side encryption is not built: this extension behaves as ext-mongodb built without libmongocrypt (see `DIVERGENCES.md`) |
-| `UnifiedSpecTest::testLoadBalancers` "connection establishment if loadBalanced=true" (standalone) | no load-balancer topology in tools/topo.sh yet |
+| `ClientTest::testCreateClientEncryption*` (3), `ClientTest::testConstructorAutoEncryptionOpts`, `ClientTest::testConstructorEmptyKmsProvider`, CSFLE spec/prose tests | client-side encryption is not built: this extension behaves as ext-mongodb built without libmongocrypt (see `DIVERGENCES.md`) |
 
-Ours-only failures under investigation (driver bugs to fix, see the state notes): the retryable-writes
-`*-errorLabels` "fails if server does not return RetryableWriteError" cases and
-`transactions/retryable-{abort,commit}-errorLabels` (replica set), `Prose9_BulkWriteHandlesGetMoreErrorTest`.
+Consequences of a listed divergence:
+
+| Tests | Reason |
+|---|---|
+| `RetryableWrites\Prose3_ReturnOriginalErrorTest` (replica set; reported as risky: it asserts nothing when no exception is thrown) | its subscriber configures the second fail point from `commandSucceeded` of the first attempt; this extension delivers APM events after the operation ("APM delivery time" in `DIVERGENCES.md`), so the retry runs before the fail point exists and succeeds |
+
+Environment-dependent on both builds (sharded cluster of tools/topo.sh: config server and two
+single-node shards, two mongos, in Docker): change-stream tests (`UnifiedSpecTest::testChangeStreams`,
+`Operation\WatchFunctionalTest`) time out waiting for events ("iterateUntilDocumentOrError timed
+out", "Expected cursor to return an element but none was found after 10 attempts"). The reference
+fails 48 of them, ours 50 (plus the 5 CSFLE errors); the sets differ from run to run on both
+builds, with the same messages. Counts at the time of the 2.5.1 baseline:
+
+| Topology | Reference 2.5.6 | This driver |
+|---|---|---|
+| standalone | 6973 tests, 0 errors, 0 failures, 1461 skipped, 604 incomplete | 5 errors (CSFLE) |
+| replica set | 6973 tests, 0 errors, 0 failures, 890 skipped, 604 incomplete | 5 errors (CSFLE), 1 risky (Prose3, above) |
+| sharded | 6973 tests, 48 failures (change streams), 909 skipped, 604 incomplete | 5 errors (CSFLE), 50 failures (change streams) |
 
 ## Rust driver and specification tests (crates/core, cargo test)
 

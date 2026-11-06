@@ -22,7 +22,7 @@ licensed under the Apache License, Version 2.0:
 
 - MongoDB PHP Library (mongo-php-library, "PHPLIB"), https://github.com/mongodb/mongo-php-library
   Copyright 2015-present MongoDB, Inc.
-  Copied: tests/phplib/ (from tests/, phpunit.xml.dist and composer.json at tag 2.5.0).
+  Copied: tests/phplib/ (from tests/, phpunit.xml.dist and composer.json at tag 2.5.1).
 
 - MongoDB Rust Driver (mongodb and bson crates), https://github.com/mongodb/mongo-rust-driver
   Copyright 2017-present MongoDB, Inc.

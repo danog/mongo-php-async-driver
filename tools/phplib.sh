@@ -1,8 +1,8 @@
 #!/bin/bash
-# Runs the carried-over PHPLIB 2.5.0 PHPUnit suite (tests/phplib) against one extension build.
+# Runs the carried-over PHPLIB 2.5.1 PHPUnit suite (tests/phplib) against one extension build.
 #   phplib.sh <label> <extension .so> <MONGODB_URI> [phpunit args...]
 # The library sources and dev dependencies are installed once into $WORK (composer, mongodb/mongodb
-# 2.5.0, from git so that examples/ is there); tests/phplib is then synced over it, so the carried-over tests are the ones that run.
+# 2.5.1, from git so that examples/ is there); tests/phplib is then synced over it, so the carried-over tests are the ones that run.
 # The PHP's own conf.d is used with any mongodb (and xdebug) extension line commented out, so only
 # <extension .so> is loaded.
 # Results: $OUT/<label>.xml (JUnit), $OUT/<label>.log; prints the summary line.
@@ -13,7 +13,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PHP=${PHP:-php8.4}
 OUT=${OUT:-/zf/mdrop/results}
 WORK=${WORK:-/zf/mdrop/phplib}
-VERSION=2.5.0
+VERSION=2.5.1
 mkdir -p "$OUT" "$WORK"
 LIB=$WORK/mongodb-$VERSION
 if [ ! -f "$LIB/.installed" ]; then

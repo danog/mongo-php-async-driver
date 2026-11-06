@@ -524,7 +524,14 @@ impl Client {
         if crate::auth::requires_auth(&self.uri) && !n.auth.has_auth {
             self.authenticate_node(server_id)?;
         }
+        let lb = self.td.ty == TopologyType::LoadBalanced;
         let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
+        // a load-balanced topology needs a server that reports a serviceId: else disconnect
+        if lb && n.handshake.as_ref().is_none_or(|h| h.service_id == crate::sdam::ZERO_OID) {
+            n.conn = None;
+            n.handshake = None;
+            return Err(Error::new(domain::CLIENT, code::CLIENT_INVALID_LOAD_BALANCER, "Driver attempted to initialize in load balancing mode, but the server does not support this mode."));
+        }
         n.conn.as_mut().ok_or_else(|| Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {}", n.addr)))
     }
 

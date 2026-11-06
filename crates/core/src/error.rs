@@ -66,14 +66,14 @@ pub mod code {
     pub const WRITE_CONCERN_ERROR: u32 = 64;
     pub const DUPLICATE_KEY: u32 = 11000;
     pub const MAX_TIME_MS_EXPIRED: u32 = 50;
-    pub const CHANGE_STREAM_NO_RESUME_TOKEN: u32 = 13057;
-    pub const CLIENT_SESSION_FAILURE: u32 = 13058;
-    pub const TRANSACTION_INVALID_STATE: u32 = 13059;
-    pub const CLIENT_INVALID_ENCRYPTION_STATE: u32 = 13063;
-    pub const CLIENT_INVALID_ENCRYPTION_ARG: u32 = 13064;
-    pub const CLIENT_API_ALREADY_SET: u32 = 13065;
-    pub const CLIENT_API_FROM_POOL: u32 = 13066;
-    pub const CLIENT_INVALID_LOAD_BALANCER: u32 = 13069;
+    pub const CHANGE_STREAM_NO_RESUME_TOKEN: u32 = 51;
+    pub const CLIENT_SESSION_FAILURE: u32 = 52;
+    pub const TRANSACTION_INVALID_STATE: u32 = 53;
+    pub const CLIENT_INVALID_ENCRYPTION_STATE: u32 = 57;
+    pub const CLIENT_INVALID_ENCRYPTION_ARG: u32 = 58;
+    pub const CLIENT_API_ALREADY_SET: u32 = 59;
+    pub const CLIENT_API_FROM_POOL: u32 = 60;
+    pub const CLIENT_INVALID_LOAD_BALANCER: u32 = 63;
 }
 
 /// Server error codes the SDAM rules look at (mongoc-error-private.h).
