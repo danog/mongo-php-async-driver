@@ -444,6 +444,15 @@ impl Client {
                 // a hang-up with data still to read (macOS reports a peer's close so, Linux
                 // does not) is read first: the reply, or the TLS alert, says more
                 if rev & libc::POLLERR != 0 || (rev & libc::POLLHUP != 0 && rev & libc::POLLIN == 0) {
+                    // during the TLS handshake the handshake's own error is reported ("TLS
+                    // handshake failed: ...", DIVERGENCES "TLS server checks that fail")
+                    if run.probes[i].state == State::Setup {
+                        if let crate::scan::Step::Progress = run.probes[i].step() {
+                            run.probes[i].poll_error(rev & libc::POLLHUP != 0);
+                        }
+                        self.probe_failed(run, i, "connection error");
+                        continue;
+                    }
                     run.probes[i].poll_error(rev & libc::POLLHUP != 0);
                 }
                 if rev & run.probes[i].events != 0 || run.probes[i].state == State::Error {
