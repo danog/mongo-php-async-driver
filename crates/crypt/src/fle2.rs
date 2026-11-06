@@ -18,6 +18,11 @@ pub const SUBTYPE_IEV_EQUALITY_V2: u8 = 14;
 pub const SUBTYPE_IEV_RANGE_V2: u8 = 15;
 pub const SUBTYPE_UEV_V2: u8 = 16;
 pub const SUBTYPE_IEV_TEXT: u8 = 17;
+// Queryable Encryption v1 (pre-7.0 servers): decryption only, as libmongocrypt
+pub const SUBTYPE_IUP_V1: u8 = 4;
+pub const SUBTYPE_UEV_V1: u8 = 6;
+pub const SUBTYPE_IEV_EQUALITY_V1: u8 = 7;
+pub const SUBTYPE_IEV_RANGE_V1: u8 = 9;
 
 pub type Token = [u8; 32];
 
@@ -137,6 +142,177 @@ pub fn uev_encrypt(key_id: &[u8; 16], value_type: u8, plaintext: &[u8], key: &[u
     let mut out = ad;
     out.extend_from_slice(&ct);
     Ok(out)
+}
+
+/// FLE2InsertUpdatePayload (v1): `{d, s, c, p, u, t, v, e}` (decryption only)
+pub struct IupV1 {
+    pub user_key_id: [u8; 16],
+    pub value_type: u8,
+    value: Vec<u8>,
+}
+
+impl IupV1 {
+    /// `mc_FLE2InsertUpdatePayload_parse` (the input starts with the subtype byte)
+    pub fn parse(b: &[u8]) -> Result<IupV1> {
+        if b.is_empty() {
+            return Err("FLE2InsertUpdatePayload_parse got too short input".into());
+        }
+        let doc = &b[1..];
+        if !mongo_core::bson::iter::is_valid_static(doc) {
+            return Err("FLE2InsertUpdatePayload_parse got invalid BSON".into());
+        }
+        if !validate(doc) {
+            return Err("invalid BSON".into());
+        }
+        let mut it = Iter::new(doc).ok_or("invalid BSON")?;
+        let mut seen: Vec<Vec<u8>> = Vec::new();
+        let (mut t, mut v) = (None, None);
+        while it.next() {
+            let k = it.key().to_vec();
+            let known: &[&[u8]] = &[b"d", b"s", b"c", b"p", b"u", b"t", b"v", b"e"];
+            if !known.contains(&&k[..]) {
+                continue;
+            }
+            if seen.contains(&k) {
+                return Err(format!("Duplicate field '{}' in payload bson", String::from_utf8_lossy(&k)));
+            }
+            seen.push(k.clone());
+            match (&k[..], it.value()) {
+                (b"t", Value::Int32(x)) if (0..=0xff).contains(&x) => t = Some(x as u8),
+                (b"t", Value::Int32(x)) => return Err(format!("Field 't' must be a valid BSON type, got: {x}")),
+                (b"t", _) => return Err("Field 't' expected to hold an int32".into()),
+                (_, val) => {
+                    let want = if k == b"u" { 4 } else { 0 };
+                    match val {
+                        Value::Binary(st, d) if st == want => {
+                            if k == b"v" {
+                                v = Some(d.to_vec());
+                            }
+                        }
+                        Value::Binary(st, _) => {
+                            return Err(format!("Field '{}' expected to be bindata subtype {want}, got: {st}", String::from_utf8_lossy(&k)))
+                        }
+                        o => return Err(format!("Field '{}' expected to be bindata, got: {}", String::from_utf8_lossy(&k), o.type_code())),
+                    }
+                }
+            }
+        }
+        for f in ["d", "s", "c", "p", "u", "t", "v", "e"] {
+            if !seen.iter().any(|s| s == f.as_bytes()) {
+                return Err(format!("Missing field '{f}' in payload"));
+            }
+        }
+        let v = v.expect("checked above");
+        // libmongocrypt asserts on a value shorter than a UUID; here it is an error
+        if v.len() < 16 {
+            return Err("failed to create userKeyId buffer".into());
+        }
+        Ok(IupV1 { user_key_id: v[..16].try_into().expect("16 bytes"), value_type: t.expect("checked above"), value: v })
+    }
+
+    /// `mc_FLE2InsertUpdatePayload_decrypt`: FLE2AEAD with the user key id as associated data
+    pub fn decrypt(&self, user_key: &[u8]) -> Result<Vec<u8>> {
+        Algorithm::Fle2Aead.decrypt(Some(&self.user_key_id), user_key, &self.value[16..])
+    }
+}
+
+/// FLE2UnindexedEncryptedValue (v1): subtype || key UUID || original type || ciphertext
+pub struct UevV1<'a> {
+    pub key_id: [u8; 16],
+    pub value_type: u8,
+    ciphertext: &'a [u8],
+}
+
+impl<'a> UevV1<'a> {
+    /// `mc_FLE2UnindexedEncryptedValue_parse`
+    pub fn parse(b: &'a [u8]) -> Result<UevV1<'a>> {
+        const N: &str = "mc_FLE2UnindexedEncryptedValue_parse";
+        if b.is_empty() {
+            return Err(reader_err(N, 1, 0));
+        }
+        if b.len() < 17 {
+            return Err(reader_err(N, 17, b.len()));
+        }
+        if b.len() < 18 {
+            return Err(reader_err(N, 18, b.len()));
+        }
+        Ok(UevV1 { key_id: b[1..17].try_into().expect("16 bytes"), value_type: b[17], ciphertext: &b[18..] })
+    }
+
+    /// `_mc_FLE2UnindexedEncryptedValueCommon_decrypt` (v1: FLE2AEAD)
+    pub fn decrypt(&self, key: &[u8]) -> Result<Vec<u8>> {
+        let mut ad = Vec::with_capacity(18);
+        ad.push(SUBTYPE_UEV_V1);
+        ad.extend_from_slice(&self.key_id);
+        ad.push(self.value_type);
+        Algorithm::Fle2Aead.decrypt(Some(&ad), key, self.ciphertext)
+    }
+}
+
+/// FLE2IndexedEqualityEncryptedValue / FLE2IndexedRangeEncryptedValue (v1): subtype || S_KeyId ||
+/// original type || InnerEncrypted
+pub struct IevV1<'a> {
+    pub s_key_id: [u8; 16],
+    pub value_type: u8,
+    inner_encrypted: &'a [u8],
+}
+
+/// The decrypted Inner of a v1 indexed value: K_KeyId and ClientEncryptedValue
+pub struct IevV1Inner {
+    pub k_key_id: [u8; 16],
+    client_encrypted: Vec<u8>,
+}
+
+impl<'a> IevV1<'a> {
+    /// `mc_FLE2IndexedEncryptedValue_parse`
+    pub fn parse(b: &'a [u8]) -> Result<IevV1<'a>> {
+        const N: &str = "mc_FLE2IndexedEncryptedValue_parse";
+        if b.is_empty() {
+            return Err(reader_err(N, 1, 0));
+        }
+        if b[0] != SUBTYPE_IEV_EQUALITY_V1 && b[0] != SUBTYPE_IEV_RANGE_V1 {
+            return Err(format!("{N} expected fle_blob_subtype {SUBTYPE_IEV_EQUALITY_V1} or {SUBTYPE_IEV_RANGE_V1} got: {}", b[0]));
+        }
+        if b.len() < 17 {
+            return Err(reader_err(N, 17, b.len()));
+        }
+        if b.len() < 18 {
+            return Err(reader_err(N, 18, b.len()));
+        }
+        Ok(IevV1 { s_key_id: b[1..17].try_into().expect("16 bytes"), value_type: b[17], inner_encrypted: &b[18..] })
+    }
+
+    /// `mc_FLE2IndexedEncryptedValue_add_S_Key`: Inner, decrypted with ServerDataEncryptionLevel1Token
+    pub fn add_s_key(&self, s_key: &[u8]) -> Result<IevV1Inner> {
+        const N: &str = "mc_FLE2IndexedEncryptedValue_decrypt";
+        if s_key.len() != KEY_LEN {
+            return Err(format!("mc_FLE2IndexedEncryptedValue_add_S_Key expected S_Key to be {KEY_LEN} bytes, got: {}", s_key.len()));
+        }
+        let token = hmac_u64(&s_key[s_key.len() - TOKEN_KEY_LEN..], 3);
+        let inner = Algorithm::Fle2.decrypt(None, &token, self.inner_encrypted)?;
+        // length (u64: sizeof(K_KeyId) + ClientEncryptedValue length) || K_KeyId || ClientEncryptedValue
+        if inner.len() < 8 {
+            return Err(reader_err(N, 8, inner.len()));
+        }
+        let length = u64::from_le_bytes(inner[..8].try_into().expect("8 bytes"));
+        if inner.len() < 24 {
+            return Err(reader_err(N, 24, inner.len()));
+        }
+        let k_key_id: [u8; 16] = inner[8..24].try_into().expect("16 bytes");
+        let expected = (24u64).saturating_add(length).saturating_sub(16);
+        if length > inner.len() as u64 || expected > inner.len() as u64 || length < 16 {
+            return Err(format!("{N} expected byte length >= {expected} got: {}", inner.len()));
+        }
+        let client_encrypted = inner[24..24 + (length - 16) as usize].to_vec();
+        Ok(IevV1Inner { k_key_id, client_encrypted })
+    }
+}
+
+impl IevV1Inner {
+    /// `mc_FLE2IndexedEncryptedValue_add_K_Key`: the client value (FLE2AEAD, K_KeyId as data)
+    pub fn add_k_key(&self, k_key: &[u8]) -> Result<Vec<u8>> {
+        Algorithm::Fle2Aead.decrypt(Some(&self.k_key_id), k_key, &self.client_encrypted)
+    }
 }
 
 /// A parsed FLE2UnindexedEncryptedValueV2

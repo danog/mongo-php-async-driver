@@ -604,6 +604,12 @@ impl Crypt {
                 kb.request_id(&iev.add_s_key(&s)?.k_key_id);
                 more = true;
             }
+            if matches!(b[0], crate::fle2::SUBTYPE_IEV_EQUALITY_V1 | crate::fle2::SUBTYPE_IEV_RANGE_V1) {
+                let iev = crate::fle2::IevV1::parse(b)?;
+                let s = kb.key_by_id(&iev.s_key_id)?;
+                kb.request_id(&iev.add_s_key(&s)?.k_key_id);
+                more = true;
+            }
             Ok(())
         })?;
         if more {
@@ -956,6 +962,18 @@ fn collect_key(kb: &mut KeyBroker, b: &[u8]) -> std::result::Result<(), String> 
             kb.request_id(&crate::fle2::Iup::parse(b)?.user_key_id);
             Ok(())
         }
+        crate::fle2::SUBTYPE_IEV_EQUALITY_V1 | crate::fle2::SUBTYPE_IEV_RANGE_V1 => {
+            kb.request_id(&crate::fle2::IevV1::parse(b)?.s_key_id);
+            Ok(())
+        }
+        crate::fle2::SUBTYPE_UEV_V1 => {
+            kb.request_id(&crate::fle2::UevV1::parse(b)?.key_id);
+            Ok(())
+        }
+        crate::fle2::SUBTYPE_IUP_V1 => {
+            kb.request_id(&crate::fle2::IupV1::parse(b)?.user_key_id);
+            Ok(())
+        }
         _ => Err("Queryable Encryption v1 payloads are not supported by this build".into()),
     }
 }
@@ -983,6 +1001,22 @@ fn decrypt_value(kb: &KeyBroker, b: &[u8]) -> std::result::Result<Vec<u8>, Strin
         }
         crate::fle2::SUBTYPE_IUP_V2 => {
             let u = crate::fle2::Iup::parse(b)?;
+            let p = u.decrypt(&kb.key_by_id(&u.user_key_id)?)?;
+            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+        }
+        crate::fle2::SUBTYPE_IEV_EQUALITY_V1 | crate::fle2::SUBTYPE_IEV_RANGE_V1 => {
+            let iev = crate::fle2::IevV1::parse(b)?;
+            let inner = iev.add_s_key(&kb.key_by_id(&iev.s_key_id)?)?;
+            let v = inner.add_k_key(&kb.key_by_id(&inner.k_key_id)?)?;
+            wrap_value(iev.value_type, &v).ok_or_else(|| "decrypted clientValue is not valid BSON".to_string())
+        }
+        crate::fle2::SUBTYPE_UEV_V1 => {
+            let u = crate::fle2::UevV1::parse(b)?;
+            let p = u.decrypt(&kb.key_by_id(&u.key_id)?)?;
+            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+        }
+        crate::fle2::SUBTYPE_IUP_V1 => {
+            let u = crate::fle2::IupV1::parse(b)?;
             let p = u.decrypt(&kb.key_by_id(&u.user_key_id)?)?;
             wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
         }
