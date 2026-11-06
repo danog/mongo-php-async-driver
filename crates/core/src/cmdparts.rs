@@ -65,6 +65,9 @@ pub struct Cmd {
     pub operation_id: i64,
     /// the read preference used for selection (a read retry selects with it)
     pub read_prefs: Option<crate::topology::ReadPrefs>,
+    /// the wire version and mongos-ness of the stream the last attempt ran on (libmongoc's
+    /// server_stream->sd, captured before SDAM error handling can reset the description)
+    pub stream: (i32, bool),
 }
 
 /// A failed command: the error and the server's reply (empty for client-side errors).
@@ -240,6 +243,7 @@ impl Client {
             temp_session,
             operation_id: self.operation_id,
             read_prefs: None,
+            stream: (0, false),
         })
     }
 
@@ -294,6 +298,9 @@ impl Client {
             self.td.events.0.push(crate::apm::Event::CommandStarted { info: info.clone(), command });
         }
         let r = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, &cmd.body, payload, cmd.is_acknowledged);
+        if cmd.is_retryable_write || cmd.is_txn_finish {
+            cmd.stream = self.stream_description(cmd.server_id).map_or((0, false), |d| (d.max_wire_version, d.ty == ServerType::Mongos));
+        }
         let result = match r {
             Err(e) => {
                 let mut reply = Vec::new();
@@ -353,8 +360,7 @@ impl Client {
             }
         }
         if cmd.is_txn_finish {
-            let max_wire = self.stream_description(cmd.server_id).map_or(0, |d| d.max_wire_version);
-            let mongos = self.stream_description(cmd.server_id).is_some_and(|d| d.ty == ServerType::Mongos);
+            let (max_wire, mongos) = cmd.stream;
             match &mut result {
                 Ok(r) => write_error_handle_labels(None, r, max_wire, mongos),
                 Err(f) => write_error_handle_labels(Some(&f.error), &mut f.reply, max_wire, mongos),
@@ -406,8 +412,7 @@ impl Client {
         loop {
             let mut r = self.run_monitored(cmd, payload, session.as_deref_mut());
             if eligibility == Eligibility::RetryableWrite {
-                let max_wire = self.stream_description(cmd.server_id).map_or(0, |d| d.max_wire_version);
-                let mongos = self.stream_description(cmd.server_id).is_some_and(|d| d.ty == ServerType::Mongos);
+                let (max_wire, mongos) = cmd.stream;
                 match &mut r {
                     Ok(rep) => write_error_handle_labels(None, rep, max_wire, mongos),
                     Err(f) => {

@@ -812,10 +812,8 @@ fn read_cursor(client: &mut Client, cmd: &Cmd, mut session: Option<&mut ClientSe
                     }
                 }
             }
-            Err(f) => {
-                id = 0;
-                break Err(Some(f));
-            }
+            // libmongoc keeps the cursor id after a failed getMore: killCursors follows
+            Err(f) => break Err(Some(f)),
         }
     };
     if id != 0 {
@@ -971,7 +969,7 @@ mod tests {
         let uri = crate::uri::Uri::parse("mongodb://127.0.0.1:1/").unwrap();
         let settings = crate::client::Settings::from_uri(&uri);
         let mut client = Client::new(uri, settings).unwrap();
-        let cmd = Cmd { name: "bulkWrite".into(), db: "admin".into(), body: Vec::new(), is_acknowledged: true, is_retryable_write: false, is_retryable_read: false, is_txn_finish: false, server_id: 1, temp_session: None, operation_id: 0, read_prefs: None };
+        let cmd = Cmd { name: "bulkWrite".into(), db: "admin".into(), body: Vec::new(), is_acknowledged: true, is_retryable_write: false, is_retryable_read: false, is_txn_finish: false, server_id: 1, temp_session: None, operation_id: 0, read_prefs: None, stream: (0, false) };
         let result = doc(|w| w.int32(b"ok", 1));
         let first = doc(|w| {
             for i in 0..3 {
