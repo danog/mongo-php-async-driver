@@ -283,6 +283,7 @@ impl InsertSpec {
         Ok(out)
     }
 
+    #[cfg(feature = "sspl-text-fold")]
     fn fold_options(&self) -> u32 {
         (if self.casef { crate::unicode::TO_LOWER } else { 0 }) | (if self.diacf { crate::unicode::REMOVE_DIACRITICS } else { 0 })
     }
@@ -475,7 +476,10 @@ fn substring_tree(base: &BaseString, unfolded_byte_len: u32, spec: &AffixSpec, m
 
 fn fold_or_copy(spec: &InsertSpec) -> Result<Vec<u8>> {
     if spec.casef || spec.diacf {
-        crate::unicode::fold(&spec.v, spec.fold_options())
+        #[cfg(feature = "sspl-text-fold")]
+        return crate::unicode::fold(&spec.v, spec.fold_options());
+        #[cfg(not(feature = "sspl-text-fold"))]
+        return Err("Unicode case and diacritic folding is not available: this build was made without the sspl-text-fold feature. Use caseSensitive and diacriticSensitive set to true.".into());
     } else {
         Ok(spec.v.clone())
     }

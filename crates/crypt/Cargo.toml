@@ -3,8 +3,15 @@ name = "mongo-crypt"
 version = "0.3.0"
 edition = "2021"
 publish = false
-license = "Apache-2.0 AND SSPL-1.0"
+license = "Apache-2.0 AND SSPL-1.0"  # SSPL-1.0 only with the default sspl-text-fold feature
 description = "Client-side field level encryption and Queryable Encryption for mongo-php-async-driver: a pure-Rust port of libmongocrypt"
+
+[features]
+default = ["sspl-text-fold"]
+# Unicode case and diacritic folding of Queryable Encryption string search: ported from
+# libmongocrypt's SSPL-licensed fold code (src/unicode/, see NOTICE). Without it the crate is
+# Apache-2.0 only, and string search needs caseSensitive and diacriticSensitive set to true.
+sspl-text-fold = []
 
 [dependencies]
 mongo-core = { path = "../core" }

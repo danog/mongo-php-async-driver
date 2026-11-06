@@ -69,4 +69,5 @@ ported from libmongocrypt's src/unicode/ (fold.c, case-fold-map.c, diacritic-fol
 MongoDB, Inc. licenses under the Server Side Public License, version 1 (Copyright (C)
 2025-present MongoDB, Inc.). Those files remain under the SSPL v1 (see LICENSE-SSPL) and keep
 MongoDB's license notice. They implement the Unicode case and diacritic folding of Queryable
-Encryption string search.
+Encryption string search and are compiled only with the `sspl-text-fold` cargo feature (on by
+default): a build with --no-default-features contains no SSPL code and is Apache-2.0 only.

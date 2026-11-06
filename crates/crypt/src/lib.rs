@@ -11,5 +11,7 @@ pub mod fle2;
 pub mod range;
 pub mod kms;
 pub mod kmip;
+#[cfg(feature = "sspl-text-fold")]
 pub mod unicode;
 pub mod text;
+pub mod autoenc;

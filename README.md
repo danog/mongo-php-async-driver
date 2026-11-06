@@ -77,4 +77,6 @@ Written by Daniil Gentili ([@danog](https://github.com/danog)).
 
 Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE), except the Unicode folding code of Queryable
 Encryption string search in `crates/crypt/src/unicode/`, which is ported from libmongocrypt under the
-Server Side Public License v1 (see [LICENSE-SSPL](LICENSE-SSPL)).
+Server Side Public License v1 (see [LICENSE-SSPL](LICENSE-SSPL)). That code is behind the default
+`sspl-text-fold` cargo feature: build with `--no-default-features` for an Apache-2.0-only extension
+(string search then requires `caseSensitive` and `diacriticSensitive` set to true).

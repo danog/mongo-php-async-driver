@@ -1,3 +1,4 @@
+#![cfg(feature = "sspl-text-fold")]
 //! libmongocrypt's test/test-unicode-fold.c cases
 
 use mongo_crypt::unicode::{fold, REMOVE_DIACRITICS, TO_LOWER};
