@@ -306,3 +306,217 @@ fn decrypt_value(kb: &KeyBroker, b: &[u8]) -> std::result::Result<Vec<u8>, Strin
         _ => Err("Queryable Encryption payloads are not supported by this build yet".into()),
     }
 }
+
+/// The options of an explicit encryption, as libmongoc hands them to libmongocrypt
+/// (`_create_explicit_state_machine`)
+#[derive(Clone, Debug, Default)]
+pub struct ExplicitOpts {
+    /// None: "passed null algorithm"
+    pub algorithm: Option<Vec<u8>>,
+    /// the UUID binary's data (libmongoc checked the subtype)
+    pub key_id: Option<Vec<u8>>,
+    pub key_alt_name: Option<Vec<u8>>,
+    pub query_type: Option<Vec<u8>>,
+    pub contention_factor: Option<i64>,
+    pub range_opts: Option<Vec<u8>>,
+    pub string_opts: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IndexType {
+    None,
+    Equality,
+    Range,
+    String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueryType {
+    Equality,
+    Range,
+    Prefix,
+    Suffix,
+    Substring,
+}
+
+impl QueryType {
+    fn name(self) -> &'static str {
+        match self {
+            QueryType::Equality => "Equality",
+            QueryType::Range => "Range",
+            QueryType::Prefix => "Prefix",
+            QueryType::Suffix => "Suffix",
+            QueryType::Substring => "Substring",
+        }
+    }
+}
+
+impl IndexType {
+    fn name(self) -> &'static str {
+        match self {
+            IndexType::None => "None",
+            IndexType::Equality => "Equality",
+            IndexType::Range => "Range",
+            IndexType::String => "String",
+        }
+    }
+}
+
+/// The checked options (`ctx->opts`)
+struct Checked {
+    fle1: Option<Fle1Algorithm>,
+    index_type: Option<IndexType>,
+    key: KeySel,
+}
+
+/// `mongocrypt_ctx_setopt_*` and `explicit_encrypt_init`'s checks, in libmongocrypt's order
+fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Checked, String> {
+    // mongocrypt_ctx_setopt_algorithm
+    let algo = o.algorithm.as_deref().ok_or("passed null algorithm")?;
+    let a = String::from_utf8_lossy(algo).to_ascii_lowercase();
+    let (mut fle1, mut index_type) = (None, None);
+    match a.as_str() {
+        "aead_aes_256_cbc_hmac_sha_512-deterministic" => fle1 = Some(Fle1Algorithm::Deterministic),
+        "aead_aes_256_cbc_hmac_sha_512-random" => fle1 = Some(Fle1Algorithm::Random),
+        "indexed" => index_type = Some(IndexType::Equality),
+        "unindexed" => index_type = Some(IndexType::None),
+        "range" => index_type = Some(IndexType::Range),
+        "rangepreview" => return Err("Algorithm 'rangePreview' is deprecated, please use 'range'".into()),
+        "string" => index_type = Some(IndexType::String),
+        "textpreview" => return Err("Algorithm 'textPreview' is deprecated, please use 'string'".into()),
+        _ => return Err(format!("unsupported algorithm string \"{}\"", String::from_utf8_lossy(algo))),
+    }
+    // mongocrypt_ctx_setopt_query_type
+    let query_type = match &o.query_type {
+        None => None,
+        Some(q) => Some(match String::from_utf8_lossy(q).to_ascii_lowercase().as_str() {
+            "equality" => QueryType::Equality,
+            "range" => QueryType::Range,
+            "rangepreview" => return Err("Query type 'rangePreview' is deprecated, please use 'range'".into()),
+            "prefix" => QueryType::Prefix,
+            "suffix" => QueryType::Suffix,
+            "substring" => QueryType::Substring,
+            "prefixpreview" => return Err("Query type 'prefixPreview' is deprecated, please use 'prefix'".into()),
+            "suffixpreview" => return Err("Query type 'suffixPreview' is deprecated, please use 'suffix'".into()),
+            "substringpreview" => return Err("Query type 'substringPreview' is deprecated, please use 'substring'".into()),
+            _ => return Err(format!("Unsupported query_type \"{}\"", String::from_utf8_lossy(q))),
+        }),
+    };
+    // mongocrypt_ctx_setopt_key_id
+    if let Some(id) = &o.key_id {
+        if id.len() != 16 {
+            return Err("expected 16 byte UUID".into());
+        }
+    }
+    // _mongocrypt_ctx_init: the key descriptor is required
+    let key = match (&o.key_id, &o.key_alt_name) {
+        (None, None) => return Err("either key id or key alt name required".into()),
+        (Some(_), Some(_)) => return Err("cannot have both key id and key alt name".into()),
+        (Some(id), None) => KeySel::Id(id[..].try_into().expect("checked above")),
+        (None, Some(n)) => KeySel::AltName(n.clone()),
+    };
+    let (cf, rng, txt) = (o.contention_factor.is_some(), o.range_opts.is_some(), o.string_opts.is_some());
+    if o.key_alt_name.is_some() {
+        if index_type.is_some() {
+            return Err("cannot set both key alt name and index type".into());
+        }
+        if cf {
+            return Err("cannot set both key alt name and contention factor".into());
+        }
+        if query_type.is_some() {
+            return Err("cannot set both key alt name and query type".into());
+        }
+        if rng {
+            return Err("cannot set both key alt name and range opts".into());
+        }
+    }
+    if fle1.is_some() {
+        if cf {
+            return Err("cannot set both algorithm and contention factor".into());
+        }
+        if query_type.is_some() {
+            return Err("cannot set both algorithm and query type".into());
+        }
+        if rng {
+            return Err("cannot set both algorithm and range opts".into());
+        }
+    }
+    if cf && index_type == Some(IndexType::None) {
+        return Err("cannot set contention factor with no index type".into());
+    }
+    if query_type.is_some() && index_type == Some(IndexType::None) {
+        return Err("cannot set query type with no index type".into());
+    }
+    if let Some(q) = query_type {
+        let string = index_type == Some(IndexType::String);
+        match q {
+            QueryType::Prefix if !string => return Err("prefix query type requires string index type".into()),
+            QueryType::Suffix if !string => return Err("suffix query type requires string index type".into()),
+            QueryType::Substring if !string => return Err("substring query type requires string index type".into()),
+            _ => {}
+        }
+    }
+    if rng {
+        match index_type {
+            Some(IndexType::None) => return Err("cannot set range opts with no index type".into()),
+            Some(IndexType::Equality) => return Err("cannot set range opts with equality index type".into()),
+            Some(IndexType::String) => return Err("cannot set range opts with 'string' algorithm".into()),
+            _ => {}
+        }
+    }
+    if txt && index_type.is_some_and(|t| t != IndexType::String) {
+        return Err("cannot set string opts without string index type".into());
+    }
+    if let Some(c) = o.contention_factor {
+        // mc_validate_contention
+        if c < 0 {
+            return Err(format!("Error validating contention: contention must be non-negative, got: {c}"));
+        }
+        if c == i64::MAX {
+            return Err(format!("Error validating contention: contention must be < INT64_MAX, got: {c}"));
+        }
+    }
+    match index_type {
+        Some(IndexType::Equality) if !cf => return Err("contention factor is required for indexed algorithm".into()),
+        Some(IndexType::Range) if !cf => return Err("contention factor is required for range indexed algorithm".into()),
+        Some(IndexType::Range) if !rng => return Err("range opts are required for range indexed algorithm".into()),
+        Some(IndexType::String) if !cf => return Err("contention factor is required for string algorithm".into()),
+        Some(IndexType::String) if !txt => return Err("string opts are required for string algorithm".into()),
+        _ => {}
+    }
+    if let (Some(q), Some(t)) = (query_type, index_type) {
+        let ok = match q {
+            QueryType::Range => t == IndexType::Range,
+            QueryType::Equality => t == IndexType::Equality,
+            _ => t == IndexType::String,
+        };
+        if !ok {
+            return Err(format!("query_type ({}) must match index_type ({})", q.name(), t.name()));
+        }
+    }
+    let is_range_query = query_type == Some(QueryType::Range);
+    if !expression && is_range_query {
+        return Err("Encrypt may not be used for range queries. Use EncryptExpression.".into());
+    }
+    if expression && !is_range_query {
+        return Err("EncryptExpression may only be used for range queries.".into());
+    }
+    Ok(Checked { fle1, index_type, key })
+}
+
+impl Crypt {
+    /// `_mongoc_crypt_explicit_encrypt`: the ciphertext (a binary subtype 6 payload) of the `{v: ..}` document's value
+    pub fn explicit_encrypt<I: Io>(&self, io: &mut I, value: &[u8], o: &ExplicitOpts) -> Result<Vec<u8>, I::Error> {
+        let c = check_explicit(o, false)?;
+        match (c.fle1, c.index_type) {
+            (Some(a), _) => self.encrypt_fle1(io, value, &c.key, a),
+            _ => Err("Queryable Encryption is not supported by this build yet".into()),
+        }
+    }
+
+    /// `_mongoc_crypt_explicit_encrypt_expression`
+    pub fn explicit_encrypt_expression<I: Io>(&self, _io: &mut I, _expr: &[u8], o: &ExplicitOpts) -> Result<Vec<u8>, I::Error> {
+        check_explicit(o, true)?;
+        Err("Queryable Encryption is not supported by this build yet".into())
+    }
+}
