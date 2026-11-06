@@ -307,7 +307,7 @@ impl Client {
         if negotiate && self.settings.hello.sasl_user.is_some() {
             self.nodes[i].mechs = Some(crate::auth::parse_sasl_mechs(&reply));
         }
-        self.nodes[i].auth = NodeAuth { has_auth: false, speculative: speculative_reply, scram: speculative.map(|s| s.1) };
+        self.nodes[i].auth = NodeAuth { has_auth: false, speculative: speculative_reply, scram: speculative.and_then(|s| s.1) };
         let sd = ServerDescription::from_hello(&self.nodes[i].addr, &reply, rtt);
         conn.set_max_message_size(sd.max_msg_size);
         conn.compressor = handshake::negotiated(&sd, &self.settings.hello);
@@ -561,7 +561,7 @@ impl Client {
         let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else { return Ok(()) };
         let mut st = std::mem::take(&mut self.nodes[i].auth);
         let mechs = self.nodes[i].mechs.unwrap_or_default();
-        let mut run = |body: &[u8]| self.auth_command(server_id, body);
+        let mut run = |db: &str, body: &[u8]| self.auth_command(server_id, db, body);
         let speculative = crate::auth::finish_speculative(&uri, &st.speculative, st.scram.as_mut(), &mut run);
         drop(st);
         let connected = self.nodes.iter().any(|n| n.id == server_id && n.conn.is_some());
@@ -569,7 +569,7 @@ impl Client {
             Ok(true) => {}
             Err(e) if !connected => return Err(e),
             _ => {
-                let mut run = |body: &[u8]| self.auth_command(server_id, body);
+                let mut run = |db: &str, body: &[u8]| self.auth_command(server_id, db, body);
                 crate::auth::authenticate(&uri, mechs, &mut run)?;
             }
         }
@@ -579,11 +579,11 @@ impl Client {
         Ok(())
     }
 
-    /// _mongoc_cluster_run_scram_command (before its error conversion): an authentication
-    /// command on the connection being authenticated, with $db = the auth source, no lsid.
-    fn auth_command(&mut self, server_id: u32, body: &[u8]) -> Result<Vec<u8>, Error> {
-        let db = self.uri.auth_source().to_owned();
-        let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new(&db, body) };
+    /// _mongoc_cluster_run_scram_command / the run of _mongoc_cluster_auth_node_plain and
+    /// _x509 (before their error conversion): an authentication command on the connection being
+    /// authenticated, with the given $db, no lsid.
+    fn auth_command(&mut self, server_id: u32, db: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
+        let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new(db, body) };
         let cmd = self.assemble(parts, server_id, false)?;
         let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?.unwrap_or_default();
         self.td.update_cluster_time(&reply);

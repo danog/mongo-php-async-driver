@@ -52,7 +52,7 @@ fn err(m: impl Into<String>) -> Error {
 }
 
 /// Overwrites `b` (secrets are cleared when they are dropped).
-fn wipe(b: &mut [u8]) {
+pub(crate) fn wipe(b: &mut [u8]) {
     for x in b.iter_mut() {
         // SAFETY: a valid, exclusive reference
         unsafe { std::ptr::write_volatile(x, 0) };

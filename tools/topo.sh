@@ -9,6 +9,9 @@
 #   tls         mongodb://127.0.0.1:28016/?tls=true&tlsCAFile=$SSL_DIR/ca.pem (standalone with --tlsMode requireTLS,
 #               server.pem of tools/tls-certs.sh $SSL_DIR; client certificates of ca.pem are accepted, not required);
 #               28017 the same with server-ip.pem (valid for 127.0.0.2 only)
+#   x509        mongodb://127.0.0.1:28014/?tls=true&tlsCAFile=$SSL_DIR/ca.pem&tlsCertificateKeyFile=$SSL_DIR/client.pem
+#               &authMechanism=MONGODB-X509 (--auth, TLS as tls; mechanisms MONGODB-X509, PLAIN, SCRAM; users root/toor
+#               and the client.pem subject CN=client,OU=drivers,O=mdrop-client in $external)
 #   compress    mongodb://127.0.0.1:28018/?compressors=zstd (standalone with --networkMessageCompressors
 #               snappy,zstd,zlib); 28019 the same with compression disabled
 # Env: MONGO_BIN (dir with mongod/mongos), TOPO_DATA (data dir), TOPO_PHP (a PHP with a mongodb extension, to initiate).
@@ -103,6 +106,21 @@ start() {
       # 28017: a certificate for 127.0.0.2 only (host name mismatch when reached as 127.0.0.1)
       DOCKER_EXTRA=${DOCKER_EXTRA:-} mongod_start tls-ip 28017 --tlsMode requireTLS --tlsCertificateKeyFile $C/server-ip.pem \
         --tlsCAFile $C/ca.pem --tlsAllowConnectionsWithoutCertificates ;;
+    x509)
+      # MONGODB-X509 and PLAIN: TLS (client certificates of ca.pem accepted, not required) with --auth;
+      # users root/toor (admin, through the localhost exception) and the client.pem subject in $external
+      : "${SSL_DIR:?set SSL_DIR (tools/tls-certs.sh output)}"
+      if [ "$DOCKER" = 1 ]; then C=/certs; DOCKER_EXTRA="-v $SSL_DIR:/certs:ro"; else C=$SSL_DIR; fi
+      DOCKER_EXTRA=${DOCKER_EXTRA:-} mongod_start x509 28014 --auth --tlsMode requireTLS --tlsCertificateKeyFile $C/server.pem \
+        --tlsCAFile $C/ca.pem --tlsAllowConnectionsWithoutCertificates \
+        --setParameter authenticationMechanisms=MONGODB-X509,PLAIN,SCRAM-SHA-1,SCRAM-SHA-256
+      $PHPI -r '$o = "tls=true&tlsCAFile='$SSL_DIR'/ca.pem&directConnection=true";
+        $m = new MongoDB\Driver\Manager("mongodb://'$H':28014/?" . $o);
+        try { $m->executeCommand("admin", new MongoDB\Driver\Command(["createUser" => "root", "pwd" => "toor", "roles" => ["root"]])); }
+        catch (MongoDB\Driver\Exception\CommandException $e) { if ($e->getCode() !== 13 && strpos($e->getMessage(), "already exists") === false) throw $e; }
+        $m = new MongoDB\Driver\Manager("mongodb://root:toor@'$H':28014/?" . $o);
+        try { $m->executeCommand("\$external", new MongoDB\Driver\Command(["createUser" => "CN=client,OU=drivers,O=mdrop-client", "roles" => [["role" => "root", "db" => "admin"]]])); }
+        catch (MongoDB\Driver\Exception\CommandException $e) { if (strpos($e->getMessage(), "already exists") === false) throw $e; }' ;;
     compress)
       mongod_start compress 28018 --networkMessageCompressors snappy,zstd,zlib
       mongod_start compress-off 28019 --networkMessageCompressors disabled ;;
@@ -114,6 +132,7 @@ stop() {
     standalone) mongod_stop standalone ;;
     auth) mongod_stop auth ;;
     tls) mongod_stop tls; mongod_stop tls-ip ;;
+    x509) mongod_stop x509 ;;
     compress) mongod_stop compress; mongod_stop compress-off ;;
     replset) for p in 28011 28012 28013; do mongod_stop rs0-$p; done ;;
     sharded)

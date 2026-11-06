@@ -5,7 +5,9 @@
 #   other-ca.pem       an unrelated CA (for verification failures)
 #   server.pem         server certificate + key: CN=server, SAN localhost, 127.0.0.1 (for mongod)
 #   server-ip.pem      server certificate for 127.0.0.2 only (host name mismatch on 127.0.0.1)
-#   client.pem         client certificate + PKCS#8 key: CN=client,OU=drivers,O=mdrop (MONGODB-X509)
+#   client.pem         client certificate + PKCS#8 key: CN=client,OU=drivers,O=mdrop-client in RFC 2253 order, the user
+#                      name of MONGODB-X509 (its O differs from
+#                      the server certificate's, else mongod treats it as a cluster member)
 #   client-pkcs8-enc.pem  the same, key as encrypted PKCS#8 (password qwerty)
 #   client-legacy-enc.pem the same, key with OpenSSL's legacy PEM encryption (AES-256-CBC, qwerty)
 #   crl-empty.pem      a CRL of ca.pem revoking nothing
@@ -25,7 +27,7 @@ leaf() { # name subject san
 }
 leaf server "/CN=server/O=mdrop" "subjectAltName=DNS:localhost,IP:127.0.0.1"
 leaf server-ip "/CN=server-ip/O=mdrop" "subjectAltName=IP:127.0.0.2"
-leaf client "/CN=client/OU=drivers/O=mdrop" ""
+leaf client "/O=mdrop-client/OU=drivers/CN=client" ""
 cat server.crt server.key > server.pem
 cat server-ip.crt server-ip.key > server-ip.pem
 openssl pkcs8 -topk8 -nocrypt -in client.key -out client.p8 2>/dev/null

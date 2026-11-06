@@ -1,9 +1,9 @@
 --TEST--
-Manager: mechanisms other than SCRAM fail closed while they are missing
+Manager: GSSAPI, MONGODB-AWS and MONGODB-OIDC fail closed while they are missing
 --DESCRIPTION--
-Local test (not upstream). SCRAM-SHA-1 and SCRAM-SHA-256 are implemented; until X509 (needs
-TLS), PLAIN, GSSAPI, MONGODB-AWS and MONGODB-OIDC land, a client that must authenticate with one
-of them never sends a command unauthenticated: every command fails with an
+Local test (not upstream). SCRAM-SHA-1, SCRAM-SHA-256, PLAIN and MONGODB-X509 are implemented;
+until GSSAPI, MONGODB-AWS and MONGODB-OIDC land, a client that must authenticate with one of them
+never sends a command unauthenticated: every command fails with an
 AuthenticationException, as with a libmongoc built without the mechanism. Listed in
 DIVERGENCES.md (temporary gaps).
 --SKIPIF--
@@ -15,8 +15,6 @@ require_once __DIR__ . "/../phpt/utils/basic.inc";
 // the first seed of URI, alone
 $seed = preg_replace('~^mongodb://(?:[^@/]*@)?([^,/?]+).*$~', '$1', URI);
 foreach ([
-    "mongodb://%s/?authMechanism=MONGODB-X509",
-    "mongodb://u:p@%s/?authMechanism=PLAIN",
     "mongodb://u@%s/?authMechanism=GSSAPI",
     "mongodb://%s/?authMechanism=MONGODB-AWS",
     "mongodb://%s/?authMechanism=MONGODB-OIDC&authMechanismProperties=ENVIRONMENT:test",
@@ -31,8 +29,6 @@ foreach ([
 }
 ?>
 --EXPECT--
-MongoDB\Driver\Exception\AuthenticationException: The MONGODB-X509 authentication mechanism is not supported by this build yet
-MongoDB\Driver\Exception\AuthenticationException: The PLAIN authentication mechanism is not supported by this build yet
 MongoDB\Driver\Exception\AuthenticationException: The GSSAPI authentication mechanism is not supported by this build yet
 MongoDB\Driver\Exception\AuthenticationException: The MONGODB-AWS authentication mechanism is not supported by this build yet
 MongoDB\Driver\Exception\AuthenticationException: The MONGODB-OIDC authentication mechanism is not supported by this build yet
