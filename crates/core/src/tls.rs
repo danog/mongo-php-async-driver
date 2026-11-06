@@ -5,7 +5,9 @@
 //! - the certificate chain against tlsCAFile / the `ca_dir` driver option, else the system's
 //!   trust store (SSL_CERT_FILE / SSL_CERT_DIR, else the usual bundle files), with the
 //!   `crl_file` driver option's CRLs checked for the server certificate (X509_V_FLAG_CRL_CHECK);
-//! - the host name (or IP address) against the certificate.
+//! - the host name (or IP address) against the certificate;
+//! - the server certificate's revocation status by OCSP (crate::ocsp), unless
+//!   tlsDisableCertificateRevocationCheck.
 //! tlsAllowInvalidCertificates skips the certificate checks, the host name included (OpenSSL
 //! checks the name as part of the verification it then ignores); tlsAllowInvalidHostnames skips
 //! the name check only; tlsInsecure both. The handshake signatures are always verified.
@@ -223,10 +225,11 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
             b = b.with_crls(crls).only_check_end_entity_revocation().enforce_revocation_expiration();
         }
         let inner = b.build().map_err(|e| fail(format!("Cannot set up certificate verification: {e}")))?;
-        if o.allow_invalid_hostname {
-            Arc::new(AnyName(inner))
+        let checked: Arc<dyn ServerCertVerifier> = if o.allow_invalid_hostname { Arc::new(AnyName(inner)) } else { inner };
+        if o.disable_certificate_revocation_check {
+            checked
         } else {
-            inner
+            crate::ocsp::verifier(checked, roots.clone(), p.clone(), !o.disable_ocsp_endpoint_check)
         }
     };
     let builder = builder.dangerous().with_custom_certificate_verifier(verifier);
@@ -296,6 +299,7 @@ impl ServerCertVerifier for NoChainCheck {
 /// exists, so that messages read as the reference's).
 pub fn describe(e: &rustls::Error) -> String {
     match e {
+        rustls::Error::InvalidCertificate(CertificateError::Other(o)) if o.0.downcast_ref::<crate::ocsp::OcspFailed>().is_some() => crate::ocsp::OcspFailed.to_string(),
         rustls::Error::InvalidCertificate(c) => {
             let (n, s) = match c {
                 CertificateError::UnknownIssuer => (20, "unable to get local issuer certificate".to_owned()),

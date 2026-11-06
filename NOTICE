@@ -43,6 +43,8 @@ library and its rustls provider rustls-graviola (https://github.com/ctz/graviola
 OR ISC OR MIT-0; Rust with inline assembly, parts of it derived from s2n-bignum, Apache-2.0
 OR ISC OR MIT-0), and for the key-file loader the RustCrypto crates pkcs8, pkcs5, spki, der,
 aes, des, cbc, scrypt, salsa20 and pbkdf2 (https://github.com/RustCrypto; MIT OR Apache-2.0).
+OCSP uses the RustCrypto crates x509-cert, x509-ocsp, der, spki and const-oid (Apache-2.0 OR
+MIT), flagset (Apache-2.0) and sha1 (above).
 Logging fingerprints use hmac and sha2 (above).
 
 The MongoDB Specifications (https://github.com/mongodb/specifications), whose test files the
