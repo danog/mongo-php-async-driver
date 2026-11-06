@@ -621,7 +621,7 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
         }
         if ship {
             let payload = &data[total_offset..total_offset + batch_size];
-            let (r, retry) = client.run_retryable_write(&mut cmd, Some((command.kind.field(), payload)), session.as_deref_mut());
+            let (r, retry) = client.run_retryable_write(&mut cmd, &[(command.kind.field(), payload)], session.as_deref_mut());
             if let Some(rs) = retry {
                 retry_server = Some(rs);
             }

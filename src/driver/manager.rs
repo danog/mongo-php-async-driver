@@ -567,7 +567,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
                 Ok(mut c) => {
                     c.read_prefs = retry_prefs;
                     let r = if mode_write {
-                        cl.run_retryable_write(&mut c, None, sess.as_deref_mut()).0
+                        cl.run_retryable_write(&mut c, &[], sess.as_deref_mut()).0
                     } else {
                         let el = cl.read_eligibility(&c, ty == CmdType::Raw, mode_read);
                         cl.run_retryable_read(&mut c, sess.as_deref_mut(), el)
@@ -677,7 +677,7 @@ fn write_concern_error(reply: &[u8]) -> Option<Error> {
 }
 
 #[inline]
-unsafe fn client_of(ex: Ex) -> Option<ClientRef> {
+pub(crate) unsafe fn client_of(ex: Ex) -> Option<ClientRef> {
     obj::data::<Manager>(call::this(ex)).client.clone()
 }
 

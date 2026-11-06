@@ -1,6 +1,9 @@
 //! The wire protocol: OP_MSG messages (with document sequences) and their replies.
 //! See the OP_MSG specification and libmongoc's mcd-rpc.c / mongoc-cmd.c.
 
+/// OP_MSG document sequences (section kind 1): (identifier, the concatenated documents).
+pub type Payloads<'a> = &'a [(&'a str, &'a [u8])];
+
 /// OP_MSG
 pub const OP_MSG: i32 = 2013;
 /// OP_COMPRESSED

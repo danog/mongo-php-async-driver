@@ -345,7 +345,7 @@ impl Cursor {
         let mut cmd = cl.assemble(parts, self.server_id, false)?;
         cmd.read_prefs = self.retry_prefs.clone();
         let r = if is_get_more {
-            cl.run_monitored(&mut cmd, None, sess)
+            cl.run_monitored(&mut cmd, &[], sess)
         } else {
             let el = cl.read_eligibility(&cmd, false, true);
             cl.run_retryable_read(&mut cmd, sess, el)

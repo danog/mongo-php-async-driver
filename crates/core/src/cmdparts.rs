@@ -264,7 +264,7 @@ impl Client {
 
     /// Runs an assembled command (with an optional document sequence) and releases its
     /// implicit session: the reply, or the error with the reply (empty for network errors).
-    pub fn run_cmd(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>) -> Result<Vec<u8>, Failure> {
+    pub fn run_cmd(&mut self, cmd: &mut Cmd, payload: crate::wire::Payloads<'_>) -> Result<Vec<u8>, Failure> {
         let r = self.run_monitored(cmd, payload, None);
         self.release_temp_session(cmd);
         r
@@ -278,14 +278,14 @@ impl Client {
     }
 
     /// Runs an assembled command without releasing its implicit session.
-    pub fn run_cmd_keep_session(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>) -> Result<Vec<u8>, Failure> {
+    pub fn run_cmd_keep_session(&mut self, cmd: &mut Cmd, payload: crate::wire::Payloads<'_>) -> Result<Vec<u8>, Failure> {
         self.run_monitored(cmd, payload, None)
     }
 
     /// mongoc_cluster_run_command_monitored (+ _private): runs `cmd`, feeds the reply to the
     /// session, applies the network-error and transaction rules. The failure's reply carries
     /// the error labels added here.
-    pub fn run_monitored(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>, mut session: Option<&mut ClientSession>) -> Result<Vec<u8>, Failure> {
+    pub fn run_monitored(&mut self, cmd: &mut Cmd, payload: crate::wire::Payloads<'_>, mut session: Option<&mut ClientSession>) -> Result<Vec<u8>, Failure> {
         let request_id = self.next_request_id();
         let started = std::time::Instant::now();
         let info = crate::apm::enabled().then(|| self.command_info(cmd, request_id));
@@ -375,7 +375,7 @@ impl Client {
 
     /// mongoc_cluster_run_retryable_write: runs a write once, then once more on a retryable
     /// error (overload retries apart). Returns the outcome and the server of a retry.
-    pub fn run_retryable_write(&mut self, cmd: &mut Cmd, payload: Option<(&str, &[u8])>, mut session: Option<&mut ClientSession>) -> (Result<Vec<u8>, Failure>, Option<u32>) {
+    pub fn run_retryable_write(&mut self, cmd: &mut Cmd, payload: crate::wire::Payloads<'_>, mut session: Option<&mut ClientSession>) -> (Result<Vec<u8>, Failure>, Option<u32>) {
         if cmd.is_retryable_write {
             let n = match (session.as_deref_mut(), cmd.temp_session.as_mut()) {
                 (Some(s), _) => s.next_txn_number(),
@@ -454,7 +454,7 @@ impl Client {
         let mut deprioritized: Vec<u32> = Vec::new();
         let mut backoff = Backoff::default();
         loop {
-            let r = self.run_monitored(cmd, None, session.as_deref_mut());
+            let r = self.run_monitored(cmd, &[], session.as_deref_mut());
             let (reply, err) = match &r {
                 Ok(rep) => (rep.as_slice(), None),
                 Err(f) => (f.reply.as_slice(), Some(&f.error)),
@@ -568,11 +568,20 @@ impl Client {
     }
 }
 
-/// The command with its document sequence appended as an array (_mongoc_cmd_append_payload_as_array).
-fn command_with_payload(body: &[u8], payload: Option<(&str, &[u8])>) -> Vec<u8> {
-    let Some((field, docs)) = payload else { return body.to_vec() };
-    let mut w = Writer::with_capacity(body.len() + docs.len() + 64);
+/// The command with its document sequences appended as arrays (_mongoc_cmd_append_payload_as_array).
+fn command_with_payload(body: &[u8], payload: crate::wire::Payloads<'_>) -> Vec<u8> {
+    if payload.is_empty() {
+        return body.to_vec();
+    }
+    let mut w = Writer::with_capacity(body.len() + payload.iter().map(|p| p.1.len()).sum::<usize>() + 64);
     w.concat(body);
+    for (field, docs) in payload {
+        append_payload_array(&mut w, field, docs);
+    }
+    w.finish()
+}
+
+fn append_payload_array(w: &mut Writer, field: &str, docs: &[u8]) {
     let a = w.begin(4, field.as_bytes());
     let mut buf = crate::bson::writer::itoa_buf::Buf::default();
     let mut pos = 0usize;
@@ -587,7 +596,6 @@ fn command_with_payload(body: &[u8], payload: Option<(&str, &[u8])>) -> Vec<u8> 
         i += 1;
     }
     w.end(a);
-    w.finish()
 }
 
 /// MONGOC_DEFAULT_MAXADAPTIVERETRIES
@@ -987,7 +995,7 @@ impl Client {
         parts.session = Some(&mut *cs);
         self.operation_id += 1;
         let mut cmd = self.assemble(parts, sid, false)?;
-        let (r, _) = self.run_retryable_write(&mut cmd, None, Some(cs));
+        let (r, _) = self.run_retryable_write(&mut cmd, &[], Some(cs));
         self.release_temp_session(&mut cmd);
         match r {
             Ok(reply) => match crate::cmd::parse_wc_error(&reply) {
@@ -1030,7 +1038,7 @@ impl Client {
             parts.prohibit_lsid = true;
             self.operation_id += 1;
             let Ok(mut cmd) = self.assemble(parts, sid, false) else { return };
-            let _ = self.run_monitored(&mut cmd, None, None);
+            let _ = self.run_monitored(&mut cmd, &[], None);
         }
     }
 }

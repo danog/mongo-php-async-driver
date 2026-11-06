@@ -7,7 +7,7 @@ use mongo_core::bson::iter::{Iter, Value, *};
 use mongo_core::uri::{self, ReadMode, Uri, NO_MAX_STALENESS, W_MAJORITY, W_TAG, W_UNACKNOWLEDGED};
 
 /// phongo_bson_type_to_string
-fn type_name(t: u8) -> &'static str {
+pub(crate) fn type_name(t: u8) -> &'static str {
     match t {
         0x00 => "EOD",
         T_DOUBLE => "double",

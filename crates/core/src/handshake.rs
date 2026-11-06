@@ -122,15 +122,15 @@ pub fn next_request_id() -> i32 {
 
 /// Runs `body` on `conn` (blocking) and returns the reply's body document.
 pub fn run_command(conn: &mut Conn, body: &[u8], timeout: Option<Duration>) -> Result<Vec<u8>, NetError> {
-    Ok(run_msg(conn, body, None, false, timeout)?.unwrap_or_default())
+    Ok(run_msg(conn, body, &[], false, timeout)?.unwrap_or_default())
 }
 
 /// Sends an OP_MSG (body + optional document sequence); with `more_to_come` no reply is
 /// read (unacknowledged writes) and None is returned.
-pub fn run_msg(conn: &mut Conn, body: &[u8], payload: Option<(&str, &[u8])>, more_to_come: bool, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, NetError> {
+pub fn run_msg(conn: &mut Conn, body: &[u8], payload: crate::wire::Payloads<'_>, more_to_come: bool, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, NetError> {
     let mut m = MsgBuilder::new(next_request_id(), if more_to_come { wire::FLAG_MORE_TO_COME } else { 0 });
     m.body(body);
-    if let Some((id, docs)) = payload {
+    for (id, docs) in payload {
         m.sequence_raw(id, docs);
     }
     let msg = m.finish();

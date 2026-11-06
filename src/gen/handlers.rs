@@ -135,24 +135,24 @@ pub use crate::bson::types::zim_MongoDB_BSON_Undefined___set_state;
 pub use crate::bson::types::zim_MongoDB_BSON_Undefined___toString;
 pub use crate::bson::types::zim_MongoDB_BSON_Undefined___unserialize;
 pub use crate::bson::types::zim_MongoDB_BSON_Undefined_jsonSerialize;
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult___construct") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getInsertResults(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getInsertResults") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getMatchedCount(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getMatchedCount") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getModifiedCount(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getModifiedCount") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getUpdateResults(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getUpdateResults") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_getUpsertedCount(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_getUpsertedCount") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand___construct(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand___construct") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_count(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_count") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_deleteMany(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_deleteMany") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_deleteOne(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_deleteOne") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_insertOne(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_insertOne") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_replaceOne(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_replaceOne") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_updateMany(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_updateMany") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_updateOne(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_BulkWriteCommand_updateOne") }
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult___construct;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getInsertResults;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getMatchedCount;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getModifiedCount;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getUpdateResults;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_getUpsertedCount;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand___construct;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_count;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_deleteMany;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_deleteOne;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_insertOne;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_replaceOne;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_updateMany;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_BulkWriteCommand_updateOne;
 pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite___construct;
 pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite_count;
 pub use crate::driver::bulkwrite::zim_MongoDB_Driver_BulkWrite_delete;
@@ -182,10 +182,10 @@ pub use crate::driver::cursor::zim_MongoDB_Driver_Cursor_rewind;
 pub use crate::driver::cursor::zim_MongoDB_Driver_Cursor_setTypeMap;
 pub use crate::driver::cursor::zim_MongoDB_Driver_Cursor_toArray;
 pub use crate::driver::cursor::zim_MongoDB_Driver_Cursor_valid;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteConcernErrors(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteConcernErrors") }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors") }
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteConcernErrors;
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors;
 pub use crate::driver::writeresult::zim_MongoDB_Driver_Exception_BulkWriteException_getWriteResult;
 pub use crate::driver::zim_MongoDB_Driver_Exception_CommandException_getResultDocument;
 pub use crate::driver::writeresult::zim_MongoDB_Driver_Exception_RuntimeException_hasErrorLabel;
@@ -193,7 +193,7 @@ pub use crate::driver::manager::zim_MongoDB_Driver_Manager___construct;
 pub use crate::driver::apm::zim_MongoDB_Driver_Manager_addSubscriber;
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Manager_createClientEncryption") }
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeBulkWrite;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeBulkWriteCommand(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Manager_executeBulkWriteCommand") }
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Manager_executeBulkWriteCommand;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeCommand;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeQuery;
 pub use crate::driver::manager::zim_MongoDB_Driver_Manager_executeReadCommand;
@@ -307,7 +307,7 @@ pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getRoundTripTi
 pub use crate::driver::sdam::zim_MongoDB_Driver_ServerDescription_getType;
 pub use crate::driver::server::zim_MongoDB_Driver_Server___construct;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeBulkWrite;
-pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWriteCommand(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zim_MongoDB_Driver_Server_executeBulkWriteCommand") }
+pub use crate::driver::bulkwritecommand::zim_MongoDB_Driver_Server_executeBulkWriteCommand;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeCommand;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeQuery;
 pub use crate::driver::server::zim_MongoDB_Driver_Server_executeReadCommand;
@@ -406,8 +406,8 @@ pub use crate::bson::types::init_MongoDB_BSON_UTCDateTime;
 pub use crate::bson::init_MongoDB_BSON_VectorType;
 pub unsafe fn init_MongoDB_Driver_CursorInterface(_ce: *mut sys::zend_class_entry) {}
 pub use crate::driver::bulkwrite::init_MongoDB_Driver_BulkWrite;
-pub unsafe fn init_MongoDB_Driver_BulkWriteCommand(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_Driver_BulkWriteCommandResult(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::bulkwritecommand::init_MongoDB_Driver_BulkWriteCommand;
+pub use crate::driver::bulkwritecommand::init_MongoDB_Driver_BulkWriteCommandResult;
 pub unsafe fn init_MongoDB_Driver_ClientEncryption(_ce: *mut sys::zend_class_entry) {}
 pub use crate::driver::command::init_MongoDB_Driver_Command;
 pub use crate::driver::cursor::init_MongoDB_Driver_Cursor;
@@ -430,7 +430,7 @@ pub unsafe fn init_MongoDB_Driver_Exception_ServerException(_ce: *mut sys::zend_
 pub unsafe fn init_MongoDB_Driver_Exception_ConnectionException(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Exception_AuthenticationException(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Exception_BulkWriteException(_ce: *mut sys::zend_class_entry) {}
-pub unsafe fn init_MongoDB_Driver_Exception_BulkWriteCommandException(_ce: *mut sys::zend_class_entry) {}
+pub use crate::driver::bulkwritecommand::init_MongoDB_Driver_Exception_BulkWriteCommandException;
 pub unsafe fn init_MongoDB_Driver_Exception_CommandException(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Exception_ConnectionTimeoutException(_ce: *mut sys::zend_class_entry) {}
 pub unsafe fn init_MongoDB_Driver_Exception_EncryptionException(_ce: *mut sys::zend_class_entry) {}

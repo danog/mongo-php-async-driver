@@ -15,6 +15,7 @@ pub mod auth;
 pub mod bson;
 pub mod client;
 pub mod bulk;
+pub mod bulkwrite;
 pub mod cmd;
 pub mod cmdparts;
 pub mod concern;

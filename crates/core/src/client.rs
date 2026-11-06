@@ -548,7 +548,7 @@ impl Client {
         let db = self.uri.auth_source().to_owned();
         let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new(&db, body) };
         let cmd = self.assemble(parts, server_id, false)?;
-        let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, None, true)?.unwrap_or_default();
+        let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?.unwrap_or_default();
         self.td.update_cluster_time(&reply);
         crate::cmd::check_ok(&reply).map_err(|e| e.into_error())?;
         Ok(reply)
@@ -558,12 +558,12 @@ impl Client {
     /// mongoc-cluster.c reports it ("Failed to send ..." for network errors, which also
     /// invalidate the server and drop its connection).
     pub fn run_command(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
-        Ok(self.run_command_payload(server_id, cmd_name, db, body, None, true)?.unwrap_or_default())
+        Ok(self.run_command_payload(server_id, cmd_name, db, body, &[], true)?.unwrap_or_default())
     }
 
     /// `run_command` with an optional document sequence; unacknowledged commands are sent with
     /// moreToCome and yield no reply (None).
-    pub fn run_command_payload(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: Option<(&str, &[u8])>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
+    pub fn run_command_payload(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: crate::wire::Payloads<'_>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
         self.check_fork();
         self.stream_for_server(server_id, true)?;
         self.exchange(server_id, cmd_name, db, body, payload, acknowledged)
@@ -572,7 +572,7 @@ impl Client {
     /// Sends a command on the connection to `server_id` as it is (connected, and authenticated
     /// unless this is the authentication): the reply, or the network error as mongoc-cluster.c
     /// reports it.
-    fn exchange(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: Option<(&str, &[u8])>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
+    fn exchange(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: crate::wire::Payloads<'_>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
         let socket_timeout = ms(self.settings.socket_timeout_ms);
         let Some(conn) = self.nodes.iter_mut().find(|n| n.id == server_id).and_then(|n| n.conn.as_mut()) else {
             return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for server id: {server_id}")));
