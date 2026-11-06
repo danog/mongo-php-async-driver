@@ -562,3 +562,449 @@ mod tests {
         assert!(a < b && b < c && c < d);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Range queries: mincover (mc-range-mincover*.c), FLE2RangeFindDriverSpec (mc-fle2-rfds.c) and
+// FLE2FindRangePayloadV2 (mc-fle2-find-range-payload-v2.c)
+
+/// `MinCoverGenerator` (32- or 64-bit): the edges and the trim factor used
+fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usize, tf: Option<i32>) -> Result<(Vec<String>, i32)> {
+    if range_min > range_max {
+        return Err(format!("Range min ({range_min}) must be less than or equal to range max ({range_max}) for range search"));
+    }
+    if range_max > max {
+        return Err(format!("Range max ({range_max}) must be less than or equal to max ({max}) for range search"));
+    }
+    if sparsity == 0 {
+        return Err("Sparsity must be > 0".into());
+    }
+    let lz = if bits == 32 { (max as u32).leading_zeros() } else { max.leading_zeros() };
+    let maxlen = (bits - lz) as usize;
+    let trim = trim_factor_default(maxlen, tf);
+    if trim != 0 && trim as i64 >= maxlen as i64 {
+        return Err(format!(
+            "Trim factor must be less than the number of bits ({maxlen}) used to represent an element of the domain, but got {trim}"
+        ));
+    }
+    if trim < 0 {
+        return Err(format!("Trim factor must be >= 0, but got ({trim})"));
+    }
+    let ones = if bits == 32 { u32::MAX as u64 } else { u64::MAX };
+    let apply_mask = |v: u64, masked: usize| if masked == 0 { v } else { v | (ones >> (bits as usize - masked)) };
+    let stored = |masked: usize| {
+        let level = maxlen - masked;
+        masked == 0 || (level >= trim as usize && level % sparsity == 0)
+    };
+    let to_string = |start: u64, masked: usize| -> String {
+        if masked == maxlen {
+            return "root".into();
+        }
+        let shifted = start >> masked;
+        let s = format!("{shifted:0w$b}", w = bits as usize);
+        s[bits as usize - maxlen + masked..].to_string()
+    };
+    let mut out = Vec::new();
+    fn rec(
+        out: &mut Vec<String>,
+        start: u64,
+        masked: usize,
+        lo: u64,
+        hi: u64,
+        apply_mask: &dyn Fn(u64, usize) -> u64,
+        stored: &dyn Fn(usize) -> bool,
+        to_string: &dyn Fn(u64, usize) -> String,
+    ) {
+        let end = apply_mask(start, masked);
+        if end < lo || start > hi {
+            return;
+        }
+        if start >= lo && end <= hi && stored(masked) {
+            out.push(to_string(start, masked));
+            return;
+        }
+        let nb = masked - 1;
+        rec(out, start, nb, lo, hi, apply_mask, stored, to_string);
+        rec(out, start | (1u64 << nb), nb, lo, hi, apply_mask, stored, to_string);
+    }
+    rec(&mut out, 0, maxlen, range_min, range_max, &apply_mask, &stored, &to_string);
+    Ok((out, trim))
+}
+
+/// `adjustBounds`
+fn adjust_bounds(lo: &mut u64, inc_lo: bool, min: u64, hi: &mut u64, inc_hi: bool, max: u64) -> Result<()> {
+    if !inc_lo {
+        if *lo >= max {
+            return Err(format!("Lower bound ({lo}) must be less than the range maximum ({max}) if lower bound is excluded from range."));
+        }
+        *lo += 1;
+    }
+    if !inc_hi {
+        if *hi <= min {
+            return Err(format!("Upper bound ({hi}) must be greater than the range minimum ({min}) if upper bound is excluded from range."));
+        }
+        *hi -= 1;
+    }
+    Ok(())
+}
+
+/// `CHECK_BOUNDS`
+fn check_bounds<T: PartialOrd + Copy>(lo: T, inc_lo: bool, hi: T, inc_hi: bool, b: Option<(T, T)>, f: &dyn Fn(T) -> String) -> Result<()> {
+    if let Some((min, max)) = b {
+        if hi < min {
+            return Err(format!("Upper bound ({}) must be greater than or equal to the range minimum ({})", f(hi), f(min)));
+        }
+        if !inc_hi && !(min < hi) {
+            return Err(format!("Upper bound ({}) must be greater than the range minimum ({}) if upper bound is excluded from range", f(hi), f(min)));
+        }
+        if max < lo {
+            return Err(format!("Lower bound ({}) must be less than or equal to the range maximum ({})", f(lo), f(max)));
+        }
+        if !inc_lo && !(lo < max) {
+            return Err(format!("Lower bound ({}) must be less than the range maximum ({}) if lower bound is excluded from range", f(lo), f(max)));
+        }
+    }
+    Ok(())
+}
+
+/// The `edgesInfo` of a range find placeholder
+pub struct EdgesInfo {
+    pub lower: Val,
+    pub lb_included: bool,
+    pub upper: Val,
+    pub ub_included: bool,
+    pub index_min: Val,
+    pub index_max: Val,
+    pub precision: Option<i32>,
+    pub trim_factor: Option<i32>,
+}
+
+fn is_infinite(v: &Val) -> bool {
+    matches!(v.value(), Value::Double(d) if d.is_infinite())
+}
+
+/// `mc_get_mincover_from_FLE2RangeFindSpec`
+fn mincover(e: &EdgesInfo, sparsity: usize) -> Result<(Vec<String>, i32)> {
+    let t = e.index_min.t;
+    if t != e.index_max.t {
+        return Err(format!(
+            "indexMin and indexMax must have the same type. Got: {} indexMin and {} indexMax",
+            type_name(t),
+            type_name(e.index_max.t)
+        ));
+    }
+    let (mut lo, mut inc_lo, mut hi, mut inc_hi) = (&e.lower, e.lb_included, &e.upper, e.ub_included);
+    if is_infinite(lo) {
+        lo = &e.index_min;
+        inc_lo = true;
+    }
+    if is_infinite(hi) {
+        hi = &e.index_max;
+        inc_hi = true;
+    }
+    if lo.t != t {
+        return Err(format!("expected lowerBound to match index type {}, got {}", type_name(t), type_name(lo.t)));
+    }
+    if hi.t != t {
+        return Err(format!("expected upperBound to match index type {}, got {}", type_name(t), type_name(hi.t)));
+    }
+    let tf = e.trim_factor;
+    match t {
+        T_INT32 => {
+            let b = Some((e.index_min.i32(), e.index_max.i32()));
+            check_bounds(lo.i32(), inc_lo, hi.i32(), inc_hi, b, &|v| v.to_string())?;
+            let a = type_info32(lo.i32(), b)?;
+            let c = type_info32(hi.i32(), b)?;
+            let (mut l, mut h) = (a.value as u64, c.value as u64);
+            adjust_bounds(&mut l, inc_lo, 0, &mut h, inc_hi, c.max as u64)?;
+            min_cover(l, h, a.max as u64, 32, sparsity, tf)
+        }
+        T_INT64 | T_DATE_TIME => {
+            let b = Some((e.index_min.i64(), e.index_max.i64()));
+            check_bounds(lo.i64(), inc_lo, hi.i64(), inc_hi, b, &|v| v.to_string())?;
+            let a = type_info64(lo.i64(), b)?;
+            let c = type_info64(hi.i64(), b)?;
+            let (mut l, mut h) = (a.value, c.value);
+            adjust_bounds(&mut l, inc_lo, 0, &mut h, inc_hi, c.max)?;
+            min_cover(l, h, a.max, 64, sparsity, tf)
+        }
+        T_DOUBLE => {
+            let b = e.precision.map(|_| (e.index_min.f64(), e.index_max.f64()));
+            check_bounds(lo.f64(), inc_lo, hi.f64(), inc_hi, b, &|v| g(v))?;
+            let a = type_info_double(lo.f64(), b, e.precision)?;
+            let c = type_info_double(hi.f64(), b, e.precision)?;
+            let (mut l, mut h) = (a.value, c.value);
+            adjust_bounds(&mut l, inc_lo, 0, &mut h, inc_hi, c.max)?;
+            min_cover(l, h, a.max, 64, sparsity, tf)
+        }
+        T_DECIMAL128 => Err("FLE2 find is not supported for Decimal128: libmongocrypt was built without Decimal128 support".into()),
+        t => Err(format!("FLE2 find is not supported for type: {}", type_name(t))),
+    }
+}
+
+/// `mc_getNextPayloadId`: a process-wide counter wrapping to 0 after INT32_MAX
+fn next_payload_id() -> i32 {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    static ID: AtomicI32 = AtomicI32::new(0);
+    let mut cur = ID.load(Ordering::Relaxed);
+    loop {
+        let next = if cur < i32::MAX { cur + 1 } else { 0 };
+        match ID.compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return cur,
+            Err(c) => cur = c,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Op {
+    Gt = 1,
+    Gte = 2,
+    Lt = 3,
+    Lte = 4,
+}
+
+fn op_of(k: &[u8]) -> Option<Op> {
+    match k {
+        b"$gt" => Some(Op::Gt),
+        b"$gte" => Some(Op::Gte),
+        b"$lt" => Some(Op::Lt),
+        b"$lte" => Some(Op::Lte),
+        _ => None,
+    }
+}
+
+fn op_str(o: Op) -> &'static str {
+    match o {
+        Op::Gt => "$gt",
+        Op::Gte => "$gte",
+        Op::Lt => "$lt",
+        Op::Lte => "$lte",
+    }
+}
+
+/// `mc_FLE2RangeFindDriverSpec_t`
+struct DriverSpec {
+    lower: Option<(Val, bool)>,
+    upper: Option<(Val, bool)>,
+    field: String,
+    first: Op,
+    second: Option<Op>,
+    n_ops: usize,
+    aggregate: bool,
+}
+
+/// `mc_FLE2RangeFindDriverSpec_parse`
+fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
+    let json = mongo_core::bson::json::to_json(input, mongo_core::bson::json::Mode::Canonical, false).unwrap_or_default();
+    let err = |m: String| format!("{m}: {}", String::from_utf8_lossy(&json));
+    let mut it = Iter::new(input).ok_or_else(|| err("error unable to find '$and'".into()))?;
+    if !it.next() || it.key() != b"$and" {
+        return Err(err("error unable to find '$and'".into()));
+    }
+    let Value::Array(arr) = it.value() else { return Err(err("expected '$and' to be array".into())) };
+    if it.next() {
+        return Err(err(format!("unexpected extra key '{}' after '$and'", String::from_utf8_lossy(it.key()))));
+    }
+    let mut spec = DriverSpec { lower: None, upper: None, field: String::new(), first: Op::Gt, second: None, n_ops: 0, aggregate: false };
+    let mut kind = 0u8; // 0 unknown, 1 match, 2 aggregate
+    let mut el = Iter::new(arr).ok_or_else(|| err("failed to recurse into '$and'".into()))?;
+    let mut field: Option<String> = None;
+    while el.next() {
+        let Value::Document(d) = el.value() else { return Err(err("expected document in '$and' array".into())) };
+        let mut di = Iter::new(d).ok_or_else(|| err("failed to recurse into '$and' element".into()))?;
+        if !di.next() {
+            return Err(err("unexpected empty '$and' array document".into()));
+        }
+        if kind == 0 {
+            if op_of(di.key()).is_some() {
+                kind = 2;
+                spec.aggregate = true;
+            } else {
+                kind = 1;
+            }
+        }
+        let (op_s, f, value) = if kind == 2 {
+            // {$gt: ["$age", 5]}
+            let op_s = String::from_utf8_lossy(di.key()).into_owned();
+            let Value::Array(a) = di.value() else { return Err(err("expected argument to be array".into())) };
+            let mut ai = Iter::new(a).ok_or_else(|| err("failed to recurse into array".into()))?;
+            if !ai.next() {
+                return Err(err(format!("expected 2 elements in operand {op_s}, got 0")));
+            }
+            let Value::Utf8(f) = ai.value() else { return Err(err(format!("expected UTF-8 as first element in {op_s}"))) };
+            let f = String::from_utf8_lossy(f).into_owned();
+            if !ai.next() {
+                return Err(err(format!("expected 2 elements in operand {op_s}, got 1")));
+            }
+            let v = Val::from_iter(&ai);
+            if ai.next() {
+                return Err(err(format!("expected 2 elements in operand {op_s}, got > 2")));
+            }
+            (op_s, f, v)
+        } else {
+            // {age: {$gt: 5}}
+            let f = String::from_utf8_lossy(di.key()).into_owned();
+            let Value::Document(od) = di.value() else { return Err(err("expected argument to be document".into())) };
+            let mut oi = Iter::new(od).ok_or_else(|| err("failed to recurse into document".into()))?;
+            if !oi.next() {
+                return Err(err(format!("expected 1 elements in operand {f}, got 0")));
+            }
+            let op_s = String::from_utf8_lossy(oi.key()).into_owned();
+            if op_of(oi.key()).is_none() {
+                return Err(err(format!("unsupported operator: {op_s}")));
+            }
+            let v = Val::from_iter(&oi);
+            if oi.next() {
+                return Err(err(format!("expected 1 elements in operand {f}, got > 1")));
+            }
+            (op_s, f, v)
+        };
+        let op = op_of(op_s.as_bytes()).ok_or_else(|| err(format!("unsupported operator type {op_s}")))?;
+        match op {
+            Op::Gt | Op::Gte => {
+                if spec.lower.is_some() {
+                    return Err(err(format!("unexpected duplicate bound {op_s}")));
+                }
+                spec.lower = Some((value, op == Op::Gte));
+            }
+            Op::Lt | Op::Lte => {
+                if spec.upper.is_some() {
+                    return Err(err(format!("unexpected duplicate bound {op_s}")));
+                }
+                spec.upper = Some((value, op == Op::Lte));
+            }
+        }
+        if let Some(prev) = &field {
+            if *prev != f {
+                return Err(err(format!("unexpected field mismatch. Expected all fields to be {prev}, but got {f}")));
+            }
+        }
+        spec.n_ops += 1;
+        match spec.n_ops {
+            1 => spec.first = op,
+            2 => spec.second = Some(op),
+            _ => return Err(err(format!("expected 1 or 2 operators, got > 2: {op_s}"))),
+        }
+        field = Some(f);
+    }
+    spec.field = field.unwrap_or_default();
+    Ok(spec)
+}
+
+/// FLE2FindRangePayloadV2 (with edges unless `stub`)
+#[allow(clippy::too_many_arguments)]
+fn find_range_payload(key: &[u8], e: Option<&EdgesInfo>, sparsity: i64, max_contention: i64, payload_id: i32, first: Op, second: Option<Op>) -> Result<Vec<u8>> {
+    let mut w = Writer::with_capacity(2048);
+    let mut used_tf = None;
+    if let Some(e) = e {
+        let (cover, tf) = mincover(e, sparsity as usize)?;
+        used_tf = Some(tf);
+        let tk = token_key(key)?;
+        let p = w.begin(mongo_core::bson::iter::T_DOCUMENT, b"payload");
+        let ga = w.begin(mongo_core::bson::iter::T_ARRAY, b"g");
+        for (i, edge) in cover.iter().enumerate() {
+            let c = common(tk, edge.as_bytes(), None);
+            let d = w.begin(mongo_core::bson::iter::T_DOCUMENT, i.to_string().as_bytes());
+            w.binary(b"d", 0, &c.edc_derived);
+            w.binary(b"s", 0, &c.esc_derived);
+            w.binary(b"l", 0, &c.server_derived_from_data);
+            w.end(d);
+        }
+        w.end(ga);
+        w.int64(b"cm", max_contention);
+        w.end(p);
+    }
+    w.int32(b"payloadId", payload_id);
+    w.int32(b"firstOperator", first as i32);
+    if let Some(s) = second {
+        w.int32(b"secondOperator", s as i32);
+    }
+    if let Some(e) = e {
+        w.int64(b"sp", sparsity);
+        if let Some(p) = e.precision {
+            w.int32(b"pn", p);
+        }
+        w.int32(b"tf", used_tf.expect("set above"));
+        e.index_min.append(&mut w, b"mn");
+        e.index_max.append(&mut w, b"mx");
+    }
+    Ok(w.finish())
+}
+
+/// `FLE2RangeFindDriverSpec_to_ciphertexts`: the encrypted expression `{v: ...}` of `{v: <expr>}`
+pub fn encrypt_expression(input: &[u8], ro: &RangeOpts, max_contention: i64, key: &[u8]) -> Result<Vec<u8>> {
+    let mut it = Iter::new(input).ok_or("unable to convert input to BSON")?;
+    if !it.find(b"v") {
+        return Err("invalid input BSON, must contain 'v'".into());
+    }
+    let Value::Document(v_doc) = it.value() else { return Err("invalid input BSON, expected 'v' to be document".into()) };
+    let spec = parse_driver_spec(v_doc)?;
+    // mc_FLE2RangeFindDriverSpec_to_placeholders: default index bounds
+    let index_type = match (&spec.lower, &spec.upper) {
+        (Some((v, _)), _) | (None, Some((v, _))) => v.t,
+        _ => return Err("expected lower or upper bound to be set".into()),
+    };
+    let probe = Val { t: index_type, elem: Vec::new() };
+    let bound = |o: &Option<Val>, which: &str, dflt: f64| -> Result<Val> {
+        let p = format!("Error appending {which} to FLE2RangeInsertSpec: ");
+        if let Some(b) = o {
+            if b.t != probe.t {
+                return Err(format!(
+                    "{p}expected matching '{which}' and value type. Got range option '{which}' of type {} and value of type {}",
+                    type_name(b.t),
+                    type_name(probe.t)
+                ));
+            }
+            return Ok(b.clone());
+        }
+        match probe.t {
+            T_INT32 | T_INT64 | T_DATE_TIME => Err(format!("{p}Range option '{which}' is required for type: {}", type_name(probe.t))),
+            T_DOUBLE => {
+                let mut w = Writer::with_capacity(16);
+                w.double(b"", dflt);
+                Ok(Val { t: T_DOUBLE, elem: w.finish() })
+            }
+            T_DECIMAL128 => Err(format!("{p}unsupported BSON type (Decimal128) for range: libmongocrypt was built without extended Decimal128 support")),
+            t => Err(format!("{p}unsupported BSON type: {} for range", type_name(t))),
+        }
+    };
+    let index_min = bound(&ro.min, "min", -f64::MAX)?;
+    let index_max = bound(&ro.max, "max", f64::MAX)?;
+    let inf = |v: f64| {
+        let mut w = Writer::with_capacity(16);
+        w.double(b"", v);
+        Val { t: T_DOUBLE, elem: w.finish() }
+    };
+    let (lower, lb_included) = spec.lower.clone().unwrap_or((inf(f64::NEG_INFINITY), true));
+    let (upper, ub_included) = spec.upper.clone().unwrap_or((inf(f64::INFINITY), true));
+    let edges = EdgesInfo { lower, lb_included, upper, ub_included, index_min, index_max, precision: ro.precision, trim_factor: ro.trim_factor };
+    let pid = next_payload_id();
+    let p1 = find_range_payload(key, Some(&edges), ro.sparsity, max_contention, pid, spec.first, spec.second)?;
+    let p2 = if spec.n_ops == 2 { Some(find_range_payload(key, None, ro.sparsity, max_contention, pid, spec.first, spec.second)?) } else { None };
+    let blob = |p: &[u8]| {
+        let mut b = vec![crate::fle2::SUBTYPE_FIND_RANGE_V2];
+        b.extend_from_slice(p);
+        b
+    };
+    let mut w = Writer::with_capacity(4096);
+    let v = w.begin(mongo_core::bson::iter::T_DOCUMENT, b"v");
+    let and = w.begin(mongo_core::bson::iter::T_ARRAY, b"$and");
+    let ops: Vec<(Op, Vec<u8>)> = std::iter::once((spec.first, blob(&p1))).chain(p2.as_ref().map(|p| (spec.second.expect("two operators"), blob(p)))).collect();
+    for (i, (op, b)) in ops.iter().enumerate() {
+        let e = w.begin(mongo_core::bson::iter::T_DOCUMENT, i.to_string().as_bytes());
+        if spec.aggregate {
+            let a = w.begin(mongo_core::bson::iter::T_ARRAY, op_str(*op).as_bytes());
+            w.utf8(b"0", spec.field.as_bytes());
+            w.binary(b"1", 6, b);
+            w.end(a);
+        } else {
+            let f = w.begin(mongo_core::bson::iter::T_DOCUMENT, spec.field.as_bytes());
+            w.binary(op_str(*op).as_bytes(), 6, b);
+            w.end(f);
+        }
+        w.end(e);
+    }
+    w.end(and);
+    w.end(v);
+    Ok(w.finish())
+}

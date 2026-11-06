@@ -660,8 +660,24 @@ impl Crypt {
     }
 
     /// `_mongoc_crypt_explicit_encrypt_expression`
-    pub fn explicit_encrypt_expression<I: Io>(&self, _io: &mut I, _expr: &[u8], o: &ExplicitOpts) -> Result<Vec<u8>, I::Error> {
-        check_explicit(o, true)?;
-        Err("Queryable Encryption is not supported by this build yet".into())
+    pub fn explicit_encrypt_expression<I: Io>(&self, io: &mut I, expr: &[u8], o: &ExplicitOpts) -> Result<Vec<u8>, I::Error> {
+        let c = check_explicit(o, true)?;
+        let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
+        // FLE2RangeFindDriverSpec_to_ciphertexts
+        let ro = c.range.as_ref().ok_or("Expected RangeOpts to be set for Range Find")?;
+        let cf = o.contention_factor.ok_or("Expected Contention Factor to be set for Range Find")?;
+        let mut kb = KeyBroker::new(&self.kms, &self.cache);
+        kb.request_id(&key_id);
+        self.fetch(&mut kb, io)?;
+        let key = kb.key_by_id(&key_id).map_err(|_| "unable to retrieve key")?;
+        let mut w = Writer::with_capacity(expr.len() + 8);
+        w.document(b"v", expr);
+        let out = crate::range::encrypt_expression(&w.finish(), ro, cf, &key)?;
+        // _mongoc_crypt_explicit_encrypt_expression: the document under "v"
+        let mut it = Iter::new(&out).ok_or("encrypted result unexpected: no 'v' found")?;
+        match (it.find(b"v"), it.value()) {
+            (true, Value::Document(d)) => Ok(d.to_vec()),
+            _ => Err("encrypted result unexpected: no 'v' found".into()),
+        }
     }
 }

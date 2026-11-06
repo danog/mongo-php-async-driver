@@ -13,6 +13,7 @@ pub type Result<T> = std::result::Result<T, String>;
 
 pub const SUBTYPE_IUP_V2: u8 = 11;
 pub const SUBTYPE_FIND_EQUALITY_V2: u8 = 12;
+pub const SUBTYPE_FIND_RANGE_V2: u8 = 13;
 pub const SUBTYPE_IEV_EQUALITY_V2: u8 = 14;
 pub const SUBTYPE_IEV_RANGE_V2: u8 = 15;
 pub const SUBTYPE_UEV_V2: u8 = 16;
