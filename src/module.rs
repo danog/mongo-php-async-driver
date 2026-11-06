@@ -77,6 +77,7 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
     crate::zend::obj::init_std();
     crate::gen::api::register_all();
     sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
+    crate::driver::aio::minit();
     sys::zend_register_string_constant(c"MONGODB_STABILITY".as_ptr(), 17, c"stable".as_ptr(), CONST_PERSISTENT, module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
@@ -95,6 +96,7 @@ unsafe extern "C" fn rinit(_type: c_int, _module_number: c_int) -> sys::zend_res
 unsafe extern "C" fn rshutdown(_type: c_int, _module_number: c_int) -> sys::zend_result {
     crate::driver::log::rshutdown();
     crate::driver::apm::rshutdown();
+    crate::driver::aio::rshutdown();
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 

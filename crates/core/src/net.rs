@@ -55,6 +55,9 @@ pub enum NetError {
     Tls(String),
     /// Setting up a UNIX domain socket failed: libmongoc's error code and message.
     Unix(u32, String),
+    /// The wait was interrupted (crate::aio::Interrupted): the fiber is being destroyed or an
+    /// exception was thrown into it. Nothing is known about the server.
+    Interrupted,
 }
 
 impl std::fmt::Display for NetError {
@@ -67,6 +70,7 @@ impl std::fmt::Display for NetError {
             NetError::Protocol(s) => write!(f, "{s}"),
             NetError::Tls(s) => write!(f, "TLS handshake failed: {s}"),
             NetError::Unix(_, s) => write!(f, "{s}"),
+            NetError::Interrupted => write!(f, "{}", crate::aio::Interrupted),
         }
     }
 }
@@ -85,6 +89,9 @@ pub(crate) fn tls_io_err(e: io::Error) -> NetError {
 }
 
 fn io_err(e: io::Error) -> NetError {
+    if crate::aio::is_interrupted(&e) {
+        return NetError::Interrupted;
+    }
     match e.kind() {
         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => NetError::Timeout,
         io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => NetError::Closed,
@@ -307,16 +314,7 @@ impl Conn {
             return Err(io::Error::last_os_error());
         }
         let stream = unsafe { TcpStream::from_raw_fd(fd) };
-        // SAFETY: fcntl/setsockopt on the descriptor we own
-        unsafe {
-            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-            #[cfg(target_vendor = "apple")]
-            {
-                // writes to a closed peer must fail, not raise SIGPIPE (std's sockets do this too)
-                let one: libc::c_int = 1;
-                libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_NOSIGPIPE, (&one as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t);
-            }
-        }
+        socket_defaults(fd);
         stream.set_nonblocking(true)?;
         stream.set_nodelay(true)?;
         let (storage, len) = sockaddr(&sa);
@@ -431,8 +429,13 @@ impl Conn {
         Ok(())
     }
 
-    /// Sends `msg`, blocking up to `timeout` (None or zero: no limit) per write.
+    /// Sends `msg`, blocking up to `timeout` (None or zero: no limit) per write. When the call
+    /// may suspend (crate::aio::active), the socket is non-blocking and every wait suspends.
     pub fn send(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<(), NetError> {
+        #[cfg(unix)]
+        if crate::aio::active() {
+            return self.send_waiting(msg, timeout.filter(|t| !t.is_zero()));
+        }
         self.set_blocking()?;
         let t = timeout.filter(|t| !t.is_zero());
         if t != self.write_timeout {
@@ -442,8 +445,13 @@ impl Conn {
         self.stream.write_all(msg).map_err(io_err)
     }
 
-    /// Receives one message, blocking up to `timeout` (None or zero: no limit) per read.
+    /// Receives one message, blocking up to `timeout` (None or zero: no limit) per read (when
+    /// the call may suspend: suspending, see `send`).
     pub fn recv(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
+        #[cfg(unix)]
+        if crate::aio::active() {
+            return self.recv_waiting(timeout.filter(|t| !t.is_zero()));
+        }
         self.set_blocking()?;
         let t = timeout.filter(|t| !t.is_zero());
         if t != self.read_timeout {
@@ -453,6 +461,67 @@ impl Conn {
         self.rbuf.clear();
         while !self.read_some()? {}
         Ok(&self.rbuf)
+    }
+
+    /// Waits until the socket is ready for `interest`, up to `timeout` (the per-call socket
+    /// timeout of the blocking mode): NetError::Timeout when it passes.
+    #[cfg(unix)]
+    fn wait(&self, interest: Interest, timeout: Option<Duration>) -> Result<(), NetError> {
+        match crate::aio::wait_fd(self.raw_fd(), interest, timeout.map(|t| Instant::now() + t)) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(NetError::Timeout),
+            Err(e) => Err(io_err(e)),
+        }
+    }
+
+    /// `send` in non-blocking mode, waiting through crate::aio.
+    #[cfg(unix)]
+    fn send_waiting(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<(), NetError> {
+        self.set_nonblocking()?;
+        let mut off = 0;
+        if matches!(self.stream, Stream::Tls(_)) {
+            // the plaintext goes into TLS records (bounded by rustls's buffer limit), written as
+            // the socket takes them
+            loop {
+                let Stream::Tls(t) = &mut self.stream else { unreachable!() };
+                if off < msg.len() {
+                    off += t.conn.writer().write(&msg[off..]).map_err(io_err)?;
+                }
+                let more = off < msg.len();
+                if !self.try_flush()? {
+                    self.wait(Interest::Write, timeout)?;
+                } else if !more {
+                    return Ok(());
+                }
+            }
+        }
+        while !self.try_send(msg, &mut off)? {
+            self.wait(Interest::Write, timeout)?;
+        }
+        Ok(())
+    }
+
+    /// `recv` in non-blocking mode, waiting through crate::aio.
+    #[cfg(unix)]
+    fn recv_waiting(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
+        self.set_nonblocking()?;
+        self.rbuf.clear();
+        loop {
+            match self.read_some() {
+                Ok(true) => return Ok(&self.rbuf),
+                Ok(false) => {}
+                // the non-blocking socket has nothing yet (io_err maps WouldBlock so)
+                Err(NetError::Timeout) => {
+                    // TLS records the read produced (alerts, key updates) go out first
+                    if !self.try_flush()? {
+                        self.wait(Interest::Write, timeout)?;
+                        continue;
+                    }
+                    self.wait(Interest::Read, timeout)?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// Sends `msg` and receives the reply (blocking).
@@ -611,9 +680,24 @@ impl Reactor for MioReactor {
     }
 }
 
+/// What std sets on its own sockets: close-on-exec, and (Apple) no SIGPIPE on writes to a
+/// closed peer.
+#[cfg(unix)]
+pub(crate) fn socket_defaults(fd: libc::c_int) {
+    // SAFETY: fcntl/setsockopt on a descriptor the caller owns
+    unsafe {
+        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        #[cfg(target_vendor = "apple")]
+        {
+            let one: libc::c_int = 1;
+            libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_NOSIGPIPE, (&one as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t);
+        }
+    }
+}
+
 /// The C socket address of `sa`.
 #[cfg(unix)]
-fn sockaddr(sa: &std::net::SocketAddr) -> (libc::sockaddr_storage, libc::socklen_t) {
+pub(crate) fn sockaddr(sa: &std::net::SocketAddr) -> (libc::sockaddr_storage, libc::socklen_t) {
     // SAFETY: an all-zero sockaddr_storage is valid; the casts write within its size
     let mut st: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
     let len = match sa {

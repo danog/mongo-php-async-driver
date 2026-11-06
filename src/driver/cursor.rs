@@ -35,6 +35,10 @@ enum State {
 }
 
 pub struct Cursor {
+    /// The fiber (EG(active_fiber); 0: {main}) inside a method of this cursor that may suspend
+    /// (getMore, or a bsonUnserialize of its typeMap); usize::MAX: none. Another fiber is
+    /// refused meanwhile (its &mut would alias the suspended one's).
+    owner: usize,
     pub client: Option<ClientRef>,
     pub server_id: u32,
     pub db: String,
@@ -77,6 +81,7 @@ pub struct Cursor {
 impl Default for Cursor {
     fn default() -> Self {
         Cursor {
+            owner: usize::MAX,
             client: None,
             server_id: 0,
             db: String::new(),
@@ -115,9 +120,9 @@ impl Drop for Cursor {
         // mongoc_cursor_destroy: kill a live server cursor, unless the client was reset (fork)
         // since: the cursor belongs to the parent process then
         if let Some(c) = self.client.take() {
-            if let Ok(mut cl) = c.try_borrow_mut() {
+            if let Ok(mut cl) = c.try_checkout().ok_or(()) {
                 cl.check_fork();
-                if self.id != 0 && cl.generation == self.client_generation {
+                if self.id != 0 && cl.generation.get() == self.client_generation {
                     let mut w = Writer::with_capacity(64);
                     w.utf8(b"killCursors", self.coll.as_bytes());
                     let a = w.begin(4, b"cursors");
@@ -125,7 +130,7 @@ impl Drop for Cursor {
                     w.end(a);
                     let body = w.finish();
                     // _mongoc_client_kill_cursor: no reconnection in load-balanced mode
-                    let reconnect_ok = cl.td.ty != mongo_core::topology::TopologyType::LoadBalanced;
+                    let reconnect_ok = cl.td().ty != mongo_core::topology::TopologyType::LoadBalanced;
                     let id = self.id;
                     if let Err(e) = cl.stream_for_server(self.server_id, reconnect_ok) {
                         log::info(log::CLIENT, || format!("Ignoring failure to connect to kill cursor {id}: {}", e.message));
@@ -206,7 +211,7 @@ impl Cursor {
     /// (the reply is wrapped as a one-document batch by the caller otherwise).
     pub fn from_reply(reply: Vec<u8>, client: ClientRef, server_id: u32, db: &str) -> Cursor {
         let mut c = Cursor::default();
-        c.client_generation = client.borrow().generation;
+        c.client_generation = client.shared().generation.get();
         c.client = Some(client);
         c.server_id = server_id;
         c.db = db.to_owned();
@@ -220,7 +225,7 @@ impl Cursor {
     /// _mongoc_cursor_find_new: an unprimed find cursor.
     pub fn for_find(client: ClientRef, server_id: u32, db: &str, coll: &str, filter: Vec<u8>, find_opts: Vec<u8>) -> Cursor {
         let mut c = Cursor::default();
-        c.client_generation = client.borrow().generation;
+        c.client_generation = client.shared().generation.get();
         c.client = Some(client);
         c.server_id = server_id;
         c.db = db.to_owned();
@@ -340,7 +345,7 @@ impl Cursor {
             self.implicit = cl.start_session(true, false).ok();
         }
         let rc_obj = if has_obj { Some(unsafe { super::session_rc(&mut self.session) }) } else { None };
-        let mut guard = rc_obj.as_ref().map(|r| r.borrow_mut());
+        let mut guard = rc_obj.as_ref().map(|r| super::aio::lock(r));
         let mut sess: Option<&mut ClientSession> = match guard.as_deref_mut() {
             Some(g) => Some(g),
             None => self.implicit.as_mut(),
@@ -367,7 +372,7 @@ impl Cursor {
     fn refresh(&mut self, body: Vec<u8>, name: &str) -> bool {
         let Some(c) = self.client.clone() else { return false };
         let r = {
-            let mut cl = c.borrow_mut();
+            let mut cl = c.checkout();
             self.run(&mut cl, &body)
         };
         unsafe { super::apm::flush(&c) };
@@ -393,7 +398,7 @@ impl Cursor {
     fn release_implicit_if_exhausted(&mut self, c: &ClientRef) {
         if self.id == 0 {
             if let Some(mut s) = self.implicit.take() {
-                c.borrow_mut().end_session(&mut s);
+                c.checkout().end_session(&mut s);
             }
         }
     }
@@ -402,7 +407,7 @@ impl Cursor {
     fn prime(&mut self) {
         let Some((filter, opts)) = self.find.clone() else { return };
         if let Some(c) = &self.client {
-            c.borrow_mut().operation_id += 1;
+            c.shared().next_operation_id();
         }
         let mut w = Writer::with_capacity(filter.len() + opts.len() + 64);
         w.utf8(b"find", self.coll.as_bytes());
@@ -420,7 +425,10 @@ impl Cursor {
             w.int64(b"batchSize", (self.n_return() as i64).abs());
         }
         if let Some(cm) = &self.opts.comment {
-            let wire = self.client.as_ref().and_then(|c| c.borrow().stream_description(self.server_id).map(|s| s.max_wire_version)).unwrap_or(0);
+            let wire = self.client.as_ref().and_then(|c| match c.try_checkout() {
+                Some(cl) => cl.with_stream_description(self.server_id, |s| s.max_wire_version),
+                None => c.shared().td.borrow().server(self.server_id).map(|s| s.max_wire_version),
+            }).unwrap_or(0);
             if wire >= 9 {
                 w.concat(cm);
             }
@@ -436,9 +444,9 @@ impl Cursor {
         self.current_doc = None;
         // mongoc_cursor_next: a cursor of a client reset since (fork) cannot advance
         if let Some(c) = &self.client {
-            if let Ok(mut cl) = c.try_borrow_mut() {
+            if let Ok(mut cl) = c.try_checkout().ok_or(()) {
                 cl.check_fork();
-                if cl.generation != self.client_generation {
+                if cl.generation.get() != self.client_generation {
                     let e = Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot advance cursor after client reset");
                     self.error = Some((e, None));
                     return false;
@@ -539,6 +547,24 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut Cursor {
     obj::data::<Cursor>(call::this(ex))
 }
 
+/// Runs `f` on the cursor of a method that may suspend; refused (LogicException) while another
+/// fiber is inside one.
+unsafe fn exclusive(ex: Ex, f: impl FnOnce(&mut Cursor)) {
+    let fiber = (*std::ptr::addr_of!(sys::executor_globals)).active_fiber as usize;
+    let o = call::this(ex);
+    let owner = obj::data::<Cursor>(o).owner;
+    if owner != usize::MAX && owner != fiber {
+        throw(E::Logic, "The cursor is in use by another fiber");
+        return;
+    }
+    obj::data::<Cursor>(o).owner = fiber;
+    f(obj::data::<Cursor>(o));
+    // the outermost call releases it
+    if owner == usize::MAX {
+        obj::data::<Cursor>(o).owner = usize::MAX;
+    }
+}
+
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor___construct(_ex: Ex, _rv: *mut sys::zval) {
     // PHONGO_DISABLED_CONSTRUCTOR
     throw(E::Runtime, "Accessing private constructor");
@@ -553,13 +579,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_setTypeMap(ex: Ex, _rv: *mut 
     if !tm.is_null() && !crate::bson::decode::typemap(tm, &mut map) {
         return;
     }
-    let c = me(ex);
-    let restore = !zval::is(&c.zchild, sys::IS_UNDEF);
-    c.free_current();
-    c.typemap = map;
-    if restore {
-        c.decode_current();
-    }
+    exclusive(ex, |c| {
+        let restore = !zval::is(&c.zchild, sys::IS_UNDEF);
+        c.free_current();
+        c.typemap = map;
+        if restore {
+            c.decode_current();
+        }
+    });
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_toArray(ex: Ex, rv: *mut sys::zval) {
@@ -570,7 +597,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_toArray(ex: Ex, rv: *mut sys:
     let mut out = zval::arr(ht);
     // $this, borrowed (no reference of ours)
     let mut this = zval::borrowed_obj(call::this(ex));
-    let r = sys::spl_iterator_apply(&mut *this, Some(to_array_apply), &mut out as *mut _ as *mut std::ffi::c_void);
+    // refused (in use by another fiber): no result
+    let mut r = None;
+    exclusive(ex, |_| r = Some(sys::spl_iterator_apply(&mut *this, Some(to_array_apply), &mut out as *mut _ as *mut std::ffi::c_void)));
+    let Some(r) = r else { return };
     if r != 0 {
         drop(out);
         zval::write(rv, zval::null());
@@ -628,19 +658,20 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_next(ex: Ex, _rv: *mut sys::z
     if !call::none(ex) {
         return;
     }
-    let c = me(ex);
-    c.free_current();
-    if c.advanced {
-        c.current += 1;
-    } else {
-        c.advanced = true;
-    }
-    if c.next_doc() {
-        c.decode_current();
-    } else {
-        c.throw_pending();
-    }
-    c.free_session_if_exhausted();
+    exclusive(ex, |c| {
+        c.free_current();
+        if c.advanced {
+            c.current += 1;
+        } else {
+            c.advanced = true;
+        }
+        if c.next_doc() {
+            c.decode_current();
+        } else {
+            c.throw_pending();
+        }
+        c.free_session_if_exhausted();
+    });
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_valid(ex: Ex, rv: *mut sys::zval) {
@@ -653,19 +684,20 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_rewind(ex: Ex, _rv: *mut sys:
     if !call::none(ex) {
         return;
     }
-    let c = me(ex);
-    if !c.advanced {
-        c.advanced = true;
-        // phongo_cursor_advance_and_check_for_error
-        if !c.next_doc() && c.throw_pending() {
+    exclusive(ex, |c| {
+        if !c.advanced {
+            c.advanced = true;
+            // phongo_cursor_advance_and_check_for_error
+            if !c.next_doc() && c.throw_pending() {
+                return;
+            }
+        }
+        if c.current > 0 {
+            throw(E::Logic, "Cursors cannot rewind after starting iteration");
             return;
         }
-    }
-    if c.current > 0 {
-        throw(E::Logic, "Cursors cannot rewind after starting iteration");
-        return;
-    }
-    c.free_current();
-    c.decode_current();
-    c.free_session_if_exhausted();
+        c.free_current();
+        c.decode_current();
+        c.free_session_if_exhausted();
+    });
 }

@@ -1,0 +1,552 @@
+//! The event-loop backend of mongo_core::aio: inside a PHP Fiber, a driver call that waits for
+//! the network suspends its fiber through Revolt (revolt/event-loop, a userland library looked
+//! up by name, never a dependency of the extension), so other fibers run meanwhile.
+//!
+//! - When: a call inside a fiber (EG(active_fiber)) waits by suspending; a call in {main} does
+//!   so only while fibers are waiting in the driver (then Revolt's {main} suspension runs the
+//!   loop and they progress); otherwise, and wherever a fiber may not switch (object
+//!   destruction, shutdown, zend_fiber_switch_blocked()), the plain blocking waits are used.
+//! - How: one process-wide mio Poll (epoll/kqueue) holds the sockets being waited for, token =
+//!   waiter slot; its fd (a dup) is a PHP socket stream watched by one Revolt onReadable
+//!   callback, referenced only while waits are pending. A wait registers its sockets, stores
+//!   `EventLoop::getSuspension()` in its slot and suspends; the callback drains mio and resumes
+//!   the ready slots. Deadlines: one unreferenced Revolt delay() for the earliest one (a sleep
+//!   is a wait without sockets).
+//! - The callbacks are Closures over a static internal function (zend_create_fake_closure):
+//!   nothing new is visible to Reflection.
+//! - Never across a PHP call: a borrow of the state here (PHP may re-enter).
+
+use crate::zend::{call, sys, zval};
+use std::cell::RefCell;
+use std::ffi::{c_char, c_int};
+use std::io;
+use std::ptr::{addr_of, null_mut};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering::Relaxed};
+use std::time::{Duration, Instant};
+
+extern "C" {
+    fn zend_fiber_switch_blocked() -> bool;
+    fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
+    fn zend_internal_run_time_cache_reserved_size() -> usize;
+    fn _php_stream_sock_open_from_socket(socket: c_int, persistent_id: *const c_char) -> *mut sys::php_stream;
+}
+
+/// Object destruction and shutdown in progress: waits block.
+static FORBID: AtomicU32 = AtomicU32::new(0);
+/// Waits of fibers pending (a {main} call suspends only then).
+static FIBER_WAITS: AtomicU32 = AtomicU32::new(0);
+/// revolt/event-loop in this request: 0 not looked up, 1 present, 2 missing.
+static REVOLT: AtomicU8 = AtomicU8::new(0);
+
+pub static BACKEND: mongo_core::aio::Backend = mongo_core::aio::Backend { active, poll, sleep, require, park, unpark, current };
+
+const NO_LOOP: &str = "MongoDB driver calls inside a Fiber need the revolt/event-loop package: the class Revolt\\EventLoop was not found";
+
+#[inline]
+fn in_fiber() -> bool {
+    // SAFETY: the executor globals of the (single) PHP thread
+    unsafe { !(*addr_of!(sys::executor_globals)).active_fiber.is_null() }
+}
+
+/// EG_FLAGS_IN_SHUTDOWN
+fn shutting_down() -> bool {
+    unsafe { (*addr_of!(sys::executor_globals)).flags & 1 != 0 }
+}
+
+fn revolt() -> bool {
+    match REVOLT.load(Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            // autoloaded when needed (composer)
+            let name = unsafe { zval::string(b"Revolt\\EventLoop") };
+            let ce = unsafe { sys::zend_lookup_class_ex(name.value.str_, null_mut(), 0) };
+            let ok = !ce.is_null() && !unsafe { call::has_exception() };
+            REVOLT.store(if ok { 1 } else { 2 }, Relaxed);
+            ok
+        }
+    }
+}
+
+fn active() -> bool {
+    if FORBID.load(Relaxed) > 0 {
+        return false;
+    }
+    if !in_fiber() {
+        return FIBER_WAITS.load(Relaxed) > 0 && !shutting_down() && revolt();
+    }
+    !unsafe { zend_fiber_switch_blocked() } && !shutting_down() && revolt()
+}
+
+fn current() -> usize {
+    unsafe { (*addr_of!(sys::executor_globals)).active_fiber as usize }
+}
+
+fn require() -> Result<(), &'static str> {
+    if FORBID.load(Relaxed) == 0 && in_fiber() && !revolt() {
+        return Err(NO_LOOP);
+    }
+    Ok(())
+}
+
+/// Runs `f` with suspension forbidden (object free handlers, GC, shutdown): its waits block.
+pub fn blocking<R>(f: impl FnOnce() -> R) -> R {
+    struct G;
+    impl Drop for G {
+        fn drop(&mut self) {
+            FORBID.fetch_sub(1, Relaxed);
+        }
+    }
+    FORBID.fetch_add(1, Relaxed);
+    let _g = G;
+    f()
+}
+
+// ------------------------------------------------------------------ state
+
+#[derive(PartialEq, Clone, Copy)]
+enum SlotState {
+    Free,
+    Pending,
+    Ready,
+    TimedOut,
+}
+
+struct Slot {
+    /// bumped at every reuse (park ids name one use of a slot)
+    gen: u32,
+    state: SlotState,
+    suspension: Option<sys::zval>,
+    deadline: Option<Instant>,
+}
+
+struct Loop {
+    pid: u32,
+    poll: mio::Poll,
+    events: mio::Events,
+    slots: Vec<Slot>,
+    pending: usize,
+    /// request-level PHP state (reset at request end)
+    php: Option<Php>,
+}
+
+/// The PHP side of the loop in this request.
+struct Php {
+    /// the onReadable callback id, and whether it is referenced
+    watcher: sys::zval,
+    referenced: bool,
+    /// the deadline timer: its id and due time
+    timer: Option<(sys::zval, Instant)>,
+}
+
+thread_local! {
+    static LOOP: RefCell<Option<Loop>> = const { RefCell::new(None) };
+}
+
+fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
+    LOOP.with_borrow_mut(|l| {
+        let pid = std::process::id();
+        if l.as_ref().is_some_and(|l| l.pid != pid) {
+            // after fork(): the epoll set is the parent's (kqueue is not inherited); it is
+            // never touched again (an epoll_ctl would change the parent's set), only leaked
+            let old = l.take().unwrap();
+            std::mem::forget(old);
+        }
+        if l.is_none() {
+            *l = Some(Loop { pid, poll: mio::Poll::new()?, events: mio::Events::with_capacity(64), slots: Vec::new(), pending: 0, php: None });
+        }
+        Ok(f(l.as_mut().unwrap()))
+    })
+}
+
+// ------------------------------------------------------------------ PHP calls
+
+/// Revolt\EventLoop::<method>(args...)
+unsafe fn event_loop(method: &str, args: &mut [sys::zval]) -> sys::zval {
+    let mut rv = zval::undef();
+    let mut func = zval::string(format!("Revolt\\EventLoop::{method}").as_bytes());
+    sys::_call_user_function_impl(null_mut(), &mut func, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut());
+    rv
+}
+
+unsafe fn method(o: &sys::zval, name: &[u8], args: &mut [sys::zval]) -> sys::zval {
+    call::method_n(o.value.obj, name, args)
+}
+
+/// The Closures, created once per process (their function name is a permanent interned
+/// string: they must be built at MINIT).
+struct Closures {
+    ready: sys::zend_internal_function,
+    timer: sys::zend_internal_function,
+}
+
+static mut FUNCS: Option<&'static mut Closures> = None;
+
+/// MINIT: the internal functions behind the callbacks; installs the backend.
+pub unsafe fn minit() {
+    let mk = |h: unsafe extern "C" fn(*mut sys::zend_execute_data, *mut sys::zval)| {
+        let mut f = std::mem::zeroed::<sys::zend_internal_function>();
+        f.type_ = 1; // ZEND_INTERNAL_FUNCTION
+        f.fn_flags = sys::ZEND_ACC_PUBLIC;
+        f.function_name = crate::zend::class::interned(c"{closure}");
+        f.handler = Some(h);
+        // the run-time cache an internal function declared at run time gets (observers use it)
+        let cache = Box::leak(vec![0u8; zend_internal_run_time_cache_reserved_size().max(8)].into_boxed_slice());
+        f.run_time_cache__ptr = cache.as_mut_ptr().cast();
+        f
+    };
+    FUNCS = Some(Box::leak(Box::new(Closures { ready: mk(on_ready), timer: mk(on_timer) })));
+    mongo_core::aio::set_backend(Some(&BACKEND));
+}
+
+unsafe fn fake_closure(f: *mut sys::zend_internal_function) -> sys::zval {
+    let mut z = zval::undef();
+    zend_create_fake_closure(&mut z, f.cast(), null_mut(), null_mut(), null_mut());
+    z
+}
+
+#[allow(static_mut_refs)]
+unsafe fn funcs() -> &'static mut Closures {
+    FUNCS.as_mut().expect("aio::minit")
+}
+
+/// The request's watcher on the mio fd (created unreferenced on first use).
+unsafe fn php_state() -> io::Result<()> {
+    if with(|l| l.php.is_some())? {
+        return Ok(());
+    }
+    let fd = with(|l| std::os::fd::AsRawFd::as_raw_fd(&l.poll))?;
+    let dup = libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0);
+    if dup < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = _php_stream_sock_open_from_socket(dup, std::ptr::null());
+    if stream.is_null() {
+        libc::close(dup);
+        return Err(io::Error::other("cannot watch the event fd"));
+    }
+    // php_stream_to_zval
+    let mut zs = zval::undef();
+    ext_php_rs::types::Zval::set_resource(&mut zs, (*stream).res);
+    (*stream).set___exposed(1);
+    let cb = fake_closure(&mut funcs().ready);
+    let mut args = [zs, cb];
+    let id = event_loop("onReadable", &mut args);
+    if call::has_exception() || !zval::is(&id, sys::IS_STRING) {
+        return Err(mongo_core::aio::interrupted());
+    }
+    let mut a = [zval::copy(&id)];
+    event_loop("unreference", &mut a);
+    with(|l| l.php = Some(Php { watcher: id, referenced: false, timer: None }))?;
+    Ok(())
+}
+
+/// RSHUTDOWN: the request's PHP state goes (waiters left behind belong to destroyed fibers).
+pub fn rshutdown() {
+    // the PHP values are dropped after the borrow ends: dropping a suspension may destroy its
+    // fiber, whose unwinding wait re-enters this state
+    let mut drop_later: Vec<sys::zval> = Vec::new();
+    let mut php = None;
+    let _ = LOOP.try_with(|l| {
+        if let Ok(mut l) = l.try_borrow_mut() {
+            if let Some(l) = l.as_mut() {
+                // waits left behind belong to fibers already destroyed: their slots are freed
+                for s in &mut l.slots {
+                    drop_later.extend(s.suspension.take());
+                    if s.state != SlotState::Free {
+                        *s = Slot { gen: s.gen.wrapping_add(1), state: SlotState::Free, suspension: None, deadline: None };
+                    }
+                }
+                l.pending = 0;
+                php = l.php.take();
+            }
+        }
+    });
+    drop(drop_later);
+    drop(php);
+    FIBER_WAITS.store(0, Relaxed);
+    REVOLT.store(0, Relaxed);
+}
+
+// ------------------------------------------------------------------ waits
+
+fn exit_pending() -> bool {
+    unsafe { call::has_exception() }
+}
+
+fn poll(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<usize> {
+    wait(fds, deadline, None)
+}
+
+fn park(enqueue: &mut dyn FnMut(u64), deadline: Option<Instant>) -> io::Result<bool> {
+    wait(&mut [], deadline, Some(enqueue)).map(|n| n > 0)
+}
+
+fn unpark(id: u64) {
+    let (t, gen) = ((id & 0xffff_ffff) as usize, (id >> 32) as u32);
+    let s = LOOP.with_borrow_mut(|l| {
+        let s = l.as_mut()?.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending)?;
+        let z = s.suspension.take()?;
+        s.state = SlotState::Ready;
+        Some(z)
+    });
+    if let Some(s) = s {
+        unsafe { resume_all(vec![s]) };
+    }
+}
+
+/// The wait of a poll (sockets), a sleep (none) or a park (none; `enqueue` gets its id).
+fn wait(fds: &mut [libc::pollfd], deadline: Option<Instant>, enqueue: Option<&mut dyn FnMut(u64)>) -> io::Result<usize> {
+    if exit_pending() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    unsafe { php_state()? };
+    let fiber = in_fiber();
+    // a slot, and the sockets registered under its token
+    let token = with(|l| -> io::Result<usize> {
+        let t = match l.slots.iter().position(|s| s.state == SlotState::Free) {
+            Some(t) => t,
+            None => {
+                l.slots.push(Slot { gen: 0, state: SlotState::Free, suspension: None, deadline: None });
+                l.slots.len() - 1
+            }
+        };
+        for p in fds.iter() {
+            let mut i = None;
+            if p.events & libc::POLLIN != 0 {
+                i = Some(mio::Interest::READABLE);
+            }
+            if p.events & libc::POLLOUT != 0 {
+                i = Some(i.map_or(mio::Interest::WRITABLE, |x: mio::Interest| x | mio::Interest::WRITABLE));
+            }
+            let i = i.unwrap_or(mio::Interest::READABLE);
+            let reg = l.poll.registry();
+            let mut src = mio::unix::SourceFd(&p.fd);
+            if let Err(e) = reg.register(&mut src, mio::Token(t), i) {
+                if e.kind() != io::ErrorKind::AlreadyExists {
+                    for q in fds.iter().take_while(|q| q.fd != p.fd) {
+                        let _ = reg.deregister(&mut mio::unix::SourceFd(&q.fd));
+                    }
+                    return Err(e);
+                }
+                reg.reregister(&mut src, mio::Token(t), i)?;
+            }
+        }
+        let gen = l.slots[t].gen.wrapping_add(1);
+        l.slots[t] = Slot { gen, state: SlotState::Pending, suspension: None, deadline };
+        l.pending += 1;
+        Ok(t)
+    })??;
+    let my_gen = with(|l| l.slots[token].gen)?;
+    if let Some(enqueue) = enqueue {
+        enqueue((token as u64) | ((my_gen as u64) << 32));
+    }
+    if fiber {
+        FIBER_WAITS.fetch_add(1, Relaxed);
+    }
+    let r = unsafe { suspend(token, deadline) };
+    if fiber {
+        FIBER_WAITS.fetch_sub(1, Relaxed);
+    }
+    let state = with(|l| {
+        for p in fds.iter() {
+            let _ = l.poll.registry().deregister(&mut mio::unix::SourceFd(&p.fd));
+        }
+        // the slot is still this wait's unless the request ended meanwhile (rshutdown)
+        if l.slots[token].gen != my_gen {
+            return SlotState::Pending;
+        }
+        let s = std::mem::replace(&mut l.slots[token], Slot { gen: my_gen, state: SlotState::Free, suspension: None, deadline: None });
+        l.pending -= 1;
+        s.state
+    })?;
+    unsafe { after_wait()? };
+    r?;
+    match state {
+        SlotState::Ready => {
+            if fds.is_empty() {
+                // unparked
+                Ok(1)
+            } else if fds.len() == 1 {
+                // the caller retries its I/O, which tells the rest
+                fds[0].revents = fds[0].events;
+                Ok(1)
+            } else {
+                mongo_core::net::poll_fds(fds, Some(Instant::now()))
+            }
+        }
+        _ => Ok(0),
+    }
+}
+
+/// Stores the suspension in `token`'s slot, references the watcher, arms the deadline timer,
+/// suspends.
+unsafe fn suspend(token: usize, deadline: Option<Instant>) -> io::Result<()> {
+    let s = event_loop("getSuspension", &mut []);
+    if call::has_exception() || !zval::is(&s, sys::IS_OBJECT) {
+        return Err(mongo_core::aio::interrupted());
+    }
+    let (reference, rearm) = with(|l| {
+        l.slots[token].suspension = Some(zval::copy(&s));
+        let php = l.php.as_mut().expect("php_state");
+        let reference = !php.referenced;
+        php.referenced = true;
+        let rearm = deadline.filter(|d| php.timer.as_ref().is_none_or(|(_, at)| d < at));
+        (reference.then(|| zval::copy(&php.watcher)), rearm.map(|d| (d, php.timer.take())))
+    })?;
+    if let Some(id) = reference {
+        event_loop("reference", &mut [id]);
+    }
+    if let Some((at, old)) = rearm {
+        arm_timer(at, old.map(|o| o.0));
+    }
+    method(&s, b"suspend", &mut []);
+    if call::has_exception() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    Ok(())
+}
+
+/// A deadline timer due at `at` (an unreferenced delay(); `old` cancelled).
+unsafe fn arm_timer(at: Instant, old: Option<sys::zval>) {
+    if let Some(id) = old {
+        event_loop("cancel", &mut [id]);
+    }
+    let secs = at.saturating_duration_since(Instant::now()).as_secs_f64();
+    let mut args = [zval::double(secs), fake_closure(&mut funcs().timer)];
+    let id = event_loop("delay", &mut args);
+    if zval::is(&id, sys::IS_STRING) {
+        event_loop("unreference", &mut [zval::copy(&id)]);
+        let _ = with(|l| {
+            if let Some(php) = l.php.as_mut() {
+                php.timer = Some((id, at));
+            }
+        });
+    }
+}
+
+/// After a wait: the watcher is unreferenced once nothing waits (the loop may end).
+unsafe fn after_wait() -> io::Result<()> {
+    let id = with(|l| {
+        let php = l.php.as_mut()?;
+        (l.pending == 0 && php.referenced).then(|| {
+            php.referenced = false;
+            zval::copy(&php.watcher)
+        })
+    })?;
+    if let Some(id) = id {
+        event_loop("unreference", &mut [id]);
+    }
+    Ok(())
+}
+
+/// The ready slots' suspensions are resumed (outside any borrow).
+unsafe fn resume_all(list: Vec<sys::zval>) {
+    for s in list {
+        method(&s, b"resume", &mut []);
+    }
+}
+
+/// onReadable callback: drains mio, resumes the ready waiters.
+unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
+    zval::write(rv, zval::null());
+    let ready = LOOP.with_borrow_mut(|l| {
+        let Some(l) = l.as_mut().filter(|l| l.pid == std::process::id()) else { return Vec::new() };
+        let mut out = Vec::new();
+        loop {
+            if l.poll.poll(&mut l.events, Some(Duration::ZERO)).is_err() {
+                break;
+            }
+            let mut n = 0;
+            for e in l.events.iter() {
+                n += 1;
+                if let Some(s) = l.slots.get_mut(e.token().0) {
+                    if s.state == SlotState::Pending {
+                        if let Some(z) = s.suspension.take() {
+                            s.state = SlotState::Ready;
+                            out.push(z);
+                        }
+                    }
+                }
+            }
+            if n < l.events.capacity() {
+                break;
+            }
+        }
+        out
+    });
+    resume_all(ready);
+}
+
+/// The deadline timer: expired waiters resume (timed out), the next deadline is armed.
+unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
+    zval::write(rv, zval::null());
+    let now = Instant::now();
+    let r = with(|l| {
+        if let Some(php) = l.php.as_mut() {
+            php.timer = None;
+        }
+        let mut out = Vec::new();
+        let mut next: Option<Instant> = None;
+        for s in &mut l.slots {
+            if s.state != SlotState::Pending || s.suspension.is_none() {
+                continue;
+            }
+            match s.deadline {
+                Some(d) if d <= now => {
+                    s.state = SlotState::TimedOut;
+                    out.push(s.suspension.take().unwrap());
+                }
+                Some(d) => next = Some(next.map_or(d, |n: Instant| n.min(d))),
+                None => {}
+            }
+        }
+        (out, next)
+    });
+    if let Ok((out, next)) = r {
+        if let Some(at) = next {
+            arm_timer(at, None);
+        }
+        resume_all(out);
+    }
+}
+
+fn sleep(d: Duration) -> io::Result<()> {
+    if exit_pending() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    // a sleep is a wait without sockets (the watcher stays referenced meanwhile)
+    poll(&mut [], Some(Instant::now() + d)).map(|_| ())
+}
+
+/// Borrows a Session's state mutably. Another fiber's operation may hold it across a wait:
+/// then this one waits for it (1 ms sleeps) instead of failing; without suspension the
+/// borrow is the plain one (a conflict is a bug and panics, as before).
+pub fn lock<T>(c: &RefCell<T>) -> std::cell::RefMut<'_, T> {
+    loop {
+        match c.try_borrow_mut() {
+            Ok(b) => return b,
+            Err(_) if mongo_core::aio::active() => {
+                if mongo_core::aio::sleep(Duration::from_millis(1)).is_err() {
+                    return c.borrow_mut();
+                }
+            }
+            Err(_) => return c.borrow_mut(),
+        }
+    }
+}
+
+/// `lock` for a shared borrow.
+pub fn lock_ref<T>(c: &RefCell<T>) -> std::cell::Ref<'_, T> {
+    loop {
+        match c.try_borrow() {
+            Ok(b) => return b,
+            Err(_) if mongo_core::aio::active() => {
+                if mongo_core::aio::sleep(Duration::from_millis(1)).is_err() {
+                    return c.borrow();
+                }
+            }
+            Err(_) => return c.borrow(),
+        }
+    }
+}

@@ -305,11 +305,11 @@ impl BulkWrite {
 
     /// mongoc_bulkwrite_set_client: a client it has not run with takes a new operation id.
     fn set_client(&mut self, client: &mut Client) {
-        let key = client as *const Client as usize;
+        // the client, whichever of its clusters runs the operation
+        let key = std::rc::Rc::as_ptr(client.shared()) as usize;
         if self.client_key != key {
             self.client_key = key;
-            client.operation_id += 1;
-            self.operation_id = client.operation_id;
+            self.operation_id = client.next_operation_id();
         }
     }
 
@@ -368,7 +368,7 @@ impl BulkWrite {
         *sid_out = Some(sid);
         let verbose = opts.verbose_results.unwrap_or(false);
         res.verbose_results = verbose;
-        let max_bson = client.stream_description(sid).map_or(16 * 1024 * 1024, |d| d.max_bson_obj_size);
+        let max_bson = client.with_stream_description(sid, |d| d.max_bson_obj_size).unwrap_or(16 * 1024 * 1024);
         // payload 0
         let mut body = Writer::with_capacity(128);
         body.int32(b"bulkWrite", 1);
@@ -415,14 +415,14 @@ impl BulkWrite {
             Err(e) => return exc.set_error(e),
         };
         cmd.operation_id = self.operation_id;
-        let desc = client.stream_description(sid);
+        let (max_batch, max_msg) = client.with_stream_description(sid, |d| (d.max_write_batch_size, d.max_msg_size)).unwrap_or((100_000, 48_000_000));
         // a server reporting no batch size must not stall the loop: at least one op per batch
-        let max_batch = desc.map_or(100_000, |d| d.max_write_batch_size).max(0) as usize;
-        let max_msg = if client.auto_crypt.is_some() {
+        let max_batch = max_batch.max(0) as usize;
+        let max_msg = if client.auto_crypt_applies() {
             // MONGOC_REDUCED_MAX_MSG_SIZE_FOR_FLE
             crate::autocrypt::REDUCED_MAX_MSG_SIZE_FOR_FLE
         } else {
-            desc.map_or(48_000_000, |d| d.max_msg_size).max(0) as usize
+            max_msg.max(0) as usize
         };
         // OP_MSG and bulkWrite command overhead (bulk write specification)
         let overhead = 1000 + body.len();
@@ -771,7 +771,7 @@ fn read_cursor(client: &mut Client, cmd: &Cmd, mut session: Option<&mut ClientSe
     let mut seen = 0usize;
     let mut round_trips = 0usize;
     // the cursor's own operation id (_mongoc_cursor_new_with_opts)
-    client.operation_id += 1;
+    client.next_operation_id();
     let result = loop {
         let mut each_failed = false;
         if let Some(mut it) = Iter::new(&batch) {

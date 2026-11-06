@@ -40,6 +40,10 @@ pub trait Io {
     fn kms(&mut self, req: &crate::kms::KmsRequest, feed: &mut dyn FnMut(&[u8]) -> bool) -> std::result::Result<(), KmsFailure<Self::Error>>;
     /// A stream error (MONGOC_ERROR_STREAM_SOCKET) with this message
     fn stream_error(&self, msg: String) -> Self::Error;
+    /// The pause before a KMS retry (inside a fiber it suspends instead of blocking)
+    fn sleep(&mut self, d: std::time::Duration) {
+        let _ = mongo_core::aio::sleep(d);
+    }
     /// On-demand AWS credentials (`_mongoc_aws_credentials_obtain`): key id, secret, session token
     fn aws_credentials(&mut self) -> std::result::Result<(String, String, Option<String>), Self::Error> {
         Err(self.stream_error("on-demand AWS credentials are not available".into()))
@@ -223,7 +227,7 @@ impl Crypt {
         let mut attempts = 0u32;
         loop {
             if attempts > 0 {
-                std::thread::sleep(backoff(attempts));
+                io.sleep(backoff(attempts));
             }
             let mut parser = crate::kms::ResponseParser::new();
             let res = io.kms(req, &mut |b: &[u8]| parser.feed(b));

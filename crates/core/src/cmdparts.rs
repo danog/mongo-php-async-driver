@@ -112,7 +112,7 @@ impl Client {
     /// mongoc_cmd_parts_assemble (OP_MSG): the command for `server_id`. A transaction's state
     /// advances here (_mongoc_client_session_append_txn).
     pub fn assemble(&mut self, mut parts: Parts, server_id: u32, must_use_primary: bool) -> Result<Cmd, Error> {
-        let sd = self.handshake_description(server_id).or_else(|| self.td.server(server_id)).cloned();
+        let sd = self.stream_description(server_id);
         let Some(sd) = sd else {
             return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Could not find server with id: {server_id}")));
         };
@@ -126,7 +126,7 @@ impl Client {
         };
         let is_get_more = name == "getMore";
         let is_txn_finish = name == "commitTransaction" || name == "abortTransaction";
-        let topo = self.td.ty;
+        let topo = self.td().ty;
         // primary reads on a direct connection become primaryPreferred
         let (mode, rp_doc) = match &parts.read_prefs {
             Some((m, d)) if *m != ReadMode::Primary => (*m, Some(d.clone())),
@@ -195,7 +195,7 @@ impl Client {
             out.int64(b"txnNumber", 0);
         }
         let is_retryable_read = parts.is_read && !parts.is_write && !in_txn && !is_get_more && self.uri.get_bool("retryreads", true);
-        if let Some(t) = &self.td.cluster_time {
+        if let Some(t) = &self.td().cluster_time {
             cluster_time = match cluster_time {
                 Some(c) if !crate::topology::cluster_time_greater(t, &c) => Some(c),
                 _ => Some(t.clone()),
@@ -241,7 +241,7 @@ impl Client {
             is_txn_finish,
             server_id,
             temp_session,
-            operation_id: self.operation_id,
+            operation_id: self.operation_id.get(),
             read_prefs: None,
             stream: (0, false),
         })
@@ -249,21 +249,22 @@ impl Client {
 
     /// Whether the deployment supports sessions (implicit sessions are used then).
     pub fn sessions_supported(&self) -> bool {
-        self.td.session_timeout_minutes != crate::sdam::NO_SESSIONS || self.td.ty == TopologyType::LoadBalanced
+        let td = self.shared().td.borrow();
+        td.session_timeout_minutes != crate::sdam::NO_SESSIONS || td.ty == TopologyType::LoadBalanced
     }
 
     /// Pops a server session for an implicit session.
     pub fn pop_server_session(&mut self) -> ServerSession {
         let now = crate::sdam::monotonic_usec();
-        let t = self.td.session_timeout_minutes;
-        self.sessions.pop(t, now)
+        let t = self.td().session_timeout_minutes;
+        self.sessions.borrow_mut().pop(t, now)
     }
 
     /// Returns a server session to the pool.
     pub fn push_server_session(&mut self, s: ServerSession) {
         let now = crate::sdam::monotonic_usec();
-        let t = self.td.session_timeout_minutes;
-        self.sessions.push(s, t, now);
+        let t = self.td().session_timeout_minutes;
+        self.sessions.borrow_mut().push(s, t, now);
     }
 
     /// Runs an assembled command (with an optional document sequence) and releases its
@@ -294,17 +295,25 @@ impl Client {
         let mut payload = payload;
         // the command actually sent (cmd.body stays the caller's, for retries)
         let mut sent: Option<Vec<u8>> = None;
-        if self.auto_crypt.as_ref().is_some_and(|a| a.encrypts()) {
-            if self.stream_description(cmd.server_id).is_some_and(|d| d.max_wire_version < 8) {
+        let ac = if self.auto_crypt_applies() { self.take_auto_crypt().map_err(Failure::from)? } else { None };
+        let ac = match ac {
+            Some(ac) if !ac.encrypts() => {
+                self.put_auto_crypt(ac);
+                None
+            }
+            ac => ac,
+        };
+        if let Some(mut ac) = ac {
+            if self.with_stream_description(cmd.server_id, |d| d.max_wire_version < 8).unwrap_or(false) {
+                self.put_auto_crypt(ac);
                 return Err(Failure {
                     error: Error::new(domain::PROTOCOL, code::PROTOCOL_BAD_WIRE_VERSION, "Auto-encryption requires a minimum MongoDB version of 4.2"),
                     reply: Vec::new(),
                 });
             }
             let full = command_with_payload(&cmd.body, payload);
-            let mut ac = self.auto_crypt.take().expect("checked above");
             let r = ac.encrypt(self, &cmd.db, &full);
-            self.auto_crypt = Some(ac);
+            self.put_auto_crypt(ac);
             match r {
                 Ok(Some(encrypted)) => {
                     sent = Some(encrypted);
@@ -328,11 +337,11 @@ impl Client {
         let info = crate::apm::enabled().then(|| self.command_info(cmd, request_id));
         if let Some(info) = &info {
             let command = if crate::apm::is_sensitive(&cmd.name, body) { vec![5, 0, 0, 0, 0] } else { command_with_payload(body, payload) };
-            self.td.events.push_now(crate::apm::Event::CommandStarted { info: info.clone(), command });
+            self.td().events.push_now(crate::apm::Event::CommandStarted { info: info.clone(), command });
         }
         let r = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, body, payload, cmd.is_acknowledged);
         if cmd.is_retryable_write || cmd.is_txn_finish {
-            cmd.stream = self.stream_description(cmd.server_id).map_or((0, false), |d| (d.max_wire_version, d.ty == ServerType::Mongos));
+            cmd.stream = self.with_stream_description(cmd.server_id, |d| (d.max_wire_version, d.ty == ServerType::Mongos)).unwrap_or((0, false));
         }
         let result = match r {
             Err(e) => {
@@ -351,7 +360,7 @@ impl Client {
             }
             Ok(None) => Ok(Vec::new()),
             Ok(Some(reply)) => {
-                self.td.update_cluster_time(&reply);
+                self.td().update_cluster_time(&reply);
                 let ok = crate::cmd::check_ok(&reply);
                 if let Some(s) = session.as_deref_mut() {
                     s.handle_reply(cmd.is_acknowledged, &cmd.name, &reply);
@@ -366,7 +375,7 @@ impl Client {
             let duration_us = started.elapsed().as_micros() as i64;
             let redact = crate::apm::is_sensitive(&cmd.name, body);
             let empty = || vec![5u8, 0, 0, 0, 0];
-            self.td.events.push_now(match &result {
+            self.td().events.push_now(match &result {
                 Ok(r) => {
                     // unacknowledged writes report {ok: 1}
                     let reply = if !cmd.is_acknowledged {
@@ -389,12 +398,12 @@ impl Client {
         let mut result = result;
         // _mongoc_cse_auto_decrypt: a successful reply of a client with automatic encryption, after
         // the succeeded event; a failure skips the handlers below (fail_no_events)
-        if self.auto_crypt.is_some() {
+        if self.auto_crypt_applies() {
             if let Ok(r) = &result {
                 if !r.is_empty() {
-                    let mut ac = self.auto_crypt.take().expect("checked above");
+                    let Some(mut ac) = self.take_auto_crypt().map_err(Failure::from)? else { return result };
                     let d = ac.decrypt(self, &cmd.db, r);
-                    self.auto_crypt = Some(ac);
+                    self.put_auto_crypt(ac);
                     match d {
                         Ok(d) => result = Ok(d),
                         Err(error) => return Err(Failure { error, reply: Vec::new() }),
@@ -415,7 +424,7 @@ impl Client {
             }
         }
         if let (Ok(reply), Some(s)) = (&result, session.as_deref_mut()) {
-            if s.in_txn_or_ending() && matches!(self.td.ty, TopologyType::Sharded | TopologyType::LoadBalanced) {
+            if s.in_txn_or_ending() && matches!(self.td().ty, TopologyType::Sharded | TopologyType::LoadBalanced) {
                 if let Some(v) = find(reply, b"recoveryToken") {
                     s.recovery_token = match v {
                         Value::Document(d) => Some(d.to_vec()),
@@ -445,7 +454,7 @@ impl Client {
             parts.read_prefs = rp.as_ref().map(|r| r.1.clone());
             parts.read_concern = read_concern.to_vec();
             parts.session = session.as_mut();
-            self.operation_id += 1;
+            self.next_operation_id();
             let mut c = self.assemble(parts, sid, false)?;
             let el = self.read_eligibility(&c, false, true);
             let reply = self.run_retryable_read(&mut c, session.as_mut(), el).map_err(|f| f.error);
@@ -537,7 +546,7 @@ impl Client {
             if attempt > allowed {
                 break;
             }
-            if self.td.server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
+            if self.td().server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
                 deprioritized.push(cmd.server_id);
             }
             backoff.wait(is_overload, &reply);
@@ -574,7 +583,7 @@ impl Client {
             if attempt > allowed {
                 return r;
             }
-            if self.td.server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
+            if self.td().server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
                 deprioritized.push(cmd.server_id);
             }
             let reply = reply.to_vec();
@@ -609,7 +618,7 @@ impl Client {
     /// _mongoc_cluster_select_server_id: server selection that honours (and maintains) a
     /// sharded transaction's pinned server.
     pub fn select_for_session(&mut self, optype: OpType, rp: Option<&crate::topology::ReadPrefs>, cs: Option<&mut ClientSession>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
-        let sharded_txn = cs.as_ref().is_some_and(|s| s.in_txn_or_ending()) && self.td.ty == TopologyType::Sharded;
+        let sharded_txn = cs.as_ref().is_some_and(|s| s.in_txn_or_ending()) && self.td().ty == TopologyType::Sharded;
         match cs {
             Some(s) if sharded_txn => {
                 if s.pinned_server_id != 0 {
@@ -648,7 +657,7 @@ impl Client {
         if s.pinned_server_id != 0 && s.pinned_server_id != server_id {
             return Err(Error::new(domain::COMMAND, code::SERVER_SELECTION_INVALID_ID, "Requested server id does not matched pinned server id"));
         }
-        if s.in_txn_or_ending() && self.td.ty == TopologyType::Sharded {
+        if s.in_txn_or_ending() && self.td().ty == TopologyType::Sharded {
             s.pinned_server_id = server_id;
         } else if !s.in_txn_or_ending() {
             s.unpin();
@@ -658,10 +667,9 @@ impl Client {
 
     /// The event fields of `cmd` (mongoc_apm_command_started_init_with_cmd).
     fn command_info(&self, cmd: &Cmd, request_id: i32) -> crate::apm::CommandInfo {
-        let sd = self.stream_description(cmd.server_id);
-        let addr = sd.map_or(String::new(), |d| d.addr.clone());
+        let (addr, sid, connection_id) = self.with_stream_description(cmd.server_id, |d| (d.addr.clone(), d.service_id, d.connection_id)).unwrap_or((String::new(), crate::sdam::ZERO_OID, -1));
         let (host, port) = crate::client::split_host_port(&addr);
-        let service_id = sd.map(|d| d.service_id).filter(|s| *s != crate::sdam::ZERO_OID);
+        let service_id = Some(sid).filter(|s| *s != crate::sdam::ZERO_OID);
         crate::apm::CommandInfo {
             command_name: cmd.name.clone(),
             database_name: cmd.db.clone(),
@@ -671,13 +679,14 @@ impl Client {
             port,
             server_id: cmd.server_id,
             service_id,
-            server_connection_id: sd.map_or(-1, |d| d.connection_id),
+            server_connection_id: connection_id,
         }
     }
 
     fn next_request_id(&mut self) -> i32 {
-        self.request_id = self.request_id.wrapping_add(1);
-        self.request_id
+        let id = self.request_id.get().wrapping_add(1);
+        self.request_id.set(id);
+        id
     }
 }
 
@@ -909,13 +918,13 @@ impl Client {
 
     pub fn start_session_with(&mut self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>) -> Result<ClientSession, Error> {
         self.check_fork();
-        let lb = self.td.ty == TopologyType::LoadBalanced;
-        if !lb && self.td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
-            let has_data = self.td.has_data_node();
+        let lb = self.td().ty == TopologyType::LoadBalanced;
+        if !lb && self.td().session_timeout_minutes == crate::sdam::NO_SESSIONS {
+            let has_data = self.td().has_data_node();
             if !has_data {
                 self.select_server_id(OpType::Read, None, &[])?;
             }
-            if self.td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
+            if self.td().session_timeout_minutes == crate::sdam::NO_SESSIONS {
                 return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Server does not support sessions"));
             }
         }
@@ -937,7 +946,7 @@ impl Client {
             causal_consistency,
             snapshot,
             default_txn: d,
-            client_generation: self.generation,
+            client_generation: self.generation.get(),
             ..Default::default()
         })
     }
@@ -950,7 +959,7 @@ impl Client {
         if cs.server_session.is_none() {
             return;
         }
-        if cs.client_generation == self.generation {
+        if cs.client_generation == self.generation.get() {
             if cs.in_txn() {
                 let _ = self.abort_transaction(cs);
             }
@@ -1108,7 +1117,7 @@ impl Client {
             }
         }
         parts.session = Some(&mut *cs);
-        self.operation_id += 1;
+        self.next_operation_id();
         let mut cmd = self.assemble(parts, sid, false)?;
         let (r, _) = self.run_retryable_write(&mut cmd, &[], Some(cs));
         self.release_temp_session(&mut cmd);
@@ -1132,7 +1141,7 @@ impl Client {
         }
         let rp = crate::topology::ReadPrefs { mode: ReadMode::PrimaryPreferred, ..Default::default() };
         loop {
-            let lsids: Vec<Vec<u8>> = self.sessions.lsids().take(10_000).map(<[u8]>::to_vec).collect();
+            let lsids: Vec<Vec<u8>> = self.sessions.borrow().lsids().take(10_000).map(<[u8]>::to_vec).collect();
             if lsids.is_empty() {
                 return;
             }
@@ -1148,13 +1157,13 @@ impl Client {
             }
             w.end(a);
             let body = w.finish();
-            self.sessions.drop_first(lsids.len());
+            self.sessions.borrow_mut().drop_first(lsids.len());
             if let Err(e) = self.stream_for_server(sid, false) {
                 return end_sessions_warning("Couldn't send", &e);
             }
             let mut parts = Parts::new("admin", &body);
             parts.prohibit_lsid = true;
-            self.operation_id += 1;
+            self.next_operation_id();
             let mut cmd = match self.assemble(parts, sid, false) {
                 Ok(c) => c,
                 Err(e) => return end_sessions_warning("Couldn't construct", &e),

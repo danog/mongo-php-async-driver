@@ -4,7 +4,6 @@
 use crate::error::{code, domain, Error};
 use crate::tls::{client_config, server_name, TlsOptions};
 use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::time::Duration;
 
 /// Where a KMS round trip failed: connecting (TLS errors included), writing or reading
@@ -31,12 +30,13 @@ pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnM
 /// `exchange` with another socket timeout
 pub fn exchange_timeout(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnMut(&[u8]) -> bool, timeout: Duration) -> Result<(), (Phase, Error)> {
     let (host, port) = crate::client::split_host_port(endpoint);
-    let connect = || -> Result<rustls::StreamOwned<rustls::ClientConnection, TcpStream>, Error> {
+    let connect = || -> Result<rustls::StreamOwned<rustls::ClientConnection, crate::aio::Socket>, Error> {
         let addrs = crate::net::resolve(&host, port).map_err(|_| stream_err(format!("Failed to resolve '{host}'")))?;
         let mut last = None;
         let mut tcp = None;
         for a in addrs {
-            match TcpStream::connect_timeout(&a, timeout) {
+            // inside a fiber, the connect and every read and write suspend instead of blocking
+            match crate::aio::Socket::connect(&a, timeout) {
                 Ok(s) => {
                     tcp = Some(s);
                     break;
@@ -45,9 +45,8 @@ pub fn exchange_timeout(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut
             }
         }
         let _ = last;
-        let tcp = tcp.ok_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, format!("Failed to connect to target host: {endpoint}")))?;
-        tcp.set_read_timeout(Some(timeout)).ok();
-        tcp.set_write_timeout(Some(timeout)).ok();
+        let mut tcp = tcp.ok_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, format!("Failed to connect to target host: {endpoint}")))?;
+        tcp.set_timeouts(Some(timeout)).ok();
         let cfg = client_config(tls)?;
         let conn = rustls::ClientConnection::new(cfg, server_name(&host)?).map_err(|_| stream_err(format!("Failed to create TLS stream to: {endpoint}")))?;
         let mut s = rustls::StreamOwned::new(conn, tcp);

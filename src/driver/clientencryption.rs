@@ -88,9 +88,9 @@ impl KeyVault {
     /// mongoc_collection_find_with_opts(keyvault_coll, filter, NULL, NULL): a find cursor with
     /// readConcern majority and the client's read preference
     pub unsafe fn find_cursor(&self, filter: Vec<u8>) -> Result<Cursor, IoError> {
-        let rp = super::manager::client_read_preference(&self.client.borrow().uri);
+        let rp = super::manager::client_read_preference(&self.client.shared().uri);
         let prefs = rp.prefs();
-        let sel = self.client.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]);
+        let sel = self.client.checkout().select_server_id(OpType::Read, Some(&prefs), &[]);
         super::apm::flush(&self.client);
         let sid = sel.map_err(|e| (e, None))?.0;
         let mut c = Cursor::for_find(self.client.clone(), sid, &self.db, &self.coll, filter, Writer::new().finish());
@@ -121,7 +121,7 @@ impl KeyVault {
         let mut b = mongo_core::bulk::BulkOperation::new(true);
         f(&mut b).map_err(|e| (e, None))?;
         let r = {
-            let mut cl = self.client.borrow_mut();
+            let mut cl = self.client.checkout();
             b.execute(&mut cl, &self.db, &self.coll, &majority_wc(), None)
         };
         super::apm::flush(&self.client);
@@ -166,9 +166,9 @@ impl KeyVault {
         }
         let body = w.finish();
         let client = &self.client;
-        let mut implicit = client.borrow_mut().start_session(true, false).ok();
+        let mut implicit = client.checkout().start_session(true, false).ok();
         let result = {
-            let mut cl = client.borrow_mut();
+            let mut cl = client.checkout();
             match cl.select_for_session(OpType::Write, None, implicit.as_mut(), &[]) {
                 Err(e) => Err(mongo_core::cmdparts::Failure::from(e)),
                 Ok((sid, _)) => {
@@ -176,7 +176,7 @@ impl KeyVault {
                     parts.is_write = true;
                     parts.set_write_concern(&majority_wc());
                     parts.session = implicit.as_mut();
-                    cl.operation_id += 1;
+                    cl.next_operation_id();
                     match cl.assemble(parts, sid, false) {
                         Err(e) => Err(mongo_core::cmdparts::Failure::from(e)),
                         Ok(mut c) => {
@@ -189,7 +189,7 @@ impl KeyVault {
             }
         };
         if let Some(mut s) = implicit.take() {
-            client.borrow_mut().end_session(&mut s);
+            client.checkout().end_session(&mut s);
         }
         super::apm::flush(client);
         let reply = result.map_err(|f| (f.error, (!f.reply.is_empty()).then_some(f.reply)))?;
@@ -1129,10 +1129,7 @@ impl Io for CoreIo<'_> {
             cl.find_all(db, coll, filter, Some((&rp.prefs(), super::manager::rp_parts(&rp))), &rc)
         };
         let r = match self.kv {
-            Some(kv) if kv.as_ptr() != (self.cl as *mut mongo_core::client::Client) => match kv.try_borrow_mut() {
-                Ok(mut k) => run(&mut k),
-                Err(_) => Err(Error::new(domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_STATE, "key vault client is busy")),
-            },
+            Some(kv) if !std::ptr::eq(kv.shared(), &**self.cl.shared()) => run(&mut kv.checkout()),
             _ => run(self.cl),
         };
         r.map_err(|mut e| {

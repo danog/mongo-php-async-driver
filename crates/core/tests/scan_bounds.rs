@@ -91,5 +91,5 @@ fn scan_with_endless_discovery_is_bounded() {
     // the next scan goes on from there, again bounded
     c.scan_once(false);
     let n2 = HELLOS.load(Ordering::SeqCst) - n;
-    assert!(n2 <= c.td.servers.len(), "second scan: {n2} hellos for {} servers", c.td.servers.len());
+    assert!(n2 <= c.td().servers.len(), "second scan: {n2} hellos for {} servers", c.td().servers.len());
 }

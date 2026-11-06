@@ -25,7 +25,7 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
 
 /// The current description of a Server object's server (mongoc_client_get_server_description).
 fn description(s: &Server) -> Option<ServerDescription> {
-    s.client.as_ref().and_then(|c| c.try_borrow().ok().and_then(|cl| cl.td.server(s.server_id).cloned()))
+    s.client.as_ref().and_then(|c| c.shared().td.try_borrow().ok().and_then(|td| td.server(s.server_id).cloned()))
 }
 
 /// strcasecmp (C locale)
@@ -63,7 +63,7 @@ fn reported_hello(s: &Server, sd: &ServerDescription) -> Option<Vec<u8>> {
         return Some(sd.hello.clone());
     }
     let c = s.client.as_ref()?;
-    let Ok(mut cl) = c.try_borrow_mut() else {
+    let Ok(mut cl) = c.try_checkout().ok_or(()) else {
         unsafe { throw(E::Runtime, "Failed to get handshake server description: the client is in use") };
         return None;
     };

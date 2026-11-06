@@ -536,7 +536,7 @@ pub unsafe fn execute(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: 
             if pinned > 0 {
                 pinned
             } else {
-                let selected = client.borrow_mut().select_server_id(OpType::Write, None, &[]);
+                let selected = client.checkout().select_server_id(OpType::Write, None, &[]);
                 super::apm::flush(&client);
                 match selected {
                     Ok((s, _)) => s,
@@ -555,7 +555,7 @@ pub unsafe fn execute(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: 
 unsafe fn execute_bulkwritecommand(rv: *mut sys::zval, client: &ClientRef, bwc: &mut BulkWriteCommand, options: *mut sys::zval, server_id: u32) {
     let Ok(session) = super::parse_session(options, client) else { return };
     let Ok(wc_opt) = super::parse_write_concern(options) else { return };
-    let acked = wc_opt.as_ref().map_or_else(|| super::writeconcern::WriteConcern::from_uri(&client.borrow().uri).is_acknowledged(), |w| w.is_acknowledged());
+    let acked = wc_opt.as_ref().map_or_else(|| super::writeconcern::WriteConcern::from_uri(&client.shared().uri).is_acknowledged(), |w| w.is_acknowledged());
     if session.is_some() && !acked {
         throw(E::InvalidArgument, "Cannot combine \"session\" option with an unacknowledged write concern");
         return;
@@ -573,7 +573,7 @@ unsafe fn execute_bulkwritecommand(rv: *mut sys::zval, client: &ClientRef, bwc: 
         bwc.session = zval::copy(z);
     }
     let ret = {
-        let mut cl = client.borrow_mut();
+        let mut cl = client.checkout();
         match session {
             Some(z) => super::with_session(z, |s| bwc.bw.execute(&mut cl, &opts, Some(s))),
             None => bwc.bw.execute(&mut cl, &opts, None),

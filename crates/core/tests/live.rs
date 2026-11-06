@@ -124,7 +124,7 @@ fn client_select_and_command() {
     let s = Settings::from_uri(&uri);
     let mut c = Client::new(uri, s).unwrap();
     let (id, _) = c.select_server_id(OpType::Write, None, &[]).unwrap();
-    assert_eq!(c.td.server(id).unwrap().ty, ServerType::Standalone);
+    assert_eq!(c.td().server(id).unwrap().ty, ServerType::Standalone);
     let mut w = Writer::with_capacity(32);
     w.int32(b"ping", 1);
     w.utf8(b"$db", b"admin");
@@ -153,7 +153,7 @@ fn client_fork() {
     let (id, _) = c.select_server_id(OpType::Read, None, &[]).unwrap();
     c.run_command(id, "ping", "admin", &ping()).unwrap();
     let parent_fd = c.conn_fd(id).unwrap();
-    let gen0 = c.generation;
+    let gen0 = c.generation.get();
     let pid = unsafe { libc::fork() };
     assert!(pid >= 0);
     if pid == 0 {
@@ -165,7 +165,7 @@ fn client_fork() {
                 c.run_command(id, "ping", "admin", &ping()).ok()?;
             }
             let fd = c.conn_fd(id)?;
-            (fd != parent_fd && c.generation == gen0 + 1 && c.td.server(id)?.generation(&[0; 12]) == 1).then_some(())
+            (fd != parent_fd && c.generation.get() == gen0 + 1 && c.td().server(id)?.generation(&[0; 12]) == 1).then_some(())
         })();
         unsafe { libc::_exit(if ok.is_some() { 0 } else { 1 }) };
     }
@@ -176,5 +176,5 @@ fn client_fork() {
     unsafe { libc::waitpid(pid, &mut status, 0) };
     assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0, "child failed: {status}");
     assert_eq!(c.conn_fd(id), Some(parent_fd));
-    assert_eq!(c.generation, gen0);
+    assert_eq!(c.generation.get(), gen0);
 }

@@ -20,7 +20,7 @@ impl Client {
             let mut parts = Parts::new(db, &body);
             parts.is_read = true;
             parts.session = session.as_mut();
-            self.operation_id += 1;
+            self.next_operation_id();
             let mut c = self.assemble(parts, sid, false)?;
             let el = self.read_eligibility(&c, false, true);
             let reply = self.run_retryable_read(&mut c, session.as_mut(), el).map_err(|f| f.error);

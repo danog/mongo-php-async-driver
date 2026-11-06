@@ -7,7 +7,7 @@
 //! in length and to visible ASCII, so a URL cannot add header lines.
 
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
 /// libmongoc refuses HTTP responses above this size.
@@ -80,12 +80,13 @@ fn remaining(deadline: Instant) -> Result<Duration, String> {
     deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()).ok_or_else(|| "Timeout reading from stream".to_owned())
 }
 
-fn connect(url: &Url, deadline: Instant) -> Result<TcpStream, String> {
+fn connect(url: &Url, deadline: Instant) -> Result<crate::aio::Socket, String> {
     let host = url.host.trim_start_matches('[').trim_end_matches(']');
     let addrs: Vec<SocketAddr> = (host, url.port).to_socket_addrs().map_err(|_| format!("Failed to connect to: {}", url.host))?.take(MAX_ADDRS).collect();
     for a in addrs {
         let Ok(t) = remaining(deadline) else { break };
-        if let Ok(s) = TcpStream::connect_timeout(&a, t) {
+        // inside a fiber, the connect and every read and write suspend instead of blocking
+        if let Ok(s) = crate::aio::Socket::connect(&a, t) {
             return Ok(s);
         }
     }
@@ -109,7 +110,7 @@ pub fn send(method: &str, url: &Url, extra_headers: &str, body: &[u8], timeout: 
     req.extend_from_slice(body);
     let mut off = 0;
     while off < req.len() {
-        s.set_write_timeout(Some(remaining(deadline)?)).map_err(|e| e.to_string())?;
+        s.set_timeouts(Some(remaining(deadline)?)).map_err(|e| e.to_string())?;
         match s.write(&req[off..]) {
             Ok(0) => return Err("Failed to write the HTTP request".into()),
             Ok(n) => off += n,
@@ -120,7 +121,7 @@ pub fn send(method: &str, url: &Url, extra_headers: &str, body: &[u8], timeout: 
     let mut buf = Vec::new();
     let mut chunk = [0u8; 32 * 1024];
     loop {
-        s.set_read_timeout(Some(remaining(deadline)?)).map_err(|e| e.to_string())?;
+        s.set_timeouts(Some(remaining(deadline)?)).map_err(|e| e.to_string())?;
         match s.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => {

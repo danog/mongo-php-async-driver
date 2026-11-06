@@ -37,6 +37,9 @@ pub mod code {
     pub const STREAM_CONNECT: u32 = 5;
     pub const STREAM_NOT_ESTABLISHED: u32 = 6;
     pub const CLIENT_NOT_READY: u32 = 7;
+    /// A driver call in a fiber without revolt/event-loop (this port's; libmongoc's
+    /// MONGOC_ERROR_CLIENT_NOT_READY code, a RuntimeException)
+    pub const CLIENT_NO_EVENT_LOOP: u32 = CLIENT_NOT_READY;
     pub const CLIENT_TOO_BIG: u32 = 8;
     pub const CLIENT_TOO_SMALL: u32 = 9;
     pub const CLIENT_GETNONCE: u32 = 10;

@@ -136,7 +136,7 @@ fn servers_are_checked_at_once() {
     let (s1, s2, good) = (fake(Mode::Silent), fake(Mode::Silent), fake(Mode::Member));
     *good.hosts.lock().unwrap() = vec![s1.addr.clone(), s2.addr.clone(), good.addr.clone()];
     let mut c = client(&format!("mongodb://{},{},{}/?replicaSet=rs&connectTimeoutMS=600", s1.addr, s2.addr, good.addr));
-    c.td.open();
+    c.td().open();
     let t0 = Instant::now();
     c.scan_once(true);
     let took = t0.elapsed();
@@ -158,7 +158,7 @@ fn refused_and_unresolvable_hosts() {
     // a port nobody listens on
     let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().to_string();
     let mut c = client(&format!("mongodb://{closed},nonexistent.invalid:27017/?connectTimeoutMS=2000"));
-    c.td.open();
+    c.td().open();
     c.scan_once(true);
     let hb = heartbeats(&mut c);
     // the name resolution fails during the setup, before the refused connect is seen
@@ -182,7 +182,7 @@ fn every_address_of_a_host_is_tried() {
     let port = m.addr.rsplit_once(':').unwrap().1.to_owned();
     *m.hosts.lock().unwrap() = vec![format!("localhost:{port}")];
     let mut c = client(&format!("mongodb://localhost:{port}/?connectTimeoutMS=2000"));
-    c.td.open();
+    c.td().open();
     let t0 = Instant::now();
     c.scan_once(true);
     assert!(t0.elapsed() < Duration::from_millis(200), "took {:?}", t0.elapsed());
@@ -208,8 +208,8 @@ fn idle_connections_are_checked_before_use() {
     let (id, _) = c.select_server_id(mongo_core::topology::OpType::Read, None, &[]).unwrap();
     thread::sleep(Duration::from_millis(1100));
     assert!(!c.check_interval(id), "closed connection detected");
-    assert_eq!(c.td.server(id).unwrap().ty, mongo_core::sdam::ServerType::Unknown);
-    assert_eq!(c.td.server(id).unwrap().error.as_ref().unwrap().message, "connection closed");
+    assert_eq!(c.td().server(id).unwrap().ty, mongo_core::sdam::ServerType::Unknown);
+    assert_eq!(c.td().server(id).unwrap().error.as_ref().unwrap().message, "connection closed");
     // no connection: false, the caller selects again (libmongoc)
     assert!(!c.check_interval(id));
 }
@@ -219,7 +219,7 @@ fn reply_with_close_is_read() {
     // the reply is read before the close is acted on (macOS polls the pair as POLLIN|POLLHUP)
     let m = fake(Mode::ReplyAndClose);
     let mut c = client(&format!("mongodb://{}/?connectTimeoutMS=2000", m.addr));
-    c.td.open();
+    c.td().open();
     c.scan_once(true);
     let hb = heartbeats(&mut c);
     assert_eq!(hb.iter().map(|e| e.0).collect::<Vec<_>>(), vec!["started", "succeeded"], "{hb:?}");

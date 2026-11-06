@@ -3,6 +3,7 @@
 
 #![allow(non_snake_case)]
 
+pub mod aio;
 pub mod apm;
 pub mod apm_sdam;
 pub mod bulkwrite;
@@ -24,14 +25,13 @@ pub mod uri_options;
 pub mod writeresult;
 
 use crate::zend::{call, class, sys, zval};
-use mongo_core::client::Client;
 use mongo_core::error::{code, domain, Error};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::rc::Rc;
 
-pub type ClientRef = Rc<RefCell<Client>>;
+pub type ClientRef = Rc<mongo_core::client::ClientPool>;
 
 thread_local! {
     /// phongo's persistent clients: one client per URI (+ options) per process.
@@ -55,9 +55,13 @@ pub fn store_persistent_client(key: Vec<u8>, c: ClientRef) {
 /// One created by this process ends its pooled server sessions first (mongoc_client_destroy);
 /// connections inherited across fork() are forgotten, never closed or written to.
 pub fn destroy_persistent_clients() {
+    aio::blocking(destroy_persistent_clients_now)
+}
+
+fn destroy_persistent_clients_now() {
     let clients = CLIENTS.with(|c| std::mem::take(&mut *c.borrow_mut()));
     for (_, c) in clients {
-        if let Ok(mut cl) = c.try_borrow_mut() {
+        if let Ok(mut cl) = c.try_checkout().ok_or(()) {
             cl.check_fork();
             cl.end_pooled_sessions();
             // no subscribers are left to notify
@@ -102,11 +106,14 @@ impl ManagerRef {
 /// Session): when the GC frees the object as garbage, subscribers are not called (they may
 /// be garbage of the same cycle, about to be freed); the events stay queued.
 pub unsafe extern "C" fn free_obj<T>(o: *mut sys::zend_object) {
-    if crate::zend::obj::freed_by_gc(o) {
-        apm::quiet(|| crate::zend::obj::free::<T>(o));
-    } else {
-        crate::zend::obj::free::<T>(o);
-    }
+    // a free handler never suspends (its I/O, e.g. killCursors, blocks)
+    aio::blocking(|| {
+        if crate::zend::obj::freed_by_gc(o) {
+            apm::quiet(|| crate::zend::obj::free::<T>(o));
+        } else {
+            crate::zend::obj::free::<T>(o);
+        }
+    })
 }
 
 /// Whether `c` is one of the persistent clients.
@@ -309,7 +316,7 @@ unsafe fn session_belongs_to(z: *mut sys::zval, client: &ClientRef) -> bool {
 
 /// The server a Session is pinned to (0: none).
 pub unsafe fn session_server_id(z: *mut sys::zval) -> u32 {
-    session::of(z).cs.as_ref().map_or(0, |c| c.borrow().pinned_server_id)
+    session::of(z).cs.as_ref().map_or(0, |c| aio::lock_ref(c).pinned_server_id)
 }
 
 /// The client session of the Session object `z` (an ended one: a fresh, empty state).
@@ -320,7 +327,7 @@ pub unsafe fn session_rc(z: *mut sys::zval) -> Rc<RefCell<mongo_core::session::C
 /// Runs `f` with the client session of the Session object `z`.
 pub unsafe fn with_session<R>(z: *mut sys::zval, f: impl FnOnce(&mut mongo_core::session::ClientSession) -> R) -> R {
     let cs = session::of(z).cs.clone().unwrap_or_default();
-    let mut b = cs.borrow_mut();
+    let mut b = aio::lock(&cs);
     f(&mut b)
 }
 

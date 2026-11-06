@@ -227,8 +227,12 @@ pub unsafe fn flush(c: &ClientRef) {
         return;
     }
     super::log::flush();
-    let events = match c.try_borrow_mut() {
-        Ok(mut cl) if !cl.td.events.0.is_empty() => cl.take_events(),
+    // not while an operation is using the client (as when the client was one RefCell)
+    if c.leased() > 0 {
+        return;
+    }
+    let events = match c.shared().td.try_borrow_mut() {
+        Ok(mut td) if !td.events.0.is_empty() => std::mem::take(&mut td.events.0),
         _ => return,
     };
     for ev in events {
