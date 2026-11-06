@@ -144,6 +144,10 @@ impl<'a> Visitor<'a> for V<'_, '_> {
     fn visit(&mut self, _it: &Iter<'a>, key: &'a [u8], v: Value<'a>) -> bool {
         unsafe { self.value(key, v) }
     }
+    /// phongo_bson_visit_corrupt (a cold path: corrupt data only)
+    fn corrupt(&mut self, _it: &Iter<'a>) {
+        mongo_core::log::warning("PHONGO", || "Corrupt BSON data detected!".to_owned());
+    }
     fn unsupported(&mut self, _it: &Iter<'a>, key: &'a [u8], t: u8) {
         self.fp.write(key);
         unsafe {

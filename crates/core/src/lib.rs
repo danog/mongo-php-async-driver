@@ -21,6 +21,7 @@ pub mod cmdparts;
 pub mod concern;
 pub mod error;
 pub mod handshake;
+pub mod log;
 pub mod net;
 pub mod sdam;
 pub mod session;

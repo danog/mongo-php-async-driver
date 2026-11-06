@@ -34,8 +34,8 @@ unsafe extern "C" fn on_update_debug(
     _a3: *mut c_void,
     _stage: c_int,
 ) -> sys::zend_result {
-    // the log stream itself is set up by the logging subsystem (phongo_log.c) when it is ported
     DEBUG = new_value;
+    crate::driver::log::set_debug(if new_value.is_null() { None } else { Some(zend::zstr::bytes(new_value)) });
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
@@ -71,6 +71,7 @@ static INI: zend::Static<[sys::zend_ini_entry_def; 2]> = zend::Static([
 const CONST_PERSISTENT: i32 = 1;
 
 unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_result {
+    crate::driver::log::minit();
     sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
     crate::zend::obj::init_std();
     crate::gen::api::register_all();
@@ -81,6 +82,7 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
 
 unsafe extern "C" fn mshutdown(_type: c_int, module_number: c_int) -> sys::zend_result {
     crate::driver::destroy_persistent_clients();
+    crate::driver::log::mshutdown();
     sys::zend_unregister_ini_entries(module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
@@ -90,6 +92,7 @@ unsafe extern "C" fn rinit(_type: c_int, _module_number: c_int) -> sys::zend_res
 }
 
 unsafe extern "C" fn rshutdown(_type: c_int, _module_number: c_int) -> sys::zend_result {
+    crate::driver::log::rshutdown();
     crate::driver::apm::rshutdown();
     sys::ZEND_RESULT_CODE_SUCCESS
 }

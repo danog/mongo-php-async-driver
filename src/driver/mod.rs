@@ -9,6 +9,7 @@ pub mod bulkwrite;
 pub mod bulkwritecommand;
 pub mod command;
 pub mod cursor;
+pub mod log;
 pub mod manager;
 pub mod query;
 pub mod readconcern;

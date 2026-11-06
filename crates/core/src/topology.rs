@@ -98,8 +98,6 @@ pub struct TopologyDescription {
     pub cluster_time: Option<Vec<u8>>,
     pub max_hosts: i32,
     pub rand_seed: u32,
-    /// Warnings libmongoc would log (e.g. "Last server removed from topology").
-    pub warnings: Vec<String>,
     pub topology_id: [u8; 12],
     /// whether the TopologyOpening event was sent (topology "opening" is deferred until server
     /// selection)
@@ -140,7 +138,6 @@ impl TopologyDescription {
             cluster_time: None,
             max_hosts: 0,
             rand_seed: (crate::sdam::monotonic_usec() as u32) ^ std::process::id(),
-            warnings: Vec::new(),
             topology_id: ZERO_OID,
             opened: false,
             events: Default::default(),
@@ -304,7 +301,7 @@ impl TopologyDescription {
         }
         self.servers.retain(|s| s.id != id);
         if self.servers.is_empty() {
-            self.warnings.push("Last server removed from topology".into());
+            crate::log::warning(crate::log::MONGOC, || "Last server removed from topology".to_owned());
         }
     }
 
@@ -527,6 +524,8 @@ impl TopologyDescription {
             if self.cluster_time.as_deref().is_none_or(|cur| cluster_time_greater(d, cur)) {
                 self.cluster_time = Some(d.to_vec());
             }
+        } else {
+            crate::log::error(crate::log::MONGOC, || "Can't parse $clusterTime".to_owned());
         }
     }
 
@@ -952,19 +951,19 @@ fn find_topology_version(reply: &[u8]) -> Vec<u8> {
 
 /// _mongoc_cluster_time_greater: compares the clusterTime timestamps.
 pub fn cluster_time_greater(new: &[u8], old: &[u8]) -> bool {
-    use crate::bson::iter::{Iter, Value};
-    let ts = |d: &[u8]| -> Option<(u32, u32)> {
-        let mut it = Iter::new(d)?;
-        if it.find(b"clusterTime") {
-            if let Value::Timestamp(t, i) = it.value() {
-                return Some((t, i));
-            }
-        }
-        None
-    };
-    match (ts(new), ts(old)) {
-        (Some(n), Some(o)) => n > o,
-        _ => false,
+    let ts = crate::session::parse_cluster_time;
+    // the old one is not parsed (nor logged about) when the new one fails
+    ts(new).zip_with_old(|| ts(old)).is_some_and(|(n, o)| n > o)
+}
+
+trait ZipWithOld<T> {
+    fn zip_with_old(self, old: impl FnOnce() -> Option<T>) -> Option<(T, T)>;
+}
+
+impl<T> ZipWithOld<T> for Option<T> {
+    fn zip_with_old(self, old: impl FnOnce() -> Option<T>) -> Option<(T, T)> {
+        let n = self?;
+        Some((n, old()?))
     }
 }
 

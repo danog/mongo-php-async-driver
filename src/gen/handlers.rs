@@ -4,7 +4,7 @@ use crate::zend::sys;
 
 pub unsafe extern "C" fn NULL(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"NULL") }
 pub use crate::driver::apm::zif_MongoDB_Driver_Monitoring_addSubscriber;
-pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_mongoc_log(_ex: *mut sys::zend_execute_data, _rv: *mut sys::zval) { crate::zend::not_implemented(c"zif_MongoDB_Driver_Monitoring_mongoc_log") }
+pub use crate::driver::log::zif_MongoDB_Driver_Monitoring_mongoc_log;
 pub use crate::driver::apm::zif_MongoDB_Driver_Monitoring_removeSubscriber;
 pub use crate::bson::types::zim_MongoDB_BSON_Binary___construct;
 pub use crate::bson::types::zim_MongoDB_BSON_Binary___serialize;

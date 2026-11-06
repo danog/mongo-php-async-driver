@@ -171,14 +171,22 @@ const EMPTY_DOC: [u8; 5] = [5, 0, 0, 0, 0];
 /// _mongoc_parse_cluster_time
 pub fn parse_cluster_time(t: &[u8]) -> Option<(u32, u32)> {
     use crate::bson::iter::{Iter, Value};
-    let mut it = Iter::new(t)?;
-    if !it.find(b"clusterTime") {
-        return None;
+    let r = Iter::new(t).and_then(|mut it| {
+        if !it.find(b"clusterTime") {
+            return None;
+        }
+        match it.value() {
+            Value::Timestamp(t, i) => Some((t, i)),
+            _ => None,
+        }
+    });
+    if r.is_none() {
+        crate::log::error(crate::log::MONGOC, || {
+            let json = crate::bson::json::to_json(t, crate::bson::json::Mode::Relaxed, false).unwrap_or_default();
+            format!("Cannot parse cluster time from {}\n", String::from_utf8_lossy(&json))
+        });
     }
-    match it.value() {
-        Value::Timestamp(t, i) => Some((t, i)),
-        _ => None,
-    }
+    r
 }
 
 /// The write commands that carry readConcern.afterClusterTime in a causally consistent

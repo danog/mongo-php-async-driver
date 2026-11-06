@@ -365,7 +365,10 @@ impl Client {
                 if let Some(v) = find(reply, b"recoveryToken") {
                     s.recovery_token = match v {
                         Value::Document(d) => Some(d.to_vec()),
-                        _ => None,
+                        _ => {
+                            crate::log::error(crate::log::CLUSTER, || "Malformed recovery token from server".to_owned());
+                            None
+                        }
                     };
                 }
             }
@@ -922,7 +925,9 @@ impl Client {
         } else {
             r
         };
-        if r.is_err() {
+        if let Err(f) = r {
+            // abortTransaction never returns an error, so it warns
+            crate::log::warning(crate::log::MONGOC, || format!("Error in abortTransaction: {}", f.error.message));
             cs.unpin();
         }
     }
@@ -1021,7 +1026,10 @@ impl Client {
             if lsids.is_empty() {
                 return;
             }
-            let Ok((sid, _)) = self.select_server_id(OpType::Read, Some(&rp), &[]) else { return };
+            let sid = match self.select_server_id(OpType::Read, Some(&rp), &[]) {
+                Ok((sid, _)) => sid,
+                Err(e) => return end_sessions_warning("Couldn't send", &e),
+            };
             let mut w = Writer::with_capacity(64 + lsids.len() * 40);
             let a = w.begin(4, b"endSessions");
             let mut buf = crate::bson::writer::itoa_buf::Buf::default();
@@ -1031,16 +1039,25 @@ impl Client {
             w.end(a);
             let body = w.finish();
             self.sessions.drop_first(lsids.len());
-            if self.stream_for_server(sid, false).is_err() {
-                return;
+            if let Err(e) = self.stream_for_server(sid, false) {
+                return end_sessions_warning("Couldn't send", &e);
             }
             let mut parts = Parts::new("admin", &body);
             parts.prohibit_lsid = true;
             self.operation_id += 1;
-            let Ok(mut cmd) = self.assemble(parts, sid, false) else { return };
-            let _ = self.run_monitored(&mut cmd, &[], None);
+            let mut cmd = match self.assemble(parts, sid, false) {
+                Ok(c) => c,
+                Err(e) => return end_sessions_warning("Couldn't construct", &e),
+            };
+            if let Err(f) = self.run_monitored(&mut cmd, &[], None) {
+                end_sessions_warning("Couldn't send", &f.error);
+            }
         }
     }
+}
+
+fn end_sessions_warning(what: &str, e: &Error) {
+    crate::log::warning(crate::log::CLIENT, || format!("{what} \"endSessions\": {}", e.message));
 }
 
 /// MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY

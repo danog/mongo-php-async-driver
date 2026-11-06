@@ -31,7 +31,7 @@ without message, a missing key in ClientEncryption::deleteKey()); they are track
 
 | Tests | Why |
 |---|---|
-| `logging/*` and others reading `mongodb.debug` output (30 files mention it) | they match libmongoc's trace/log lines. Messages the PHP API exposes (log levels, domains, `Monitoring\LogSubscriber`) are emulated in phase 6; raw libmongoc trace lines are not reproduced, and the tests that match them will be listed here one by one |
+| libmongoc TRACE lines in `mongodb.debug` output (function entry/exit, hex dumps of wire messages) | not reproduced: they name libmongoc's C functions, and the dumps hold credentials (see `DIVERGENCES.md`). The level/domain/message lines of the ported code paths are emulated, and every upstream test reading `mongodb.debug` or using `LogSubscriber` matches them with `%A`; none needs a TRACE line |
 | phpinfo() rows `libmongoc SSL library`, `libmongoc crypto library`, `libmongocrypt crypto library` | report `rustls` / `RustCrypto` instead of `OpenSSL` / `libcrypto` (no test checks them) |
 
 ### Expected to fail until their phase lands

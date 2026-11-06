@@ -1,5 +1,6 @@
 //! MongoDB\Driver\Cursor (src/MongoDB/Cursor.c over libmongoc's command cursors).
 
+use mongo_core::log;
 use super::ClientRef;
 use crate::bson::decode::TypeMap;
 use crate::bson::{throw, E};
@@ -123,7 +124,14 @@ impl Drop for Cursor {
                     w.int64(b"0", self.id);
                     w.end(a);
                     let body = w.finish();
-                    let _ = self.run(&mut cl, &body);
+                    // _mongoc_client_kill_cursor: no reconnection in load-balanced mode
+                    let reconnect_ok = cl.td.ty != mongo_core::topology::TopologyType::LoadBalanced;
+                    let id = self.id;
+                    if let Err(e) = cl.stream_for_server(self.server_id, reconnect_ok) {
+                        log::info(log::CLIENT, || format!("Ignoring failure to connect to kill cursor {id}: {}", e.message));
+                    } else if let Err(f) = self.run(&mut cl, &body) {
+                        log::info(log::CLIENT, || format!("Ignoring failure to kill cursor {id}: {}", f.error.message));
+                    }
                 }
                 if let Some(mut s) = self.implicit.take() {
                     cl.end_session(&mut s);

@@ -34,6 +34,11 @@ pub fn quiet<R>(f: impl FnOnce() -> R) -> R {
     r
 }
 
+/// True while dispatch is suspended (see `quiet`).
+pub fn is_quiet() -> bool {
+    QUIET.with(|q| q.get()) > 0
+}
+
 unsafe fn ce(n: &CStr) -> *mut sys::zend_class_entry {
     super::lookup(n)
 }
@@ -89,6 +94,9 @@ pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_addSubscriber(ex: Ex, _rv
     let Some(z) = parse_subscriber(ex) else { return };
     GLOBAL.with(|g| add(&mut g.borrow_mut(), z));
     update_count();
+    if super::log::is_logger(z) {
+        super::log::add(z);
+    }
 }
 
 pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(ex: Ex, _rv: *mut sys::zval) {
@@ -104,10 +112,17 @@ pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(ex: Ex, 
     // the subscriber's destructor may run here: no registry borrow held
     drop(taken);
     update_count();
+    if super::log::is_logger(z) {
+        super::log::remove(z);
+    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_addSubscriber(ex: Ex, _rv: *mut sys::zval) {
     let Some(z) = parse_subscriber(ex) else { return };
+    // phongo throws and still registers it (only its APM interfaces are ever used)
+    if super::log::is_logger(z) {
+        throw(E::InvalidArgument, "LogSubscriber instances cannot be registered with a Manager");
+    }
     add(super::manager::subscribers_of(call::this(ex)), z);
     update_count();
 }
@@ -145,6 +160,7 @@ pub unsafe fn flush(c: &ClientRef) {
     if QUIET.with(|q| q.get()) > 0 {
         return;
     }
+    super::log::flush();
     let events = match c.try_borrow_mut() {
         Ok(mut cl) if !cl.td.events.0.is_empty() => cl.take_events(),
         _ => return,

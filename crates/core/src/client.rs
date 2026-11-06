@@ -3,6 +3,7 @@
 //! selection loop with serverSelectionTryOnce, and one connection per server, shared by the
 //! scanner and the commands (as libmongoc does when single-threaded).
 
+use crate::log;
 use std::time::Duration;
 
 use crate::error::{code, domain, Error};
@@ -138,6 +139,7 @@ impl Client {
     /// mongoc_client_new_from_uri_with_error. Fails when the URI requests TLS: the TLS
     /// transport is not implemented yet.
     pub fn new(uri: Uri, settings: Settings) -> Result<Self, Error> {
+        detect_nongenuine_hosts(&uri);
         if uri.tls() {
             return Err(tls_unavailable());
         }
@@ -587,7 +589,10 @@ impl Client {
             }
             Err(e) => {
                 let detail = match &e {
-                    NetError::Closed | NetError::Timeout => "Failed to read 4 bytes: socket error or timeout".to_owned(),
+                    NetError::Closed | NetError::Timeout => {
+                        log::debug(log::CLUSTER, || "could not read message length, stream probably closed or timed out".to_owned());
+                        "Failed to read 4 bytes: socket error or timeout".to_owned()
+                    }
                     NetError::Protocol(m) => m.to_string(),
                     e => format!("Failure during socket delivery: {e}"),
                 };
@@ -656,5 +661,39 @@ fn net_check_error(e: NetError) -> Error {
         NetError::Closed => Error::new(domain::STREAM, code::STREAM_SOCKET, "Server closed connection."),
         NetError::Io(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Failed to write rpc bytes."),
         NetError::Protocol(_) => Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply from server."),
+    }
+}
+
+/// _detect_nongenuine_host (DRIVERS-2583): true when the host suggests CosmosDB or DocumentDB.
+fn detect_nongenuine_host(host: &str) -> bool {
+    let h = host.to_ascii_lowercase();
+    if h.ends_with(".cosmos.azure.com") {
+        crate::log::info(crate::log::MONGOC, || {
+            "You appear to be connected to a CosmosDB cluster. For more information regarding feature compatibility and support please visit https://www.mongodb.com/supportability/cosmosdb".to_owned()
+        });
+        return true;
+    }
+    if h.ends_with(".docdb.amazonaws.com") || h.ends_with(".docdb-elastic.amazonaws.com") {
+        crate::log::info(crate::log::MONGOC, || {
+            "You appear to be connected to a DocumentDB cluster. For more information regarding feature compatibility and support please visit https://www.mongodb.com/supportability/documentdb".to_owned()
+        });
+        return true;
+    }
+    false
+}
+
+/// _detect_nongenuine_hosts: the SRV name, else the hosts until one matches.
+fn detect_nongenuine_hosts(uri: &Uri) {
+    if !crate::log::enabled(crate::log::Level::Info) {
+        return;
+    }
+    if let Some(srv) = &uri.srv {
+        detect_nongenuine_host(srv);
+        return;
+    }
+    for h in &uri.hosts {
+        if detect_nongenuine_host(&h.host) {
+            return;
+        }
     }
 }

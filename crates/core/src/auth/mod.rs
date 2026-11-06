@@ -162,6 +162,7 @@ fn handle_reply(scram: &Scram, reply: &[u8]) -> Result<(bool, i32, Vec<u8>), Err
         _ => None,
     };
     let (Some(conv), Some(payload)) = (conv, payload) else {
+        crate::log::debug(crate::log::CLUSTER, || "SCRAM: authentication failed".to_owned());
         let msg = match find(b"errmsg") {
             Some(Value::Utf8(m)) => String::from_utf8_lossy(m).into_owned(),
             _ => "Received invalid SCRAM reply from MongoDB server.".to_owned(),
@@ -221,12 +222,18 @@ pub fn finish_speculative(uri: &Uri, speculative: &[u8], scram: Option<&mut Scra
     if speculative.is_empty() || scram_algo(mechanism).is_none() || s.step != 1 {
         return Ok(false);
     }
-    scram_continue(s, speculative, run).map(|()| true)
+    scram_continue(s, speculative, run).map(|()| true).inspect_err(|e| {
+        crate::log::debug(crate::log::CLUSTER, || format!("Speculative authentication failed: {}", e.message));
+    })
 }
 
 /// _mongoc_cluster_auth_node: authenticates the connection with the URI's mechanism (or the
 /// negotiated default: SCRAM-SHA-256 when the server lists it, else SCRAM-SHA-1).
 pub fn authenticate(uri: &Uri, mechs: SaslMechs, run: &mut RunCmd) -> Result<(), Error> {
+    auth_node(uri, mechs, run).inspect_err(|e| crate::log::error(crate::log::CLUSTER, || format!("Authentication failed: {}", e.message)))
+}
+
+fn auth_node(uri: &Uri, mechs: SaslMechs, run: &mut RunCmd) -> Result<(), Error> {
     let mechanism = match uri.auth_mechanism() {
         Some(m) => m,
         None if mechs.scram_sha_256 => "SCRAM-SHA-256",

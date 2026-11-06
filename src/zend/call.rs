@@ -70,3 +70,14 @@ pub unsafe fn method(o: *mut sys::zend_object, name: &CStr, args: &mut [sys::zva
 pub fn cs(s: &str) -> CString {
     CString::new(super::zstr::c_part(s.as_bytes())).unwrap()
 }
+
+/// call_user_function(NULL, object, name, ...): calls the method `name` of `o` with any number
+/// of arguments; returns the result (UNDEF when the call failed).
+pub unsafe fn method_n(o: *mut sys::zend_object, name: &[u8], args: &mut [sys::zval]) -> sys::zval {
+    let mut rv = zval::undef();
+    // borrowed: the caller holds a reference to `o`
+    let mut obj = zval::borrowed_obj(o);
+    let mut func = zval::string(name);
+    sys::_call_user_function_impl(&mut *obj, &mut func, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut());
+    rv
+}

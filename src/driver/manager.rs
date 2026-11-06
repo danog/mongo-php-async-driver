@@ -1,5 +1,6 @@
 //! MongoDB\Driver\Manager (src/MongoDB/Manager.c, phongo_client.c, phongo_execute.c).
 
+use mongo_core::log;
 use super::command::Command;
 use super::cursor::Cursor;
 use super::readpref::ReadPreference;
@@ -15,6 +16,9 @@ use mongo_core::uri::Uri;
 use std::ptr::{addr_of_mut, null_mut};
 
 const URI_DEFAULT: &str = "mongodb://127.0.0.1/";
+
+/// MONGOC_LOG_DOMAIN of phongo
+const PHONGO: &str = "PHONGO";
 
 #[derive(Default)]
 pub struct Manager {
@@ -47,6 +51,12 @@ unsafe fn free_manager(o: *mut sys::zend_object) {
     let m = obj::data::<Manager>(o);
     // a client of this Manager only (disableClientPersistence) is destroyed with it
     if let Some(c) = m.client.as_ref() {
+        // phongo_client_unregister
+        if super::is_persistent(c) {
+            log::debug(PHONGO, || "Not destroying persistent client for Manager".to_owned());
+        } else if std::rc::Rc::strong_count(c) == 2 {
+            log::debug(PHONGO, || "Destroying non-persistent client for Manager".to_owned());
+        }
         if std::rc::Rc::strong_count(c) == 2 && !super::is_persistent(c) {
             if let Ok(mut cl) = c.try_borrow_mut() {
                 cl.end_pooled_sessions();
@@ -254,7 +264,20 @@ unsafe fn client_hash(uri_string: &str, options: *mut sys::zval, driver_options:
     Some(zval::str_bytes(&r).to_vec())
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, rv: *mut sys::zval) {
+    construct(ex, rv);
+    // the constructor's messages, before its exception (if any) propagates
+    super::log::flush();
+}
+
+/// The URI warnings libmongoc logs while parsing or changing the URI (MONGOC_WARNING).
+fn log_uri_warnings(uri: &mut Uri) {
+    for w in std::mem::take(&mut uri.warnings) {
+        log::warning(log::MONGOC, || w);
+    }
+}
+
+unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut options: *mut sys::zval = null_mut();
     let mut driver_options: *mut sys::zval = null_mut();
@@ -274,6 +297,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
     let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
     if !disable_persistence {
         if let Some(c) = super::find_persistent_client(&key) {
+            // safety: the reference prints the hash itself (the URI's SHA-256 and the option values)
+            log::debug(PHONGO, || format!("Found client for hash: {}", log::fingerprint(&key)));
             super::apm::register_manager(call::this(ex), c.clone());
             me.client = Some(c);
             return;
@@ -287,7 +312,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
             None => return,
         }
     };
-    let mut uri = match Uri::parse(&uri_string) {
+    let mut parsed = Uri::parse(&uri_string);
+    // libmongoc logs while parsing, phongo after
+    if let Ok(u) = &mut parsed {
+        log_uri_warnings(u);
+    }
+    // safety: the reference logs the URI as given, password included
+    log::debug(PHONGO, || format!("Connection string: '{}'", mongo_core::uri::redact(&uri_string)));
+    let mut uri = match parsed {
         Ok(u) => u,
         Err(e) => {
             // safety: the reference quotes the URI as given, password included
@@ -296,7 +328,9 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
         }
     };
     if let Some(d) = &doc {
-        if let Err(m) = super::uri_options::apply(&mut uri, d) {
+        let r = super::uri_options::apply(&mut uri, d);
+        log_uri_warnings(&mut uri);
+        if let Err(m) = r {
             throw(E::InvalidArgument, m);
             return;
         }
@@ -306,13 +340,26 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
         throw(E::InvalidArgument, format!("Failed to parse URI options: {}", mongo_core::client::tls_unavailable().message));
         return;
     }
+    log::debug(PHONGO, || {
+        format!(
+            "Creating Manager, phongo-{}[{}] - mongoc-{}(bundled), libbson-{}(bundled), php-{}",
+            mongo_core::EXT_VERSION,
+            mongo_core::EXT_STABILITY,
+            mongo_core::LIBMONGOC_VERSION,
+            mongo_core::LIBMONGOC_VERSION,
+            php_version()
+        )
+    });
     let Some(hs) = handshake_data(driver_options) else { return };
+    log::debug(PHONGO, || format!("Setting driver handshake data: {{ name: '{}', version: '{}', platform: '{}' }}", hs.0, hs.1, hs.2));
     let hs = HANDSHAKE.get_or_init(|| hs).clone();
     // phongo checks the option after creating the client: a client error comes first
     let api = super::serverapi::from_driver_options(driver_options);
     let make = || {
         // mongoc_topology_new finalizes the URI again (the options may have changed it)
-        uri.finalize().map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
+        let r = uri.finalize();
+        log_uri_warnings(&mut uri);
+        r.map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
         let mut s = Settings::from_uri(&uri);
         (s.metadata.driver_name, s.metadata.driver_version, s.metadata.platform) = hs;
         if let Ok(Some(a)) = &api {
@@ -335,8 +382,12 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
     };
     match r {
         Ok(c) => {
+            log::debug(PHONGO, || format!("Created client with hash: {}", log::fingerprint(&key)));
             if !disable_persistence {
+                log::debug(PHONGO, || format!("Stored persistent client with hash: {}", log::fingerprint(&key)));
                 super::store_persistent_client(key, c.clone());
+            } else {
+                log::debug(PHONGO, || "Stored non-persistent client".to_owned());
             }
             super::apm::register_manager(call::this(ex), c.clone());
             me.client = Some(c);
@@ -367,7 +418,12 @@ unsafe fn has_tls_driver_option(ht: *mut sys::HashTable) -> bool {
 
 /// phongo's handshake platform string ("PHP 8.4.13 ...")
 fn php_platform() -> String {
-    format!("PHP {}", std::ffi::CStr::from_bytes_with_nul(sys::PHP_VERSION).map(|c| c.to_string_lossy().into_owned()).unwrap_or_default())
+    format!("PHP {}", php_version())
+}
+
+/// PHP_VERSION
+fn php_version() -> String {
+    std::ffi::CStr::from_bytes_with_nul(sys::PHP_VERSION).map(|c| c.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
