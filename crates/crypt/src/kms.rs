@@ -46,6 +46,28 @@ fn stripped(v: &str) -> String {
     out
 }
 
+/// kms-message's `check_header_value`: CR and LF are refused (no header injection)
+pub fn check_header_value(what: &str, v: &str) -> Result<()> {
+    if v.contains(['\r', '\n']) {
+        return Err(format!("HTTP {what} contains invalid characters"));
+    }
+    Ok(())
+}
+
+/// A JSON string body (without the quotes)
+pub fn json_escape(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    for c in v.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -220,18 +242,24 @@ pub fn aws_request(
     let (target, payload) = if decrypt {
         ("Decrypt", format!("{{\"CiphertextBlob\": \"{b64}\"}}"))
     } else {
-        ("Encrypt", format!("{{\"Plaintext\": \"{b64}\", \"KeyId\": \"{}\"}}", cmk.unwrap_or_default()))
+        // kms-message formats the key id in unescaped: here it is JSON-escaped, so a key id (from a
+        // key document when rewrapping) cannot add fields to the request (safety divergence)
+        ("Encrypt", format!("{{\"Plaintext\": \"{b64}\", \"KeyId\": \"{}\"}}", json_escape(cmk.unwrap_or_default())))
     };
     let mut r = AwsRequest::new(datetime, target, payload);
     // kms_request_opt_set_connection_close (not signed)
     r.headers.insert(1, ("Connection".into(), "close".into()));
     r.service = "kms".into();
     if let Some(t) = session_token {
+        check_header_value("header value", t).map_err(|e| format!("failed to set session token: {e}"))?;
         r.headers.push(("X-Amz-Security-Token".into(), t.into()));
     }
     if let Some(h) = host_header {
+        check_header_value("header value", h).map_err(|e| format!("error constructing KMS message: {e}"))?;
         r.headers.push(("Host".into(), h.into()));
     }
+    check_header_value("region", region).map_err(|e| format!("failed to set region: {e}"))?;
+    check_header_value("access key id", access_key_id).map_err(|e| format!("failed to set aws access key id: {e}"))?;
     r.region = region.into();
     r.access_key_id = access_key_id.into();
     r.secret_key = secret_access_key.into();
@@ -247,63 +275,156 @@ pub struct Response {
 /// The most response bytes accepted (libmongocrypt bounds the JSON body it parses)
 pub const MAX_RESPONSE: usize = 16 * 1024 * 1024;
 
-/// `kms_response_parser_feed` run over what was read so far: Ok(Some) once the response is
-/// complete, Ok(None) when more bytes are needed
+/// The longest chunk-size line accepted (a size and its extensions)
+const MAX_CHUNK_LINE: usize = 1024;
+
+enum Body {
+    Length(usize),
+    /// the next chunk-size line starts at `pos`
+    Chunked { pos: usize, body: Vec<u8> },
+}
+
+/// `kms_response_parser_t`: an incremental HTTP/1.1 response parser. Each byte is scanned a bounded
+/// number of times, and every length is checked against `MAX_RESPONSE`.
+pub struct ResponseParser {
+    buf: Vec<u8>,
+    /// where the search for the end of the headers resumes
+    scan: usize,
+    /// (status, where the body starts, how it is delimited)
+    head: Option<(i32, usize, Body)>,
+    done: bool,
+    error: Option<String>,
+}
+
+impl Default for ResponseParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ResponseParser {
+    pub fn new() -> ResponseParser {
+        ResponseParser { buf: Vec::new(), scan: 0, head: None, done: false, error: None }
+    }
+
+    /// Adds bytes read; true once the response is complete or malformed (no more bytes are wanted)
+    pub fn feed(&mut self, data: &[u8]) -> bool {
+        if self.done || self.error.is_some() {
+            return true;
+        }
+        match self.step(data) {
+            Ok(d) => self.done = d,
+            Err(e) => self.error = Some(e),
+        }
+        self.done || self.error.is_some()
+    }
+
+    fn step(&mut self, data: &[u8]) -> Result<bool> {
+        if self.buf.len().saturating_add(data.len()) > MAX_RESPONSE {
+            return Err("KMS response exceeds the maximum supported length".into());
+        }
+        self.buf.extend_from_slice(data);
+        if self.head.is_none() {
+            let from = self.scan.saturating_sub(3);
+            let Some(he) = self.buf[from..].windows(4).position(|w| w == b"\r\n\r\n").map(|x| x + from) else {
+                self.scan = self.buf.len();
+                return Ok(false);
+            };
+            self.head = Some(Self::parse_head(&self.buf[..he], he + 4)?);
+        }
+        let len = self.buf.len();
+        let Some((_, start, body)) = self.head.as_mut() else { return Ok(false) };
+        match body {
+            Body::Length(n) => Ok(len - *start >= *n),
+            Body::Chunked { pos, body } => loop {
+                let line = &self.buf[*pos..];
+                let Some(e) = line.windows(2).take(MAX_CHUNK_LINE).position(|w| w == b"\r\n") else {
+                    if line.len() > MAX_CHUNK_LINE {
+                        return Err("Could not parse chunk length".into());
+                    }
+                    return Ok(false);
+                };
+                let size = std::str::from_utf8(&line[..e]).ok().map(|x| x.split(';').next().unwrap_or_default().trim());
+                let n = size.and_then(|x| usize::from_str_radix(x, 16).ok()).ok_or("Could not parse chunk length")?;
+                if n > MAX_RESPONSE - body.len() {
+                    return Err("KMS response exceeds the maximum supported length".into());
+                }
+                // the chunk data starts after the size line and ends with CRLF
+                let data_start = *pos + e + 2;
+                let end = data_start + n + 2;
+                if len < end {
+                    return Ok(false);
+                }
+                if &self.buf[end - 2..end] != b"\r\n" {
+                    return Err("Could not parse chunk: missing CRLF".into());
+                }
+                if n == 0 {
+                    return Ok(true);
+                }
+                body.extend_from_slice(&self.buf[data_start..data_start + n]);
+                *pos = end;
+            },
+        }
+    }
+
+    fn parse_head(head: &[u8], start: usize) -> Result<(i32, usize, Body)> {
+        let head = std::str::from_utf8(head).map_err(|_| "Could not parse HTTP status line")?;
+        let mut lines = head.split("\r\n");
+        let status_line = lines.next().unwrap_or_default();
+        let mut parts = status_line.splitn(3, ' ');
+        if parts.next() != Some("HTTP/1.1") {
+            return Err(format!("Could not parse HTTP-version: {status_line}"));
+        }
+        let status: i32 = parts.next().and_then(|s| s.parse().ok()).ok_or("Could not parse Status-Code")?;
+        let (mut len, mut chunked) = (None, false);
+        for l in lines {
+            let Some((k, v)) = l.split_once(':') else { return Err(format!("Could not parse header, no colon found: {l}")) };
+            let v = v.trim();
+            if k == "Content-Length" && len.is_none() {
+                len = Some(v.parse::<usize>().map_err(|_| "Could not parse Content-Length header.")?);
+            }
+            if k == "Transfer-Encoding" {
+                if v == "chunked" {
+                    chunked = true;
+                } else {
+                    return Err(format!("Unsupported Transfer-Encoding: {v}"));
+                }
+            }
+        }
+        if chunked {
+            return Ok((status, start, Body::Chunked { pos: start, body: Vec::new() }));
+        }
+        let n = len.unwrap_or(0);
+        if n > MAX_RESPONSE {
+            return Err("KMS response exceeds the maximum supported length".into());
+        }
+        Ok((status, start, Body::Length(n)))
+    }
+
+    /// The complete response (Err: malformed, or the connection ended early)
+    pub fn finish(self) -> Result<Response> {
+        if let Some(e) = self.error {
+            let status = self.head.as_ref().map_or(0, |h| h.0);
+            return Err(format!("KMS response parser error with status {status}, error: '{e}'"));
+        }
+        match (self.done, self.head) {
+            (true, Some((status, _, Body::Chunked { body, .. }))) => Ok(Response { status, body }),
+            (true, Some((status, start, Body::Length(n)))) => Ok(Response { status, body: self.buf[start..start + n].to_vec() }),
+            _ => Err("Failed to get response from parser: incomplete response".into()),
+        }
+    }
+}
+
+/// The whole of `buf` through a `ResponseParser`: Ok(None) when more bytes are needed
 pub fn parse_response(buf: &[u8]) -> Result<Option<Response>> {
-    if buf.len() > MAX_RESPONSE {
-        return Err("KMS response exceeds the maximum supported length".into());
-    }
-    let Some(he) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { return Ok(None) };
-    let head = std::str::from_utf8(&buf[..he]).map_err(|_| "Could not parse HTTP status line")?;
-    let mut lines = head.split("\r\n");
-    let status_line = lines.next().unwrap_or_default();
-    let mut parts = status_line.splitn(3, ' ');
-    if parts.next() != Some("HTTP/1.1") {
-        return Err(format!("Could not parse HTTP-version: {status_line}"));
-    }
-    let status: i32 = parts.next().and_then(|s| s.parse().ok()).ok_or("Could not parse Status-Code")?;
-    let (mut len, mut chunked) = (None, false);
-    for l in lines {
-        let Some((k, v)) = l.split_once(':') else { return Err(format!("Could not parse header, no colon found: {l}")) };
-        let v = v.trim();
-        if k == "Content-Length" && len.is_none() {
-            len = Some(v.parse::<usize>().map_err(|_| "Could not parse Content-Length header.")?);
-        }
-        if k == "Transfer-Encoding" {
-            if v == "chunked" {
-                chunked = true;
-            } else {
-                return Err(format!("Unsupported Transfer-Encoding: {v}"));
-            }
-        }
-    }
-    let rest = &buf[he + 4..];
-    if chunked {
-        let mut body = Vec::new();
-        let mut p = 0;
-        loop {
-            let Some(e) = rest[p..].windows(2).position(|w| w == b"\r\n") else { return Ok(None) };
-            let n = usize::from_str_radix(std::str::from_utf8(&rest[p..p + e]).unwrap_or("x").trim(), 16)
-                .map_err(|_| "Could not parse chunk length")?;
-            p += e + 2;
-            if rest.len() < p + n + 2 {
-                return Ok(None);
-            }
-            if n == 0 {
-                return Ok(Some(Response { status, body }));
-            }
-            body.extend_from_slice(&rest[p..p + n]);
-            p += n + 2;
-        }
-    }
-    let n = len.unwrap_or(0);
-    if n > MAX_RESPONSE {
-        return Err("KMS response exceeds the maximum supported length".into());
-    }
-    if rest.len() < n {
+    let mut p = ResponseParser::new();
+    if !p.feed(buf) {
         return Ok(None);
     }
-    Ok(Some(Response { status, body: rest[..n].to_vec() }))
+    if let Some(e) = p.error {
+        return Err(e);
+    }
+    p.finish().map(Some)
 }
 
 /// `_handle_non200_http_status`
@@ -378,5 +499,26 @@ mod tests {
         let r = parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n").unwrap().unwrap();
         assert_eq!(r.body, b"abcde");
         assert!(parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 99999999999\r\n\r\n").is_err());
+        // chunk sizes cannot overflow, chunks end with CRLF, chunk lines are bounded
+        assert!(parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nabc").is_err());
+        assert!(parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcXY0\r\n\r\n").is_err());
+        let mut long = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        long.extend(std::iter::repeat_n(b'0', 2000));
+        assert!(parse_response(&long).is_err());
+        // byte-at-a-time feeding
+        let whole = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n";
+        let mut p = ResponseParser::new();
+        let mut fed = 0;
+        for b in whole.iter() {
+            fed += 1;
+            if p.feed(std::slice::from_ref(b)) {
+                break;
+            }
+        }
+        assert_eq!(fed, whole.len());
+        assert_eq!(p.finish().unwrap().body, b"abcde");
+        let mut p = ResponseParser::new();
+        assert!(p.feed(b"HTTP/1.0 200 OK\r\n\r\n"));
+        assert_eq!(p.finish().err().unwrap(), "KMS response parser error with status 0, error: 'Could not parse HTTP-version: HTTP/1.0 200 OK'");
     }
 }

@@ -239,7 +239,7 @@ fn counts_reply(reply: &[u8], fields: &[(&str, &[u8])]) -> Vec<u8> {
 struct KvIo<'a>(&'a KeyVault);
 
 /// libmongoc's KMS round trip (`_state_need_kms`)
-fn kms_exchange(req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<Error>> {
+fn kms_exchange(req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
     use mongo_core::kms_tls::Phase;
     use mongo_crypt::engine::KmsFailure;
     mongo_core::kms_tls::exchange(&req.endpoint, &req.tls, &req.message, done).map_err(|(p, e)| match p {
@@ -257,7 +257,7 @@ fn stream_error(msg: String) -> Error {
 
 impl Io for KvIo<'_> {
     type Error = IoError;
-    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<IoError>> {
+    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<IoError>> {
         kms_exchange(req, done).map_err(|f| match f {
             mongo_crypt::engine::KmsFailure::Connect(e) => mongo_crypt::engine::KmsFailure::Connect((e, None)),
             mongo_crypt::engine::KmsFailure::Write(e) => mongo_crypt::engine::KmsFailure::Write((e, None)),
@@ -1037,7 +1037,7 @@ struct CoreIo<'a> {
 
 impl Io for CoreIo<'_> {
     type Error = Error;
-    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<Error>> {
+    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
         kms_exchange(req, done)
     }
     fn stream_error(&self, msg: String) -> Error {

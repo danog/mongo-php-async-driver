@@ -11,7 +11,7 @@ fn hex(s: &str) -> Vec<u8> {
 struct Vault(Vec<u8>);
 impl Io for Vault {
     type Error = ();
-    fn kms(&mut self, _r: &mongo_crypt::kms::KmsRequest, _d: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<()>> {
+    fn kms(&mut self, _r: &mongo_crypt::kms::KmsRequest, _d: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<()>> {
         unreachable!("local KMS only")
     }
     fn stream_error(&self, _m: String) {}

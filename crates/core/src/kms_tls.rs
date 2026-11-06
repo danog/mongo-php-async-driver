@@ -18,15 +18,13 @@ pub enum Phase {
 /// MONGOC_DEFAULT_SOCKETTIMEOUTMS
 pub const SOCKET_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// The most response bytes read (the response parser refuses more anyway)
-pub const MAX_RESPONSE: usize = 16 * 1024 * 1024;
-
 fn stream_err(m: String) -> Error {
     Error::new(domain::STREAM, code::STREAM_SOCKET, m)
 }
 
-/// Sends `msg` to `endpoint` ("host:port") over TLS and reads until `done` accepts what was read
-pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, (Phase, Error)> {
+/// Sends `msg` to `endpoint` ("host:port") over TLS and passes what is read to `feed` until it
+/// returns true
+pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), (Phase, Error)> {
     let (host, port) = crate::client::split_host_port(endpoint);
     let connect = || -> Result<rustls::StreamOwned<rustls::ClientConnection, TcpStream>, Error> {
         let addrs = crate::net::resolve(&host, port).map_err(|_| stream_err(format!("Failed to resolve '{host}'")))?;
@@ -61,19 +59,14 @@ pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], done: &mut dyn FnM
     };
     let mut s = connect().map_err(|e| (Phase::Connect, e))?;
     s.write_all(msg).and_then(|_| s.flush()).map_err(|e| (Phase::Write, stream_err(e.to_string())))?;
-    let mut buf = Vec::with_capacity(4096);
-    let mut chunk = [0u8; 1024];
+    let mut chunk = vec![0u8; 16 * 1024];
     loop {
-        if done(&buf) {
-            return Ok(buf);
-        }
         match s.read(&mut chunk) {
             Ok(0) => return Err((Phase::Read, stream_err("connection closed".into()))),
             Ok(n) => {
-                if buf.len() + n > MAX_RESPONSE {
-                    return Err((Phase::Read, stream_err("KMS response too large".into())));
+                if feed(&chunk[..n]) {
+                    return Ok(());
                 }
-                buf.extend_from_slice(&chunk[..n]);
             }
             Err(e) => return Err((Phase::Read, stream_err(e.to_string()))),
         }

@@ -36,7 +36,8 @@ pub trait Io {
     /// `MONGOCRYPT_CTX_NEED_MONGO_KEYS`: the key vault documents matching `filter` (readConcern majority)
     fn find_keys(&mut self, filter: &[u8]) -> std::result::Result<Vec<Vec<u8>>, Self::Error>;
     /// `MONGOCRYPT_CTX_NEED_KMS`: one TLS round trip, reading until `done` accepts the bytes read
-    fn kms(&mut self, req: &crate::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> std::result::Result<Vec<u8>, KmsFailure<Self::Error>>;
+    /// `feed` gets each read's bytes and returns true once no more are wanted
+    fn kms(&mut self, req: &crate::kms::KmsRequest, feed: &mut dyn FnMut(&[u8]) -> bool) -> std::result::Result<(), KmsFailure<Self::Error>>;
     /// A stream error (MONGOC_ERROR_STREAM_SOCKET) with this message
     fn stream_error(&self, msg: String) -> Self::Error;
 }
@@ -107,13 +108,11 @@ impl Crypt {
             if attempts > 0 {
                 std::thread::sleep(backoff(attempts));
             }
-            let mut done = |b: &[u8]| !matches!(crate::kms::parse_response(b), Ok(None));
-            match io.kms(req, &mut done) {
-                Ok(bytes) => {
-                    let r = match crate::kms::parse_response(&bytes)? {
-                        Some(r) => r,
-                        None => return Err("Failed to get response from parser: incomplete response".into()),
-                    };
+            let mut parser = crate::kms::ResponseParser::new();
+            let res = io.kms(req, &mut |b: &[u8]| parser.feed(b));
+            match res {
+                Ok(()) => {
+                    let r = parser.finish()?;
                     if retryable && http_retry(r.status) {
                         if attempts >= KMS_MAX_ATTEMPTS {
                             return Err(format!("KMS request failed after maximum of {KMS_MAX_ATTEMPTS} retries: {}", crate::kms::non200(r.status, &r.body)).into());
