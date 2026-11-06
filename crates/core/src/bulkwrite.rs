@@ -418,7 +418,12 @@ impl BulkWrite {
         let desc = client.stream_description(sid);
         // a server reporting no batch size must not stall the loop: at least one op per batch
         let max_batch = desc.map_or(100_000, |d| d.max_write_batch_size).max(0) as usize;
-        let max_msg = desc.map_or(48_000_000, |d| d.max_msg_size).max(0) as usize;
+        let max_msg = if client.auto_crypt.is_some() {
+            // MONGOC_REDUCED_MAX_MSG_SIZE_FOR_FLE
+            crate::autocrypt::REDUCED_MAX_MSG_SIZE_FOR_FLE
+        } else {
+            desc.map_or(48_000_000, |d| d.max_msg_size).max(0) as usize
+        };
         // OP_MSG and bulkWrite command overhead (bulk write specification)
         let overhead = 1000 + body.len();
         let (mut doc_offset, mut byte_offset) = (0usize, 0usize);

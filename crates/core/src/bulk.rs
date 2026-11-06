@@ -577,7 +577,8 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
         return;
     }
     let max_bson = sd.max_bson_obj_size as i64;
-    let max_msg = sd.max_msg_size as i64;
+    // MONGOC_REDUCED_MAX_MSG_SIZE_FOR_FLE: a client with automatic encryption batches by 2 MiB
+    let max_msg = if client.auto_crypt.is_some() { crate::autocrypt::REDUCED_MAX_MSG_SIZE_FOR_FLE as i64 } else { sd.max_msg_size as i64 };
     let max_count = sd.max_write_batch_size as i64;
     let mut body = Writer::with_capacity(64 + coll.len());
     body.utf8(command.kind.name().as_bytes(), coll.as_bytes());

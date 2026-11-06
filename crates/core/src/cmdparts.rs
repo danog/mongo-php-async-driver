@@ -290,14 +290,47 @@ impl Client {
     /// session, applies the network-error and transaction rules. The failure's reply carries
     /// the error labels added here.
     pub fn run_monitored(&mut self, cmd: &mut Cmd, payload: crate::wire::Payloads<'_>, mut session: Option<&mut ClientSession>) -> Result<Vec<u8>, Failure> {
+        // _mongoc_cse_auto_encrypt: before the command is monitored; a failure sends no events
+        let mut payload = payload;
+        // the command actually sent (cmd.body stays the caller's, for retries)
+        let mut sent: Option<Vec<u8>> = None;
+        if self.auto_crypt.as_ref().is_some_and(|a| a.encrypts()) {
+            if self.stream_description(cmd.server_id).is_some_and(|d| d.max_wire_version < 8) {
+                return Err(Failure {
+                    error: Error::new(domain::PROTOCOL, code::PROTOCOL_BAD_WIRE_VERSION, "Auto-encryption requires a minimum MongoDB version of 4.2"),
+                    reply: Vec::new(),
+                });
+            }
+            let full = command_with_payload(&cmd.body, payload);
+            let mut ac = self.auto_crypt.take().expect("checked above");
+            let r = ac.encrypt(self, &cmd.db, &full);
+            self.auto_crypt = Some(ac);
+            match r {
+                Ok(Some(encrypted)) => {
+                    sent = Some(encrypted);
+                    payload = &[];
+                }
+                Ok(None) if !payload.is_empty() => {
+                    // libmongoc sends the converted command (sequences as arrays) either way
+                    sent = Some(full);
+                    payload = &[];
+                }
+                Ok(None) => {}
+                Err(error) => return Err(Failure { error, reply: Vec::new() }),
+            }
+        }
+        let body: &[u8] = match &sent {
+            Some(b) => b,
+            None => &cmd.body,
+        };
         let request_id = self.next_request_id();
         let started = std::time::Instant::now();
         let info = crate::apm::enabled().then(|| self.command_info(cmd, request_id));
         if let Some(info) = &info {
-            let command = if crate::apm::is_sensitive(&cmd.name, &cmd.body) { vec![5, 0, 0, 0, 0] } else { command_with_payload(&cmd.body, payload) };
+            let command = if crate::apm::is_sensitive(&cmd.name, body) { vec![5, 0, 0, 0, 0] } else { command_with_payload(body, payload) };
             self.td.events.push_now(crate::apm::Event::CommandStarted { info: info.clone(), command });
         }
-        let r = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, &cmd.body, payload, cmd.is_acknowledged);
+        let r = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, body, payload, cmd.is_acknowledged);
         if cmd.is_retryable_write || cmd.is_txn_finish {
             cmd.stream = self.stream_description(cmd.server_id).map_or((0, false), |d| (d.max_wire_version, d.ty == ServerType::Mongos));
         }
@@ -331,7 +364,7 @@ impl Client {
         };
         if let Some(info) = info {
             let duration_us = started.elapsed().as_micros() as i64;
-            let redact = crate::apm::is_sensitive(&cmd.name, &cmd.body);
+            let redact = crate::apm::is_sensitive(&cmd.name, body);
             let empty = || vec![5u8, 0, 0, 0, 0];
             self.td.events.push_now(match &result {
                 Ok(r) => {
@@ -1141,7 +1174,7 @@ fn end_sessions_warning(what: &str, e: &Error) {
 pub const MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY: i64 = 10_000;
 
 /// The cursor id and the documents of a find/getMore reply's batch
-fn cursor_batch(reply: &[u8], key: &[u8]) -> (i64, Vec<Vec<u8>>) {
+pub(crate) fn cursor_batch(reply: &[u8], key: &[u8]) -> (i64, Vec<Vec<u8>>) {
     let Some(Value::Document(c)) = find(reply, b"cursor") else { return (0, Vec::new()) };
     let id = match find(c, b"id") {
         Some(Value::Int64(i)) => i,

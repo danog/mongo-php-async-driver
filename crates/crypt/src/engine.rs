@@ -52,6 +52,18 @@ pub trait Io {
     fn gcp_metadata_token(&mut self) -> std::result::Result<String, Self::Error> {
         Err(self.stream_error("on-demand GCP credentials are not available".into()))
     }
+    /// `MONGOCRYPT_CTX_NEED_MONGO_COLLINFO`: listCollections on `db` with `filter`, every result
+    fn list_collections(&mut self, db: &str, filter: &[u8]) -> std::result::Result<Vec<Vec<u8>>, Self::Error> {
+        let _ = (db, filter);
+        Err(self.stream_error("listCollections is not available".into()))
+    }
+}
+
+/// The options of automatic encryption that shape commands
+#[derive(Clone, Debug, Default)]
+pub struct AutoOpts {
+    pub schema_map: Option<Vec<u8>>,
+    pub encrypted_fields_map: Option<Vec<u8>>,
 }
 
 /// Clears the per-operation on-demand credentials when the operation ends
@@ -112,6 +124,8 @@ pub struct Crypt {
     ondemand: std::sync::Mutex<Option<KmsProviders>>,
     /// libmongoc's `azure_token`: the IMDS token and when it was issued plus its lifetime
     azure_imds: std::sync::Mutex<Option<(String, std::time::Instant)>>,
+    /// `cache_collinfo`
+    pub collinfo: crate::autoenc::CollinfoCache,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,7 +144,7 @@ pub enum KeySel {
 impl Crypt {
     pub fn new(kms_providers: &[u8], key_expiration_ms: Option<u64>) -> std::result::Result<Crypt, String> {
         let kms = KmsProviders::parse(kms_providers)?;
-        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new(), oauth: Default::default(), ondemand: Default::default(), azure_imds: Default::default() })
+        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new(), oauth: Default::default(), ondemand: Default::default(), azure_imds: Default::default(), collinfo: Default::default() })
     }
 
     /// The credentials of a KMS provider: configured, or provided on demand for this operation
@@ -629,6 +643,129 @@ impl Crypt {
             Some(_) => Ok((self.kms_wrap(io, kek, material)?, kek.clone())),
             None => Err(format!("requested kms provider required by datakey is not configured: `{}`", kek.kmsid).into()),
         }
+    }
+
+    /// `mongocrypt_ctx_encrypt_init` + finalize with `bypass_query_analysis`: the command to send
+    /// (None: send `cmd` as is). Explicit payloads are kept; Queryable Encryption collections get
+    /// encryptionInformation (and compaction/cleanup tokens).
+    pub fn auto_encrypt<I: Io>(&self, io: &mut I, db: &str, cmd: &[u8], opts: &AutoOpts) -> Result<Option<Vec<u8>>, I::Error> {
+        use crate::autoenc as ae;
+        if db.is_empty() || db.contains('\0') {
+            return Err("invalid db".into());
+        }
+        if db.contains('.') {
+            return Err("invalid db: must not contain a dot".into());
+        }
+        let name = {
+            let mut it = Iter::new(cmd).ok_or("invalid BSON")?;
+            if !it.next() {
+                return Err("invalid empty BSON".into());
+            }
+            it.key().to_vec()
+        };
+        let mut sb = ae::SchemaBroker::default();
+        let (target_db, target_coll) = if name == b"bulkWrite" {
+            let (tdb, tc) = ae::check_bulk_write(cmd)?;
+            sb.request(&tdb, &tc)?;
+            (Some(tdb), tc)
+        } else {
+            let (bypass, tc) = ae::check_cmd(cmd)?;
+            if bypass {
+                return Ok(None);
+            }
+            let tc = tc.ok_or("unexpected error: did not bypass or error but no collection name")?;
+            sb.request(db, &tc)?;
+            (None, tc)
+        };
+        if name == b"aggregate" {
+            ae::collections_in_agg(&mut sb, cmd, db)?;
+        }
+        // mongocrypt_ctx_encrypt_ismaster_done: the schema sources, in libmongocrypt's order
+        if let Some(m) = &opts.encrypted_fields_map {
+            sb.satisfy_from_encrypted_fields_map(m)?;
+        }
+        if sb.need_more() {
+            sb.satisfy_from_create_or_coll_mod(cmd)?;
+        }
+        if sb.need_more() {
+            if let Some(m) = &opts.schema_map {
+                sb.satisfy_from_schema_map(m)?;
+            }
+        }
+        if sb.need_more() {
+            sb.satisfy_from_cache(&self.collinfo)?;
+        }
+        if sb.need_more() && name == b"create" {
+            sb.satisfy_remaining_with_empty(None);
+        }
+        if sb.need_more() {
+            let filter = sb.list_collections_filter()?;
+            let docs = io.list_collections(target_db.as_deref().unwrap_or(db), &filter).map_err(Error::Io)?;
+            for d in docs {
+                sb.satisfy_from_collinfo(&d, &self.collinfo)?;
+            }
+            // _mongo_done_collinfo: collections without collinfo have no schema
+            sb.satisfy_remaining_with_empty(Some(&self.collinfo));
+        }
+        // keys: compaction/cleanup tokens and the fields named by keyAltName
+        let target_efc = sb.maybe_encrypted_fields(&target_coll).cloned();
+        let mut kb = KeyBroker::new(&self.kms, &self.cache);
+        let mut need_keys = false;
+        if let Some(efc) = &target_efc {
+            let compaction = name == b"compactStructuredEncryptionData" || name == b"cleanupStructuredEncryptionData";
+            for f in &efc.fields {
+                match (&f.key_alt_name, f.key_id) {
+                    (Some(a), _) => {
+                        kb.request_name(a);
+                        need_keys = true;
+                    }
+                    (None, Some(id)) if compaction => {
+                        kb.request_id(&id);
+                        need_keys = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if need_keys {
+            self.fetch(&mut kb, io)?;
+        }
+        if !sb.has_any_qe() {
+            // nothing to do: the command is sent as is
+            return Ok(None);
+        }
+        // _fle2_finalize
+        let by_name = |n: &[u8]| -> std::result::Result<[u8; 16], String> { kb.key_by_name(n).map(|(_, id)| id) };
+        let by_id = |id: &[u8; 16]| -> std::result::Result<Vec<u8>, String> { kb.key_by_id(id) };
+        let mut converted = ae::strip_encryption_information(&name, cmd)?;
+        let target_efc = match target_efc {
+            Some(mut efc) => {
+                for f in efc.fields.iter_mut() {
+                    if f.key_id.is_none() {
+                        if let Some(a) = &f.key_alt_name {
+                            f.key_id = Some(by_name(a).map_err(|_| format!("Could not find key by keyAltName: {}", String::from_utf8_lossy(a)))?);
+                        }
+                    }
+                }
+                Some(efc)
+            }
+            None => None,
+        };
+        let omit = ae::must_omit_encryption_information(&name, &converted, target_efc.as_ref())?;
+        converted = ae::fixup_str_encode_version(&name, &converted, target_efc.as_ref())?;
+        if !omit {
+            converted = sb.add_schemas_to_cmd(&converted, &by_name)?;
+        }
+        converted = ae::append_compaction_tokens(&name, target_efc.as_ref(), &converted, &by_id)?;
+        // an input $db stays in the output
+        let has_db = |d: &[u8]| Iter::new(d).is_some_and(|mut it| it.find(b"$db"));
+        if has_db(cmd) && !has_db(&converted) {
+            let mut w = Writer::with_capacity(converted.len() + db.len() + 8);
+            w.append_raw_elements(&converted);
+            w.utf8(b"$db", db.as_bytes());
+            converted = w.finish();
+        }
+        Ok(Some(converted))
     }
 
     /// `mongocrypt_ctx_rewrap_many_datakey_init`: for each key document, its id and the

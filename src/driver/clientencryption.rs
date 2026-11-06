@@ -1076,6 +1076,8 @@ struct AutoDecrypt {
     kv: Option<ClientRef>,
     db: String,
     coll: String,
+    /// automatic encryption without query analysis (bypassQueryAnalysis); None: decryption only
+    encrypt: Option<mongo_crypt::engine::AutoOpts>,
 }
 
 /// The key vault reads of automatic decryption, on the client given (no Cursor: the encrypted
@@ -1085,10 +1087,16 @@ struct CoreIo<'a> {
     kv: Option<&'a ClientRef>,
     db: &'a str,
     coll: &'a str,
+    /// automatic encryption of the encrypted client (its own key vault reads go through it)
+    auto: Option<(&'a Crypt, &'a mongo_crypt::engine::AutoOpts)>,
 }
 
 impl Io for CoreIo<'_> {
     type Error = Error;
+    fn list_collections(&mut self, db: &str, filter: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+        // _state_need_mongo_collinfo: on the encrypted client itself
+        self.cl.list_collections_all(db, filter)
+    }
     fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
         kms_exchange(req, done)
     }
@@ -1106,6 +1114,15 @@ impl Io for CoreIo<'_> {
     }
     fn find_keys(&mut self, filter: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
         let (db, coll) = (self.db, self.coll);
+        // the key vault find of an encrypted client that is its own key vault client is itself
+        // auto-encrypted in libmongoc: its schema is resolved (listCollections, then cached)
+        if let (None, Some((crypt, opts))) = (self.kv, self.auto) {
+            let mut w = Writer::with_capacity(coll.len() + 16);
+            w.utf8(b"find", coll.as_bytes());
+            let probe = w.finish();
+            let mut io = CoreIo { cl: &mut *self.cl, kv: None, db, coll, auto: None };
+            crypt.auto_encrypt(&mut io, db, &probe, opts).map_err(engine_error)?;
+        }
         let run = |cl: &mut mongo_core::client::Client| {
             let rp = super::manager::client_read_preference(&cl.uri);
             let rc = mongo_core::concern::ReadConcern { level: Some(b"majority".to_vec()) }.to_bson();
@@ -1126,17 +1143,33 @@ impl Io for CoreIo<'_> {
     }
 }
 
+/// A libmongocrypt failure as libmongoc reports it (`_ctx_check_error`)
+fn engine_error(e: mongo_crypt::engine::Error<Error>) -> Error {
+    match e {
+        mongo_crypt::engine::Error::Crypt(m) => {
+            let mut m = m;
+            mongo_core::bulk::truncate_message(&mut m);
+            Error::new(domain::CLIENT_SIDE_ENCRYPTION, 1, &m)
+        }
+        mongo_crypt::engine::Error::Io(e) => e,
+    }
+}
+
 impl mongo_core::autocrypt::AutoCrypt for AutoDecrypt {
     fn decrypt(&mut self, client: &mut mongo_core::client::Client, _db: &str, reply: &[u8]) -> Result<Vec<u8>, Error> {
-        let mut io = CoreIo { cl: client, kv: self.kv.as_ref(), db: &self.db, coll: &self.coll };
-        self.crypt.decrypt_doc(&mut io, reply).map_err(|e| match e {
-            mongo_crypt::engine::Error::Crypt(m) => {
-                let mut m = m;
-                mongo_core::bulk::truncate_message(&mut m);
-                Error::new(domain::CLIENT_SIDE_ENCRYPTION, 1, &m)
-            }
-            mongo_crypt::engine::Error::Io(e) => e,
-        })
+        let auto = self.encrypt.as_ref().map(|o| (&self.crypt, o));
+        let mut io = CoreIo { cl: client, kv: self.kv.as_ref(), db: &self.db, coll: &self.coll, auto };
+        self.crypt.decrypt_doc(&mut io, reply).map_err(engine_error)
+    }
+
+    fn encrypts(&self) -> bool {
+        self.encrypt.is_some()
+    }
+
+    fn encrypt(&mut self, client: &mut mongo_core::client::Client, db: &str, cmd: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        let Some(opts) = &self.encrypt else { return Ok(None) };
+        let mut io = CoreIo { cl: client, kv: self.kv.as_ref(), db: &self.db, coll: &self.coll, auto: Some((&self.crypt, opts)) };
+        self.crypt.auto_encrypt(&mut io, db, cmd, opts).map_err(engine_error)
     }
 }
 
@@ -1251,12 +1284,13 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
             }
         }
     }
-    if !bypass_auto {
-        // query analysis (mongocryptd or crypt_shared, MongoDB Enterprise) and Queryable
-        // Encryption's automatic encryption are not ported yet: refuse rather than send in clear
-        let what = if bypass_qa { "Queryable Encryption's automatic encryption (\"bypassQueryAnalysis\")" } else { "automatic encryption (query analysis through mongocryptd or crypt_shared)" };
-        throw(E::InvalidArgument, format!("Cannot enable automatic field-level encryption: {what} is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption."));
+    if !bypass_auto && !bypass_qa {
+        // query analysis (mongocryptd or crypt_shared, MongoDB Enterprise) is not ported: refuse
+        // rather than send in clear
+        throw(E::InvalidArgument, "Cannot enable automatic field-level encryption: automatic encryption (query analysis through mongocryptd or crypt_shared) is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption, or \"bypassQueryAnalysis\" for Queryable Encryption with explicit encryption.".to_string());
         return None;
     }
-    Some(Box::new(AutoDecrypt { crypt, kv, db, coll }))
+    // bypassAutoEncryption: decryption only; bypassQueryAnalysis: commands get encryptionInformation
+    let encrypt = (!bypass_auto).then(|| mongo_crypt::engine::AutoOpts { schema_map: schema_map.clone(), encrypted_fields_map: efc.clone() });
+    Some(Box::new(AutoDecrypt { crypt, kv, db, coll, encrypt }))
 }
