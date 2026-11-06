@@ -17,6 +17,7 @@ pub mod server;
 pub mod serverapi;
 pub mod session;
 pub mod writeconcern;
+pub mod uri_options;
 pub mod writeresult;
 
 use crate::zend::{call, class, sys, zval};
@@ -31,22 +32,20 @@ pub type ClientRef = Rc<RefCell<Client>>;
 
 thread_local! {
     /// phongo's persistent clients: one client per URI (+ options) per process.
-    static CLIENTS: RefCell<HashMap<String, ClientRef>> = RefCell::new(HashMap::new());
+    static CLIENTS: RefCell<HashMap<Vec<u8>, ClientRef>> = RefCell::new(HashMap::new());
 }
 
 /// The client for `key` (created by `make` when absent). A client inherited across fork() is
 /// kept: it resets itself before its next I/O (Client::check_fork), as phongo resets its
 /// persistent clients once per pid.
-pub fn persistent_client(key: &str, make: impl FnOnce() -> Result<Client, Error>) -> Result<ClientRef, Error> {
-    CLIENTS.with(|c| {
-        let mut m = c.borrow_mut();
-        if let Some(cl) = m.get(key) {
-            return Ok(cl.clone());
-        }
-        let cl = Rc::new(RefCell::new(make()?));
-        m.insert(key.to_owned(), cl.clone());
-        Ok(cl)
-    })
+/// The persistent client of a client hash (phongo_find_persistent_client).
+pub fn find_persistent_client(key: &[u8]) -> Option<ClientRef> {
+    CLIENTS.with(|c| c.borrow().get(key).cloned())
+}
+
+/// Registers a persistent client under its hash (phongo_client_register).
+pub fn store_persistent_client(key: Vec<u8>, c: ClientRef) {
+    CLIENTS.with(|m| m.borrow_mut().insert(key, c));
 }
 
 /// MSHUTDOWN (phongo_pclient_destroy_all at GSHUTDOWN): the persistent clients are destroyed.

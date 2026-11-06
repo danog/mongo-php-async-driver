@@ -107,6 +107,11 @@ fn pbkdf2(algo: Algo, password: &[u8], salt: &[u8], iterations: u32, out: &mut [
     }
 }
 
+/// SHA-256 of `data` (also the URI digest of phongo's client hash).
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    Sha256::digest(data).into()
+}
+
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// mcommon_b64_ntop

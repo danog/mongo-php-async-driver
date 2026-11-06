@@ -21,6 +21,8 @@ pub struct Manager {
     pub client: Option<ClientRef>,
     /// the URI string as given (mongoc_uri_get_string), with its secrets redacted
     pub uri_string: String,
+    /// phongo's client hash (the persistent-client key; never shown)
+    pub client_hash: Vec<u8>,
     /// Manager::addSubscriber registrations
     pub subscribers: super::apm::Subscribers,
 }
@@ -87,119 +89,152 @@ pub unsafe fn init_MongoDB_Driver_Manager(c: *mut sys::zend_class_entry) {
     h.get_debug_info = Some(get_debug_info);
 }
 
-fn pct_encode(s: &[u8], out: &mut String) {
-    for &b in s {
-        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
+/// The process-wide handshake data (mongoc_handshake_data_append): libmongoc freezes it when
+/// the first client is created, so the first Manager's "driver" option wins.
+static HANDSHAKE: std::sync::OnceLock<(String, String, String)> = std::sync::OnceLock::new();
+
+/// phongo_concat_handshake_data: "<default> / <custom> " (a trailing space, as phongo builds it).
+fn concat_handshake(default: &str, custom: Option<&[u8]>) -> String {
+    match custom {
+        Some(c) => format!("{default} / {} ", String::from_utf8_lossy(c)),
+        None => format!("{default} "),
     }
 }
 
-/// The value of a uriOptions entry as connection-string text (None: unsupported type).
-unsafe fn option_text(key: &str, z: *mut sys::zval) -> Option<Vec<String>> {
-    let z = zval::deref(z);
-    let mut s = String::new();
-    match zval::type_of(z) as u32 {
-        sys::IS_TRUE => s.push_str("true"),
-        sys::IS_FALSE => s.push_str("false"),
-        sys::IS_LONG => s.push_str(&(*z).value.lval.to_string()),
-        sys::IS_STRING => pct_encode(zval::str_bytes(z), &mut s),
-        sys::IS_ARRAY | sys::IS_OBJECT => {
-            let ht = if zval::is(z, sys::IS_ARRAY) { (*z).value.arr } else { sys::zend_std_get_properties((*z).value.obj) };
-            let pairs = |ht: *mut sys::HashTable, out: &mut String| {
-                let mut first = true;
-                let mut buf = String::new();
-                hash::each(ht, true, |k, v| {
-                    if !first {
-                        out.push(',');
-                    }
-                    first = false;
-                    pct_encode(hash::key_bytes(k, &mut buf), out);
-                    out.push(':');
-                    let v = zval::deref(v);
-                    if zval::is(v, sys::IS_STRING) {
-                        pct_encode(zval::str_bytes(v), out);
-                    } else if zval::type_of(v) as u32 == sys::IS_TRUE {
-                        out.push_str("true");
-                    } else if zval::type_of(v) as u32 == sys::IS_FALSE {
-                        out.push_str("false");
-                    } else if zval::is(v, sys::IS_LONG) {
-                        out.push_str(&(*v).value.lval.to_string());
-                    }
-                    true
-                });
-            };
-            if key.eq_ignore_ascii_case("readpreferencetags") {
-                let mut sets = Vec::new();
-                hash::each(ht, true, |_, set| {
-                    let set = zval::deref(set);
-                    let mut t = String::new();
-                    if zval::is(set, sys::IS_ARRAY) {
-                        pairs((*set).value.arr, &mut t);
-                    } else if zval::is(set, sys::IS_OBJECT) {
-                        pairs(sys::zend_std_get_properties((*set).value.obj), &mut t);
-                    }
-                    sets.push(t);
-                    true
-                });
-                return Some(sets);
-            }
-            if key.eq_ignore_ascii_case("authmechanismproperties") {
-                pairs(ht, &mut s);
-            } else {
+/// phongo_set_handshake_data: the "driver" driver option (name, version, platform strings).
+unsafe fn handshake_data(driver_options: *mut sys::zval) -> Option<(String, String, String)> {
+    let mut parts: [Option<Vec<u8>>; 3] = [None, None, None];
+    if !driver_options.is_null() {
+        if let Some(d) = hash::find((*driver_options).value.arr, b"driver") {
+            let d = zval::deref(d);
+            if !zval::is(d, sys::IS_ARRAY) {
+                throw(E::InvalidArgument, format!("Expected \"driver\" driver option to be an array, {} given", zval::type_name(d)));
                 return None;
             }
+            for (i, k) in ["name", "version", "platform"].iter().enumerate() {
+                if let Some(v) = hash::find((*d).value.arr, k.as_bytes()) {
+                    let v = zval::deref(v);
+                    if !zval::is(v, sys::IS_STRING) {
+                        throw(E::InvalidArgument, format!("Expected \"{k}\" handshake option to be a string, {} given", zval::type_name(v)));
+                        return None;
+                    }
+                    parts[i] = Some(zval::str_bytes(v).to_vec());
+                }
+            }
         }
-        _ => return None,
     }
-    Some(vec![s])
+    let [n, v, p] = parts;
+    Some((concat_handshake("ext-mongodb:PHP", n.as_deref()), concat_handshake(mongo_core::EXT_VERSION, v.as_deref()), concat_handshake(&php_platform(), p.as_deref())))
 }
 
-/// The URI string with `options` appended as query parameters (they override the URI's).
-unsafe fn uri_with_options(uri: &str, options: *mut sys::HashTable) -> Option<String> {
-    let mut q = String::new();
-    let mut ok = true;
-    let mut buf = String::new();
-    hash::each(options, true, |k, v| {
-        let key = match k {
-            hash::Key::Str(_) => String::from_utf8_lossy(hash::key_bytes(k, &mut buf)).into_owned(),
-            _ => return true,
-        };
-        match option_text(&key, v) {
-            Some(vals) => {
-                for val in vals {
-                    if !q.is_empty() {
-                        q.push('&');
-                    }
-                    pct_encode(key.as_bytes(), &mut q);
-                    q.push('=');
-                    q.push_str(&val);
-                }
-                true
-            }
-            None => {
-                throw(E::InvalidArgument, format!("Failed to parse \"{key}\" URI option"));
-                ok = false;
-                false
+/// A shallow copy of `ht` (ZVAL_DUP of an array: the values are shared).
+unsafe fn dup(ht: *mut sys::HashTable) -> *mut sys::HashTable {
+    let out = hash::new(hash::count(ht));
+    hash::each(ht, false, |k, v| {
+        match k {
+            hash::Key::Index(i) => hash::index_update(out, i, zval::copy(v)),
+            k => {
+                let mut buf = String::new();
+                hash::str_update(out, hash::key_bytes(k, &mut buf), zval::copy(v));
             }
         }
+        true
     });
-    if !ok {
+    out
+}
+
+/// phongo_manager_prep_uri_options on a copy (the caller's array is not changed): the
+/// elements of readPreferenceTags become objects (an empty array encodes as an empty
+/// document), and a non-string true CANONICALIZE_HOST_NAME property becomes "true".
+unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
+    let out = dup((*options).value.arr);
+    let mut buf = String::new();
+    let mut updates: Vec<(Vec<u8>, sys::zval)> = Vec::new();
+    hash::each(out, true, |k, v| {
+        let hash::Key::Str(_) = k else { return true };
+        let key = hash::key_bytes(k, &mut buf).to_vec();
+        let v = zval::deref(v);
+        if key.eq_ignore_ascii_case(b"readpreferencetags") && zval::is(v, sys::IS_ARRAY) {
+            let tags = hash::new(hash::count((*v).value.arr));
+            hash::each((*v).value.arr, true, |tk, tv| {
+                let mut c = zval::copy(zval::deref(tv));
+                if zval::is(&c, sys::IS_ARRAY) {
+                    sys::convert_to_object(&mut c);
+                }
+                match tk {
+                    hash::Key::Index(i) => hash::index_update(tags, i, c),
+                    tk => {
+                        let mut b = String::new();
+                        hash::str_update(tags, hash::key_bytes(tk, &mut b), c)
+                    }
+                }
+                true
+            });
+            updates.push((key, zval::arr(tags)));
+        } else if key.eq_ignore_ascii_case(b"authmechanismproperties") && zval::is(v, sys::IS_ARRAY) {
+            let props = dup((*v).value.arr);
+            let mut fix: Vec<Vec<u8>> = Vec::new();
+            hash::each(props, true, |pk, pv| {
+                if let hash::Key::Str(_) = pk {
+                    let mut b = String::new();
+                    let name = hash::key_bytes(pk, &mut b).to_vec();
+                    let pv = zval::deref(pv);
+                    if name.eq_ignore_ascii_case(b"CANONICALIZE_HOST_NAME") && !zval::is(pv, sys::IS_STRING) && sys::zend_is_true(pv) {
+                        fix.push(name);
+                    }
+                }
+                true
+            });
+            for name in fix {
+                hash::str_update(props, &name, zval::string(b"true"));
+            }
+            updates.push((key, zval::arr(props)));
+        }
+        true
+    });
+    for (k, v) in updates {
+        hash::str_update(out, &k, v);
+    }
+    zval::arr(out)
+}
+
+/// phongo_manager_make_client_hash: serialize(['pid' => getpid(), 'uri' => sha256(uri),
+/// 'options' => options, 'driverOptions' => driverOptions]) with an autoEncryption
+/// keyVaultClient Manager replaced by its own hash. None after an exception. The hash holds
+/// the option values (credentials too): it is only ever a lookup key, never shown.
+unsafe fn client_hash(uri_string: &str, options: *mut sys::zval, driver_options: *mut sys::zval) -> Option<Vec<u8>> {
+    let args = hash::new(4);
+    hash::str_update(args, b"pid", zval::long(i64::from(std::process::id())));
+    hash::str_update(args, b"uri", zval::string(&mongo_core::auth::scram::sha256(uri_string.as_bytes())));
+    hash::str_update(args, b"options", if options.is_null() { zval::null() } else { zval::copy(options) });
+    let dopts = if driver_options.is_null() {
+        zval::null()
+    } else {
+        let mut d = zval::copy(driver_options);
+        let kvc = hash::find((*driver_options).value.arr, b"autoEncryption")
+            .map(|a| zval::deref(a))
+            .filter(|a| zval::is(*a, sys::IS_ARRAY))
+            .and_then(|a| hash::find((*a).value.arr, b"keyVaultClient"))
+            .map(|k| zval::deref(k))
+            .filter(|k| zval::is(*k, sys::IS_OBJECT) && obj::instanceof((*(**k).value.obj).ce, CE));
+        if let Some(k) = kvc {
+            let h = obj::data::<Manager>((*k).value.obj).client_hash.clone();
+            let src = hash::find((*driver_options).value.arr, b"autoEncryption").map(|a| zval::deref(a)).expect("checked above");
+            let ae = dup((*src).value.arr);
+            hash::str_update(ae, b"keyVaultClient", zval::string(&h));
+            let dh = dup((*driver_options).value.arr);
+            hash::str_update(dh, b"autoEncryption", zval::arr(ae));
+            d = zval::arr(dh);
+        }
+        d
+    };
+    hash::str_update(args, b"driverOptions", dopts);
+    let mut a = [zval::arr(args)];
+    let r = call::method(null_mut(), c"serialize", &mut a);
+    if call::has_exception() || !zval::is(&r, sys::IS_STRING) {
         return None;
     }
-    if q.is_empty() {
-        return Some(uri.to_owned());
-    }
-    let after = uri.find("://").map_or(0, |p| p + 3);
-    Some(if uri.contains('?') {
-        format!("{uri}&{q}")
-    } else if uri[after..].contains('/') {
-        format!("{uri}?{q}")
-    } else {
-        format!("{uri}/?{q}")
-    })
+    Some(zval::str_bytes(&r).to_vec())
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -210,9 +245,32 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
         return;
     }
     let uri_string = if p.is_null() { URI_DEFAULT.to_owned() } else { String::from_utf8_lossy(std::slice::from_raw_parts(p, l)).into_owned() };
-    let full = if options.is_null() { Some(uri_string.clone()) } else { uri_with_options(&uri_string, (*options).value.arr) };
-    let Some(full) = full else { return };
-    let uri = match Uri::parse(&full) {
+    // the prepared copy of the options is what phongo hashes and encodes
+    let mut prepared = if options.is_null() { None } else { Some(prep_uri_options(options)) };
+    let options: *mut sys::zval = prepared.as_mut().map_or(null_mut(), |z| z as *mut sys::zval);
+    // phongo_manager_init: the hash first; a persistent client found for it is used as is
+    let Some(key) = client_hash(&uri_string, options, driver_options) else { return };
+    let me = obj::data::<Manager>(call::this(ex));
+    me.client_hash = key.clone();
+    // safety: the reference shows the URI as given, password included
+    me.uri_string = mongo_core::uri::redact(&uri_string);
+    let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
+    if !disable_persistence {
+        if let Some(c) = super::find_persistent_client(&key) {
+            super::apm::register_manager(call::this(ex), c.clone());
+            me.client = Some(c);
+            return;
+        }
+    }
+    let doc = if options.is_null() {
+        None
+    } else {
+        match crate::bson::encode::to_bson(options, 0) {
+            Some(d) => Some(d),
+            None => return,
+        }
+    };
+    let mut uri = match Uri::parse(&uri_string) {
         Ok(u) => u,
         Err(e) => {
             // safety: the reference quotes the URI as given, password included
@@ -220,22 +278,26 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
             return;
         }
     };
+    if let Some(d) = &doc {
+        if let Err(m) = super::uri_options::apply(&mut uri, d) {
+            throw(E::InvalidArgument, m);
+            return;
+        }
+    }
     // TLS settings among the driver options request TLS too: no cleartext fallback
     if !driver_options.is_null() && has_tls_driver_option((*driver_options).value.arr) {
         throw(E::InvalidArgument, format!("Failed to parse URI options: {}", mongo_core::client::tls_unavailable().message));
         return;
     }
-    let me = obj::data::<Manager>(call::this(ex));
-    // safety: the reference shows the URI as given, password included
-    me.uri_string = mongo_core::uri::redact(&uri_string);
-    let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
+    let Some(hs) = handshake_data(driver_options) else { return };
+    let hs = HANDSHAKE.get_or_init(|| hs).clone();
     // phongo checks the option after creating the client: a client error comes first
     let api = super::serverapi::from_driver_options(driver_options);
     let make = || {
+        // mongoc_topology_new finalizes the URI again (the options may have changed it)
+        uri.finalize().map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
         let mut s = Settings::from_uri(&uri);
-        s.metadata.driver_name = "ext-mongodb:PHP".into();
-        s.metadata.driver_version = mongo_core::EXT_VERSION.into();
-        s.metadata.platform = php_platform();
+        (s.metadata.driver_name, s.metadata.driver_version, s.metadata.platform) = hs;
         if let Ok(Some(a)) = &api {
             s.hello.api_version = Some(a.version.clone());
             s.hello.api_strict = a.strict;
@@ -252,12 +314,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, _rv: *mu
             }
             return;
         }
-        Ok(_) if disable_persistence => make().map(|c| std::rc::Rc::new(std::cell::RefCell::new(c))),
-        // the persistent-client key covers the server API (phongo hashes all driver options)
-        Ok(a) => super::persistent_client(&format!("{full}\0{a:?}"), make),
+        Ok(_) => make().map(|c| std::rc::Rc::new(std::cell::RefCell::new(c))),
     };
     match r {
         Ok(c) => {
+            if !disable_persistence {
+                super::store_persistent_client(key, c.clone());
+            }
             super::apm::register_manager(call::this(ex), c.clone());
             me.client = Some(c);
         }
