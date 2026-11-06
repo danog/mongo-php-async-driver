@@ -745,6 +745,31 @@ fn mincover(e: &EdgesInfo, sparsity: usize) -> Result<(Vec<String>, i32)> {
     }
 }
 
+/// A copy of `doc` with every value that is not a document or an array replaced by "<redacted>"
+fn redact_values(doc: &[u8]) -> Vec<u8> {
+    fn into(w: &mut Writer, d: &[u8], depth: u32) {
+        let Some(mut it) = Iter::new(d) else { return };
+        while it.next() {
+            match it.value() {
+                Value::Document(x) if depth < 100 => {
+                    let p = w.begin(mongo_core::bson::iter::T_DOCUMENT, it.key());
+                    into(w, x, depth + 1);
+                    w.end(p);
+                }
+                Value::Array(x) if depth < 100 => {
+                    let p = w.begin(mongo_core::bson::iter::T_ARRAY, it.key());
+                    into(w, x, depth + 1);
+                    w.end(p);
+                }
+                _ => w.utf8(it.key(), REDACTED.as_bytes()),
+            }
+        }
+    }
+    let mut w = Writer::with_capacity(doc.len());
+    into(&mut w, doc, 0);
+    w.finish()
+}
+
 /// `mc_getNextPayloadId`: a process-wide counter wrapping to 0 after INT32_MAX
 fn next_payload_id() -> i32 {
     use std::sync::atomic::{AtomicI32, Ordering};
@@ -799,9 +824,10 @@ struct DriverSpec {
 
 /// `mc_FLE2RangeFindDriverSpec_parse`
 fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
-    // libmongocrypt appends the expression as Extended JSON: it holds the plaintext query values,
-    // so only the structural message is kept (safety divergence)
-    let err = |m: String| m;
+    // libmongocrypt appends the expression as Extended JSON: here with every value replaced by
+    // "<redacted>" (the plaintext query values), keeping the structure (safety divergence)
+    let json = mongo_core::bson::json::to_json(&redact_values(input), mongo_core::bson::json::Mode::Canonical, false).unwrap_or_default();
+    let err = |m: String| format!("{m}: {}", String::from_utf8_lossy(&json));
     let mut it = Iter::new(input).ok_or_else(|| err("error unable to find '$and'".into()))?;
     if !it.next() || it.key() != b"$and" {
         return Err(err("error unable to find '$and'".into()));

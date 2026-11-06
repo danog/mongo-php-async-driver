@@ -238,8 +238,35 @@ fn counts_reply(reply: &[u8], fields: &[(&str, &[u8])]) -> Vec<u8> {
 /// The state machine's key vault reads: errors get libmongoc's "key vault error: " prefix
 struct KvIo<'a>(&'a KeyVault);
 
+/// libmongoc's KMS round trip (`_state_need_kms`)
+fn kms_exchange(req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<Error>> {
+    use mongo_core::kms_tls::Phase;
+    use mongo_crypt::engine::KmsFailure;
+    mongo_core::kms_tls::exchange(&req.endpoint, &req.tls, &req.message, done).map_err(|(p, e)| match p {
+        Phase::Connect => KmsFailure::Connect(e),
+        Phase::Write => KmsFailure::Write(e),
+        Phase::Read => KmsFailure::Read(e),
+    })
+}
+
+fn stream_error(msg: String) -> Error {
+    let mut m = msg;
+    mongo_core::bulk::truncate_message(&mut m);
+    Error::new(domain::STREAM, code::STREAM_SOCKET, &m)
+}
+
 impl Io for KvIo<'_> {
     type Error = IoError;
+    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<IoError>> {
+        kms_exchange(req, done).map_err(|f| match f {
+            mongo_crypt::engine::KmsFailure::Connect(e) => mongo_crypt::engine::KmsFailure::Connect((e, None)),
+            mongo_crypt::engine::KmsFailure::Write(e) => mongo_crypt::engine::KmsFailure::Write((e, None)),
+            mongo_crypt::engine::KmsFailure::Read(e) => mongo_crypt::engine::KmsFailure::Read((e, None)),
+        })
+    }
+    fn stream_error(&self, msg: String) -> IoError {
+        (stream_error(msg), None)
+    }
     fn find_keys(&mut self, filter: &[u8]) -> Result<Vec<Vec<u8>>, IoError> {
         unsafe { self.0.find_all(filter.to_vec()) }.map_err(|(mut e, r)| {
             e.message = format!("key vault error: {}", e.message);
@@ -266,6 +293,77 @@ unsafe fn throw_engine(e: &mongo_crypt::engine::Error<IoError>) {
         mongo_crypt::engine::Error::Crypt(m) => throw_crypt(m),
         mongo_crypt::engine::Error::Io(e) => throw_io(e),
     }
+}
+
+
+/// `_mongoc_bson_type_to_str`
+fn bson_type_str(t: u8) -> &'static str {
+    match t {
+        1 => "DOUBLE",
+        2 => "UTF8",
+        3 => "DOCUMENT",
+        4 => "ARRAY",
+        5 => "BINARY",
+        6 => "UNDEFINED",
+        7 => "OID",
+        8 => "BOOL",
+        9 => "DATE_TIME",
+        10 => "NULL",
+        11 => "REGEX",
+        12 => "DBPOINTER",
+        13 => "CODE",
+        14 => "SYMBOL",
+        15 => "CODEWSCOPE",
+        16 => "INT32",
+        17 => "TIMESTAMP",
+        18 => "INT64",
+        19 => "DECIMAL128",
+        0x7f => "MAXKEY",
+        0xff => "MINKEY",
+        _ => "Unknown",
+    }
+}
+
+/// `_parse_all_tls_opts` / `_parse_one_tls_opts` / `_mongoc_ssl_opts_from_bson`: the TLS options per
+/// KMS provider id (Err: libmongoc's CSE INVALID_ENCRYPTION_ARG message)
+fn kms_tls_options(doc: &[u8]) -> Result<Vec<(String, mongo_core::tls::TlsOptions)>, String> {
+    let mut out: Vec<(String, mongo_core::tls::TlsOptions)> = Vec::new();
+    let mut it = Iter::new(doc).ok_or("Error starting iteration of TLS options")?;
+    while it.next() {
+        let key = String::from_utf8_lossy(it.key()).into_owned();
+        let known = matches!(key.as_str(), "aws" | "azure" | "gcp" | "kmip") || key.contains(':');
+        if !known {
+            return Err(format!("Cannot configure TLS options for KMS provider: {key}"));
+        }
+        if out.iter().any(|(k, _)| *k == key) {
+            return Err(format!("Error parsing duplicate TLS options for {key}"));
+        }
+        let Value::Document(d) = it.value() else {
+            return Err(format!("Expected TLS options for {key} to be a document, got: {}", bson_type_str(it.value().type_code())));
+        };
+        let mut o = mongo_core::tls::TlsOptions::default();
+        let mut oi = Iter::new(d).ok_or_else(|| format!("Error iterating into TLS options document for {key}"))?;
+        while oi.next() {
+            let k = String::from_utf8_lossy(oi.key()).into_owned();
+            let kl = k.to_ascii_lowercase();
+            if !matches!(kl.as_str(), "tlscertificatekeyfilepassword" | "tlscertificatekeyfile" | "tlscafile" | "tlsdisableocspendpointcheck") {
+                return Err(format!("Error setting TLS option {k} for {key}. Insecure TLS options prohibited."));
+            }
+            match (kl.as_str(), oi.value()) {
+                ("tlscertificatekeyfile", Value::Utf8(v)) => o.pem_file = Some(String::from_utf8_lossy(v).into_owned()),
+                ("tlscertificatekeyfilepassword", Value::Utf8(v)) => o.pem_pwd = Some(String::from_utf8_lossy(v).into_owned()),
+                ("tlscafile", Value::Utf8(v)) => o.ca_file = Some(String::from_utf8_lossy(v).into_owned()),
+                ("tlsdisableocspendpointcheck", Value::Bool(b)) => o.disable_ocsp_endpoint_check = b,
+                (_, v) => return Err(format!("Error parsing TLS options for {key}: unexpected {} option: {k}", bson_type_str(v.type_code()))),
+            }
+        }
+        out.push((key, o));
+    }
+    Ok(out)
+}
+
+fn throw_tls_arg(m: &str) {
+    unsafe { super::throw_error(&Error::new(domain::CLIENT_SIDE_ENCRYPTION, code::CLIENT_INVALID_ENCRYPTION_ARG, m), None) };
 }
 
 /// php_array_fetchc_string: the option converted to a string
@@ -349,15 +447,24 @@ pub unsafe fn init(ce: &mut ClientEncryption, options: *mut sys::zval, default_k
         super::throw_error(&invalid_arg("KMS providers option required"), None);
         return false;
     };
-    let _ = tls;
-    // _mongoc_crypt_new: mongocrypt_setopt_kms_providers + mongocrypt_init
-    match Crypt::new(&kms, None) {
-        Ok(c) => ce.crypt = Some(Rc::new(c)),
+    // _mongoc_crypt_new: mongocrypt_setopt_kms_providers + mongocrypt_init, then the TLS options
+    let mut crypt = match Crypt::new(&kms, None) {
+        Ok(c) => c,
         Err(m) => {
             throw_crypt(&m);
             return false;
         }
+    };
+    if let Some(t) = &tls {
+        match kms_tls_options(t) {
+            Ok(v) => crypt.tls = v,
+            Err(m) => {
+                throw_tls_arg(&m);
+                return false;
+            }
+        }
     }
+    ce.crypt = Some(Rc::new(crypt));
     ce.kv = Some(KeyVault { client, db, coll });
     ce.kv_manager = zval::copy(&*zval::borrowed_obj(kv_manager));
     ce.kv_namespace = kv_ns.map(|(d, c)| format!("{d}.{c}"));
@@ -565,10 +672,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
     }
     let Some((kv, crypt)) = parts(me(ex)) else { return };
     // _mongoc_crypt_create_datakey
-    let doc = match create_datakey(crypt, &provider, master_key.as_deref(), &alt_names, key_material.as_deref()) {
+    let doc = match create_datakey(crypt, kv, &provider, master_key.as_deref(), &alt_names, key_material.as_deref()) {
         Ok(d) => d,
-        Err(m) => {
-            throw_crypt(&m);
+        Err(e) => {
+            throw_engine(&e);
             return;
         }
     };
@@ -587,7 +694,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
 
 /// _mongoc_crypt_create_datakey: mongocrypt_ctx_setopt_key_encryption_key / key_alt_name /
 /// key_material, mongocrypt_ctx_datakey_init and the state machine
-fn create_datakey(crypt: &Crypt, provider: &[u8], master_key: Option<&[u8]>, alt_names: &[Vec<u8>], key_material: Option<&[u8]>) -> Result<Vec<u8>, String> {
+fn create_datakey(crypt: &Crypt, kv: &KeyVault, provider: &[u8], master_key: Option<&[u8]>, alt_names: &[Vec<u8>], key_material: Option<&[u8]>) -> Result<Vec<u8>, mongo_crypt::engine::Error<IoError>> {
     // {provider: <kms_provider>} + the masterKey fields
     let mut w = Writer::with_capacity(128);
     w.utf8(b"provider", provider);
@@ -600,7 +707,7 @@ fn create_datakey(crypt: &Crypt, provider: &[u8], master_key: Option<&[u8]>, alt
             return Err("duplicate keyAltNames found".into());
         }
     }
-    crypt.data_key_doc(&kek, key_material, alt_names)
+    crypt.data_key_doc(&mut KvIo(kv), &kek, key_material, alt_names)
 }
 
 /// ClientEncryption::deleteKey(Binary $keyId): the deleteOne result
@@ -728,7 +835,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(e
     };
     let mut ops = Vec::new();
     for d in &docs {
-        match crypt.rewrap(d, new_kek.as_ref()) {
+        match crypt.rewrap(&mut KvIo(kv), d, new_kek.as_ref()) {
             Ok((id, set)) => {
                 let mut u = Writer::with_capacity(set.len() + 64);
                 u.document(b"$set", &set);
@@ -737,8 +844,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(e
                 u.end(p);
                 ops.push((id_doc(&id), u.finish()));
             }
-            Err(m) => {
-                throw_crypt(&m);
+            Err(e) => {
+                throw_engine(&e);
                 return;
             }
         }
@@ -930,6 +1037,12 @@ struct CoreIo<'a> {
 
 impl Io for CoreIo<'_> {
     type Error = Error;
+    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<Error>> {
+        kms_exchange(req, done)
+    }
+    fn stream_error(&self, msg: String) -> Error {
+        stream_error(msg)
+    }
     fn find_keys(&mut self, filter: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
         let (db, coll) = (self.db, self.coll);
         let run = |cl: &mut mongo_core::client::Client| {
@@ -1051,13 +1164,22 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
         }
     }
     // _mongoc_crypt_new: the KMS providers, then mongocrypt_init's map checks
-    let crypt = match Crypt::new(&kms, None) {
+    let mut crypt = match Crypt::new(&kms, None) {
         Ok(c) => c,
         Err(msg) => {
             throw_crypt(&msg);
             return None;
         }
     };
+    if let Some(t) = &_tls {
+        match kms_tls_options(t) {
+            Ok(v) => crypt.tls = v,
+            Err(m) => {
+                throw_tls_arg(&m);
+                return None;
+            }
+        }
+    }
     if let (Some(sm), Some(ef)) = (&schema_map, &efc) {
         if let Some(mut it) = Iter::new(sm) {
             while it.next() {

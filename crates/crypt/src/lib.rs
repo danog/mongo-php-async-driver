@@ -9,3 +9,4 @@ pub mod engine;
 pub mod key;
 pub mod fle2;
 pub mod range;
+pub mod kms;

@@ -35,12 +35,37 @@ pub trait Io {
     type Error;
     /// `MONGOCRYPT_CTX_NEED_MONGO_KEYS`: the key vault documents matching `filter` (readConcern majority)
     fn find_keys(&mut self, filter: &[u8]) -> std::result::Result<Vec<Vec<u8>>, Self::Error>;
+    /// `MONGOCRYPT_CTX_NEED_KMS`: one TLS round trip, reading until `done` accepts the bytes read
+    fn kms(&mut self, req: &crate::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> std::result::Result<Vec<u8>, KmsFailure<Self::Error>>;
+    /// A stream error (MONGOC_ERROR_STREAM_SOCKET) with this message
+    fn stream_error(&self, msg: String) -> Self::Error;
+}
+
+/// Where a KMS round trip failed
+pub enum KmsFailure<E> {
+    /// connecting or the TLS handshake (the error is reported as is)
+    Connect(E),
+    Write(E),
+    Read(E),
+}
+
+/// libmongocrypt's `kms_max_attempts`
+const KMS_MAX_ATTEMPTS: u32 = 3;
+
+/// `backoff_time_usec`: exponential backoff with full jitter
+fn backoff(attempts: u32) -> std::time::Duration {
+    let base = 200_000u64;
+    let b = (base << (attempts - 1).min(20)).min(20_000_000);
+    let r = crypto::random_uint64(b).unwrap_or(0);
+    std::time::Duration::from_micros(r + 1)
 }
 
 /// `mongocrypt_t`
 pub struct Crypt {
     pub kms: KmsProviders,
     pub cache: KeyCache,
+    /// the TLS options per KMS provider id ("tlsOptions")
+    pub tls: Vec<(String, mongo_core::tls::TlsOptions)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,7 +84,91 @@ pub enum KeySel {
 impl Crypt {
     pub fn new(kms_providers: &[u8], key_expiration_ms: Option<u64>) -> std::result::Result<Crypt, String> {
         let kms = KmsProviders::parse(kms_providers)?;
-        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)) })
+        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new() })
+    }
+
+    /// The TLS options of a KMS provider (libmongoc's per-kmsid `mongoc_ssl_opt_t`)
+    fn tls_for(&self, kmsid: &str) -> mongo_core::tls::TlsOptions {
+        self.tls.iter().find(|(k, _)| k == kmsid).map(|(_, o)| o.clone()).unwrap_or_default()
+    }
+
+    /// One KMS operation with libmongocrypt's retries: `make` builds the request, `parse` reads the
+    /// complete HTTP response (Err(Some(status)) when the status is retryable)
+    fn kms_call<I: Io>(
+        &self,
+        io: &mut I,
+        req: &crate::kms::KmsRequest,
+        retryable: bool,
+        http_retry: fn(i32) -> bool,
+        parse: &dyn Fn(&crate::kms::Response) -> std::result::Result<Vec<u8>, String>,
+    ) -> Result<Vec<u8>, I::Error> {
+        let mut attempts = 0u32;
+        loop {
+            if attempts > 0 {
+                std::thread::sleep(backoff(attempts));
+            }
+            let mut done = |b: &[u8]| !matches!(crate::kms::parse_response(b), Ok(None));
+            match io.kms(req, &mut done) {
+                Ok(bytes) => {
+                    let r = match crate::kms::parse_response(&bytes)? {
+                        Some(r) => r,
+                        None => return Err("Failed to get response from parser: incomplete response".into()),
+                    };
+                    if retryable && http_retry(r.status) {
+                        if attempts >= KMS_MAX_ATTEMPTS {
+                            return Err(format!("KMS request failed after maximum of {KMS_MAX_ATTEMPTS} retries: {}", crate::kms::non200(r.status, &r.body)).into());
+                        }
+                        attempts += 1;
+                        continue;
+                    }
+                    return Ok(parse(&r)?);
+                }
+                Err(f) => {
+                    // mongocrypt_kms_ctx_fail
+                    let msg = if !retryable {
+                        "KMS request failed due to network error".to_string()
+                    } else if attempts >= KMS_MAX_ATTEMPTS {
+                        format!("KMS request failed after {KMS_MAX_ATTEMPTS} retries due to a network error")
+                    } else {
+                        attempts += 1;
+                        continue;
+                    };
+                    return Err(Error::Io(match f {
+                        KmsFailure::Connect(e) => e,
+                        KmsFailure::Write(_) => io.stream_error(format!("{msg}. Failed to write to KMS stream: {}", req.endpoint)),
+                        KmsFailure::Read(_) => io.stream_error(format!("{msg}. Failed to read from KMS stream to: {}", req.endpoint)),
+                    }));
+                }
+            }
+        }
+    }
+
+    /// AWS KMS Encrypt/Decrypt (`_mongocrypt_kms_ctx_init_aws_*` + `_ctx_done_aws`)
+    fn aws<I: Io>(&self, io: &mut I, kek: &Kek, decrypt: bool, data: &[u8]) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Aws { cmk, region, endpoint } = &kek.provider else {
+            return Err("expected aws kms provider".into());
+        };
+        let Some(crate::opts::Creds::Aws { access_key_id, secret_access_key, session_token }) = self.kms.get(&kek.kmsid) else {
+            return Err(format!("KMS provider `{}` is not configured", kek.kmsid).into());
+        };
+        // the Host header: decryption uses host:port, encryption the host only (as libmongocrypt)
+        let host = endpoint.as_ref().map(|e| if decrypt { e.host_and_port.clone() } else { e.host.clone() });
+        let msg = crate::kms::aws_request(decrypt, data, Some(cmk), region, access_key_id, secret_access_key, session_token.as_deref(), host.as_deref(), &crate::kms::amz_datetime())?;
+        let mut ep = endpoint.as_ref().map_or_else(|| format!("kms.{region}.amazonaws.com"), |e| e.host_and_port.clone());
+        if endpoint.as_ref().is_none_or(|e| e.port.is_none()) {
+            ep.push_str(":443");
+        }
+        let req = crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: ep, message: msg, tls: self.tls_for(&kek.kmsid) };
+        let field = if decrypt { "Plaintext" } else { "CiphertextBlob" };
+        self.kms_call(io, &req, true, |s| [408, 429, 500, 502, 503, 509].contains(&s), &|r| crate::kms::aws_done(r, field))
+    }
+
+    /// The key material of a key document whose KEK is remote
+    fn kms_unwrap<I: Io>(&self, io: &mut I, key: &crate::key::KeyDoc) -> Result<Vec<u8>, I::Error> {
+        match key.kek.kms_type() {
+            crate::opts::KmsType::Aws => self.aws(io, &key.kek, true, &key.key_material),
+            t => Err(format!("the {} KMS provider is not supported by this build yet", t.name()).into()),
+        }
     }
 
     fn fetch<I: Io>(&self, kb: &mut KeyBroker, io: &mut I) -> Result<(), I::Error> {
@@ -70,8 +179,8 @@ impl Crypt {
             }
         }
         kb.docs_done()?;
-        if kb.pending_kms().next().is_some() {
-            return Err(Error::Crypt("remote KMS providers are not supported by this build yet".into()));
+        for (doc, slot) in kb.pending_kms() {
+            *slot = Some(self.kms_unwrap(io, doc)?);
         }
         kb.kms_done()?;
         Ok(())
@@ -158,51 +267,62 @@ impl Crypt {
     }
 
     /// `mongocrypt_ctx_datakey_init` for an already-encrypted key: the key document to insert
-    pub fn data_key_doc(
+    pub fn data_key_doc<I: Io>(
         &self,
+        io: &mut I,
         kek: &Kek,
         key_material: Option<&[u8]>,
         alt_names: &[Vec<u8>],
-    ) -> std::result::Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, I::Error> {
         let material = match key_material {
             Some(m) => {
                 if m.len() != crypto::KEY_LEN {
-                    return Err(format!("keyMaterial should have length {}, but has length {}", crypto::KEY_LEN, m.len()));
+                    return Err(format!("keyMaterial should have length {}, but has length {}", crypto::KEY_LEN, m.len()).into());
                 }
                 m.to_vec()
             }
             None => crypto::random(crypto::KEY_LEN)?,
         };
-        let encrypted = self.wrap(kek, &material)?;
-        key_document(kek, &encrypted, alt_names)
+        let encrypted = self.wrap(io, kek, &material)?;
+        Ok(key_document(kek, &encrypted, alt_names)?)
     }
 
     /// The datakey context's KMS step: `material` encrypted with `kek`
-    fn wrap(&self, kek: &Kek, material: &[u8]) -> std::result::Result<Vec<u8>, String> {
+    fn wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<Vec<u8>, I::Error> {
         match self.kms.get(&kek.kmsid) {
-            Some(crate::opts::Creds::Local { key }) => crypto::wrap_key(key, material),
-            Some(_) => Err("remote KMS providers are not supported by this build yet".into()),
+            Some(crate::opts::Creds::Local { key }) => Ok(crypto::wrap_key(key, material)?),
+            Some(crate::opts::Creds::Aws { .. }) => {
+                let e = self.aws(io, kek, false, material)?;
+                if e.len() < crypto::KEY_LEN {
+                    return Err("key material not expected length".into());
+                }
+                Ok(e)
+            }
+            Some(_) => Err(format!("the {} KMS provider is not supported by this build yet", kek.kms_type().name()).into()),
             None if self.kms.need_credentials.contains(&kek.kms_type()) && !kek.kmsid.contains(':') => {
                 Err("on-demand KMS credentials are not supported by this build yet".into())
             }
-            None => Err(format!("requested kms provider required by datakey is not configured: `{}`", kek.kmsid)),
+            None => Err(format!("requested kms provider required by datakey is not configured: `{}`", kek.kmsid).into()),
         }
     }
 
     /// `mongocrypt_ctx_rewrap_many_datakey_init` for one key document: its id and the
     /// `{masterKey, keyMaterial}` to `$set` (re-encrypted with `new_kek`, or with its own KEK)
-    pub fn rewrap(&self, doc: &[u8], new_kek: Option<&Kek>) -> std::result::Result<([u8; 16], Vec<u8>), String> {
+    pub fn rewrap<I: Io>(&self, io: &mut I, doc: &[u8], new_kek: Option<&Kek>) -> Result<([u8; 16], Vec<u8>), I::Error> {
         let key = crate::key::KeyDoc::parse(doc)?;
         let material = match self.kms.get(&key.kek.kmsid) {
-            None => return Err(format!("KMS provider `{}` is not configured", key.kek.kmsid)),
+            None => return Err(format!("KMS provider `{}` is not configured", key.kek.kmsid).into()),
             Some(crate::opts::Creds::Local { key: kek }) => crypto::unwrap_key(kek, &key.key_material)?,
-            Some(_) => return Err("remote KMS providers are not supported by this build yet".into()),
+            Some(_) => self.kms_unwrap(io, &key)?,
         };
+        if material.len() != crypto::KEY_LEN {
+            return Err("decrypted key is incorrect length".into());
+        }
         let kek = new_kek.unwrap_or(&key.kek);
-        let encrypted = self.wrap(kek, &material)?;
+        let encrypted = self.wrap(io, kek, &material)?;
         let mut w = Writer::with_capacity(256);
         let p = w.begin(T_DOCUMENT, b"masterKey");
-        kek.append(&mut w)?;
+        kek.append(&mut w).map_err(Error::Crypt)?;
         w.end(p);
         w.binary(b"keyMaterial", 0, &encrypted);
         Ok((key.id, w.finish()))

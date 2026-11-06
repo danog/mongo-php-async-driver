@@ -4,7 +4,7 @@ ClientEncryption: range errors never show the plaintext values being encrypted
 Local test (not upstream). libmongocrypt's range errors print the value being encrypted, the
 query bounds (and their order-preserving encodings) and, for encryptExpression, the whole
 expression as Extended JSON: what the application meant to protect would end up in exception
-messages and logs. Here those values read "<redacted>" and the expression is not appended; the
+messages and logs. Here those values read "<redacted>" (also in the appended expression); the
 configured index bounds and the structure (operators, types, field names) are kept. Listed in
 DIVERGENCES.md (permanent, for safety).
 --SKIPIF--
@@ -42,7 +42,7 @@ Value must be greater than or equal to the minimum value and less than or equal 
 bool(false)
 Lower bound (<redacted>) must be less than or equal to the range maximum (200)
 bool(false)
-unsupported operator: $foo
+unsupported operator: $foo: { "$and" : [ { "age" : { "$foo" : "<redacted>" } } ] }
 bool(false)
 Lower bound (<redacted>) must be less than the range maximum (200) if lower bound is excluded from range
 bool(false)

@@ -25,6 +25,7 @@ pub mod dns;
 pub mod error;
 pub mod handshake;
 pub mod http;
+pub mod kms_tls;
 pub mod log;
 pub mod net;
 pub mod ocsp;

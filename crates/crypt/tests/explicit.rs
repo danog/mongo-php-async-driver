@@ -11,6 +11,10 @@ struct Vault {
 
 impl Io for Vault {
     type Error = ();
+    fn kms(&mut self, _r: &mongo_crypt::kms::KmsRequest, _d: &mut dyn FnMut(&[u8]) -> bool) -> Result<Vec<u8>, mongo_crypt::engine::KmsFailure<()>> {
+        unreachable!("local KMS only")
+    }
+    fn stream_error(&self, _m: String) {}
     fn find_keys(&mut self, _filter: &[u8]) -> Result<Vec<Vec<u8>>, ()> {
         self.finds += 1;
         Ok(self.keys.clone())
@@ -49,7 +53,7 @@ fn key_id(doc: &[u8]) -> [u8; 16] {
 #[test]
 fn local_roundtrip() {
     let crypt = Crypt::new(&kms(), None).unwrap();
-    let doc = crypt.data_key_doc(&local_kek(), None, &[b"name".to_vec()]).unwrap();
+    let doc = crypt.data_key_doc(&mut Vault { keys: vec![], finds: 0 }, &local_kek(), None, &[b"name".to_vec()]).unwrap();
     let id = key_id(&doc);
     let mut vault = Vault { keys: vec![doc], finds: 0 };
     let value = v(|w| w.utf8(b"v", b"hello"));
