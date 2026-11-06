@@ -786,8 +786,58 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
     if let Some(z) = opt(options, b"queryType") {
         o.query_type = Some(zstr::c_part(&fetch_string(z)).to_vec());
     }
-    if opt(options, b"rangeOpts").is_some() || opt(options, b"stringOpts").is_some() {
-        throw_crypt("Queryable Encryption's range and string algorithms are not supported by this build yet");
+    if let Some(r) = opt(options, b"rangeOpts") {
+        // phongo_clientencryption_encrypt_range_opts_from_zval + append_bson_range_opts
+        let (mut min, mut max, mut precision, mut sparsity, mut trim) = (None, None, None, None, None);
+        if zval::is(r, sys::IS_ARRAY) {
+            if let Some(z) = opt(r, b"trimFactor") {
+                let v = sys::zval_get_long_func(z, false);
+                if !(0..=i32::MAX as i64).contains(&v) {
+                    throw(E::InvalidArgument, format!("Expected \"trimFactor\" range option to be a positive 32-bit integer, {v} given"));
+                    return None;
+                }
+                trim = Some(v as i32);
+            }
+            if let Some(z) = opt(r, b"sparsity") {
+                let v = sys::zval_get_long_func(z, false);
+                if v < 0 {
+                    throw(E::InvalidArgument, format!("Expected \"sparsity\" range option to be a positive 64-bit integer, {v} given"));
+                    return None;
+                }
+                sparsity = Some(v);
+            }
+            if let Some(z) = opt(r, b"precision") {
+                let v = sys::zval_get_long_func(z, false);
+                if !(0..=i32::MAX as i64).contains(&v) {
+                    throw(E::InvalidArgument, format!("Expected \"precision\" range option to be a positive 32-bit integer, {v} given"));
+                    return None;
+                }
+                precision = Some(v as i32);
+            }
+            if let Some(z) = opt(r, b"min") {
+                min = Some(encode::to_bson_value_doc(z, b"min")?);
+            }
+            if let Some(z) = opt(r, b"max") {
+                max = Some(encode::to_bson_value_doc(z, b"max")?);
+            }
+        }
+        let mut w = Writer::with_capacity(96);
+        for d in [&min, &max].into_iter().flatten() {
+            w.concat(d);
+        }
+        if let Some(p) = precision {
+            w.int32(b"precision", p);
+        }
+        if let Some(sp) = sparsity {
+            w.int64(b"sparsity", sp);
+        }
+        if let Some(t) = trim {
+            w.int32(b"trimFactor", t);
+        }
+        o.range_opts = Some(w.finish());
+    }
+    if opt(options, b"stringOpts").is_some() {
+        throw_crypt("Queryable Encryption's string algorithm is not supported by this build yet");
         return None;
     }
     Some(o)

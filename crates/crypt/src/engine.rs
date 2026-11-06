@@ -448,6 +448,7 @@ struct Checked {
     fle1: Option<Fle1Algorithm>,
     index_type: Option<IndexType>,
     query_type: Option<QueryType>,
+    range: Option<crate::range::RangeOpts>,
     key: KeySel,
 }
 
@@ -468,6 +469,11 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
         "textpreview" => return Err("Algorithm 'textPreview' is deprecated, please use 'string'".into()),
         _ => return Err(format!("unsupported algorithm string \"{}\"", String::from_utf8_lossy(algo))),
     }
+    // mongocrypt_ctx_setopt_algorithm_range
+    let range = match &o.range_opts {
+        Some(r) => Some(crate::range::RangeOpts::parse(r)?),
+        None => None,
+    };
     // mongocrypt_ctx_setopt_query_type
     let query_type = match &o.query_type {
         None => None,
@@ -577,7 +583,7 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     if expression && !is_range_query {
         return Err("EncryptExpression may only be used for range queries.".into());
     }
-    Ok(Checked { fle1, index_type, query_type, key })
+    Ok(Checked { fle1, index_type, query_type, range, key })
 }
 
 impl Crypt {
@@ -589,6 +595,10 @@ impl Crypt {
             (None, Some(t @ (IndexType::None | IndexType::Equality))) => {
                 let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
                 self.encrypt_fle2(io, value, &key_id, t, c.query_type, o.contention_factor.unwrap_or(0))
+            }
+            (None, Some(IndexType::Range)) if c.query_type.is_none() => {
+                let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
+                self.encrypt_range(io, value, &key_id, c.range.as_ref().expect("checked: range opts are required"), o.contention_factor.unwrap_or(0))
             }
             _ => Err("Queryable Encryption's range and string algorithms are not supported by this build yet".into()),
         }
@@ -623,6 +633,29 @@ impl Crypt {
                 out.extend(crate::fle2::insert_update_payload(key_id, &key, key_id, &key, value_type, plaintext, k)?);
             }
         }
+        Ok(out)
+    }
+
+    /// `_fle2_finalize_explicit` for a range insert: FLE2InsertUpdatePayloadV2 with edges
+    fn encrypt_range<I: Io>(&self, io: &mut I, value: &[u8], key_id: &[u8; 16], ro: &crate::range::RangeOpts, cf: i64) -> Result<Vec<u8>, I::Error> {
+        let mut it = Iter::new(value).ok_or("unable to convert input to BSON")?;
+        if !it.find(b"v") {
+            return Err("Error making FLE2RangeInsertSpec: Unable to find 'v' in input".into());
+        }
+        permitted_for_encryption(&it.value(), Fle1Algorithm::Random)?;
+        let v = {
+            let mut w = Writer::with_capacity(32);
+            w.element_from(Some(b""), &it);
+            crate::range::Val { t: it.value().type_code(), elem: w.finish() }
+        };
+        let spec = ro.insert_spec(&v)?;
+        let mut kb = KeyBroker::new(&self.kms, &self.cache);
+        kb.request_id(key_id);
+        self.fetch(&mut kb, io)?;
+        let key = kb.key_by_id(key_id).map_err(|_| "unable to retrieve key")?;
+        let k = if cf > 0 { crypto::random_int64(cf + 1)? } else { 0 };
+        let mut out = vec![crate::fle2::SUBTYPE_IUP_V2];
+        out.extend(crate::range::insert_payload(key_id, &key, &spec, value_bytes(&it), ro.sparsity, k)?);
         Ok(out)
     }
 
