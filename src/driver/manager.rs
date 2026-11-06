@@ -848,16 +848,17 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
         return;
     }
     let Some(c) = client_of(ex) else { return };
-    let rp = if rp.is_null() {
-        client_read_preference(&c.shared().uri)
+    // phongo_manager_select_server(for_writes=false, inherit_read_preference=false): without
+    // an argument, NULL read prefs (primary), not the client's read preference
+    let prefs = if rp.is_null() {
+        None
     } else if zval::is(rp, sys::IS_OBJECT) && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE) {
-        obj::data::<ReadPreference>((*rp).value.obj).clone()
+        Some(obj::data::<ReadPreference>((*rp).value.obj).prefs())
     } else {
         sys::zend_argument_type_error(1, c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(), sys::zend_zval_value_name(rp));
         return;
     };
-    let prefs = rp.prefs();
-    let r = c.checkout().select_server_id(OpType::Read, Some(&prefs), &[]);
+    let r = c.checkout().select_server_id(OpType::Read, prefs.as_ref(), &[]);
     super::apm::flush(&c);
     match r {
         Ok((id, _)) => zval::write(rv, super::server::new_server(c, id, call::this(ex))),
