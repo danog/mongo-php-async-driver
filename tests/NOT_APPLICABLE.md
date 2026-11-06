@@ -87,7 +87,7 @@ builds, with the same messages. Counts at the time of the 2.5.1 baseline:
 
 Ported (as each phase lands): BSON corpus, URI options, connection string, auth (connection
 string part), server selection, max staleness, SDAM (single-threaded semantics), initial DNS
-seedlist (needs the public test DNS records), retryable reads/writes (through PHPLIB's unified
+seedlist (needs the public test DNS records: `MONGO_CORE_DNS_TESTS=1`; seeds, options and errors are checked, not `hosts`/`numHosts`/`ping`, which need the specification's replica set on localhost:27017-27019, outside the ports these suites use), retryable reads/writes (through PHPLIB's unified
 runner rather than in Rust), SCRAM, compression and wire framing unit tests.
 
 Not applicable:

@@ -266,8 +266,22 @@ unsafe fn client_hash(uri_string: &str, options: *mut sys::zval, driver_options:
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, rv: *mut sys::zval) {
     construct(ex, rv);
-    // the constructor's messages, before its exception (if any) propagates
+    // the constructor's messages reach the subscribers before its exception propagates (phongo
+    // logs while it constructs, then throws): the exception is set aside while they run, and
+    // one a subscriber throws becomes its previous exception, as phongo's would chain
+    let g = std::ptr::addr_of_mut!(sys::executor_globals);
+    let pending = (*g).exception;
+    if pending.is_null() {
+        super::log::flush();
+        return;
+    }
+    (*g).exception = null_mut();
     super::log::flush();
+    let thrown = (*g).exception;
+    if !thrown.is_null() {
+        sys::zend_exception_set_previous(pending, thrown);
+    }
+    (*g).exception = pending;
 }
 
 /// The URI warnings libmongoc logs while parsing or changing the URI (MONGOC_WARNING).
@@ -363,10 +377,17 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     // phongo checks the option after creating the client: a client error comes first
     let api = super::serverapi::from_driver_options(driver_options);
     let make = || {
-        // mongoc_topology_new finalizes the URI again (the options may have changed it)
+        // the URI with the options applied is finalized (its errors come first), then
+        // mongoc_topology_new adds the SRV seed list and TXT options and finalizes it again
         let r = uri.finalize();
         log_uri_warnings(&mut uri);
         r.map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
+        let srv = mongo_core::srv::initial(&mut uri)?;
+        if srv.is_some() {
+            let r = uri.finalize();
+            log_uri_warnings(&mut uri);
+            r.map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
+        }
         let mut s = Settings::from_uri(&uri);
         if ca_dir.is_some() || crl_file.is_some() {
             let t = s.tls.get_or_insert_with(|| mongo_core::tls::TlsOptions::from_uri(&uri));
@@ -379,7 +400,9 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
             s.hello.api_strict = a.strict;
             s.hello.api_deprecation_errors = a.deprecation_errors;
         }
-        Client::new(uri, s)
+        let mut c = Client::new(uri, s)?;
+        c.srv = srv;
+        Ok::<Client, Error>(c)
     };
     // phongo_manager_set_auto_encryption_opts of a build without libmongocrypt: refused, so that
     // nothing is ever written unencrypted when automatic encryption was asked for

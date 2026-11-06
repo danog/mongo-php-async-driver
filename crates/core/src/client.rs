@@ -110,6 +110,8 @@ pub struct Client {
     /// The TLS configuration (_mongoc_openssl_ctx_new at client creation; its error fails
     /// every connection)
     tls: Option<Result<std::sync::Arc<rustls::ClientConfig>, Error>>,
+    /// SRV polling of a mongodb+srv:// client (crate::srv::initial's result)
+    pub srv: Option<crate::srv::Polling>,
 }
 
 
@@ -141,10 +143,13 @@ impl Client {
     /// mongoc_client_new_from_uri_with_error. Fails when the URI requests TLS: the TLS
     /// transport is not implemented yet.
     pub fn new(uri: Uri, settings: Settings) -> Result<Self, Error> {
-        detect_nongenuine_hosts(&uri);
+        // an SRV URI's host name is checked before its lookup (crate::srv::initial)
+        if uri.srv.is_none() {
+            detect_nongenuine_hosts(&uri);
+        }
         let tls = settings.tls.as_ref().map(crate::tls::client_config);
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, tls };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, tls, srv: None };
         c.reconcile_nodes();
         Ok(c)
     }
@@ -320,6 +325,16 @@ impl Client {
     /// scans.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
         self.check_fork();
+        // mongoc_topology_should_rescan_srv / mongoc_topology_rescan_srv: before the scan
+        if let Some(mut p) = self.srv {
+            if matches!(self.td.ty, TopologyType::Sharded | TopologyType::Unknown) {
+                if let Some(hosts) = crate::srv::rescan(&self.uri, &mut p, self.td.heartbeat_msec) {
+                    let hosts = self.td.srv_order(&hosts);
+                    self.td.reconcile(&hosts);
+                }
+                self.srv = Some(p);
+            }
+        }
         self.reconcile_nodes();
         let now = monotonic_usec();
         let mut queue: std::collections::VecDeque<u32> = self.nodes.iter().filter(|n| !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))).map(|n| n.id).collect();
@@ -706,7 +721,7 @@ fn detect_nongenuine_host(host: &str) -> bool {
 }
 
 /// _detect_nongenuine_hosts: the SRV name, else the hosts until one matches.
-fn detect_nongenuine_hosts(uri: &Uri) {
+pub fn detect_nongenuine_hosts(uri: &Uri) {
     if !crate::log::enabled(crate::log::Level::Info) {
         return;
     }

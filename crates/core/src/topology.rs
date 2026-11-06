@@ -199,6 +199,19 @@ impl TopologyDescription {
         v
     }
 
+    /// _mongoc_apply_srv_max_hosts without the limit (SRV polling): every host, in random order
+    /// when srvMaxHosts applies (fewer than the hosts).
+    pub fn srv_order(&mut self, hosts: &[String]) -> Vec<String> {
+        let mut v = hosts.to_vec();
+        if self.max_hosts > 0 && (self.max_hosts as usize) < v.len() {
+            for i in (1..v.len()).rev() {
+                let j = rand_simple(&mut self.rand_seed) as usize % (i + 1);
+                v.swap(i, j);
+            }
+        }
+        v
+    }
+
     /// _mongoc_topology_description_monitor_opening: TopologyOpening, the initial
     /// TopologyChanged and ServerOpening for every server, once; a load-balanced topology's one
     /// server becomes a LoadBalancer.
