@@ -205,18 +205,21 @@ impl Crypt {
                 (tenant_id, client_id, client_secret, identity_platform_endpoint)
             }
         };
-        if let Some(t) = self.cached_token(kmsid) {
+        // cached per provider and scope: a token is only sent to the Key Vault domain it was
+        // requested for (libmongocrypt caches per provider only; safety divergence)
+        let scope = format!("https%3A%2F%2F{}%2F.default", key_vault.domain);
+        let cache_key = format!("{kmsid}\n{scope}");
+        if let Some(t) = self.cached_token(&cache_key) {
             return Ok(t);
         }
         let (endpoint, host) = match ipe {
             Some(e) => (with_default_port(e, 443), e.host.clone()),
             None => ("login.microsoftonline.com:443".to_string(), "login.microsoftonline.com".to_string()),
         };
-        let scope = format!("https%3A%2F%2F{}%2F.default", key_vault.domain);
         let msg = crate::kms::azure_oauth_request(&host, &scope, tenant_id, client_id, client_secret)?;
         let req = crate::kms::KmsRequest { kmsid: kmsid.to_string(), endpoint, message: msg, tls: self.tls_for(kmsid) };
         let (token, ttl) = self.kms_call(io, &req, true, azure_retry, &crate::kms::oauth_done)?;
-        self.cache_token(kmsid, token.clone(), ttl);
+        self.cache_token(&cache_key, token.clone(), ttl);
         Ok(token)
     }
 
