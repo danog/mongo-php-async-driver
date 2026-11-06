@@ -747,6 +747,20 @@ fn traverse(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), Str
     Ok(())
 }
 
+/// `_mongocrypt_traverse_binary_in_bson` with TRAVERSE_MATCH_SUBTYPE6: every binary of subtype 6
+pub fn traverse_subtype6(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), String>) -> std::result::Result<(), String> {
+    let mut it = Iter::new(doc).ok_or("malformed bson")?;
+    while it.next() {
+        match it.value() {
+            Value::Binary(SUBTYPE_ENCRYPTED, b) => cb(b)?,
+            Value::Document(d) => traverse_subtype6(d, cb).map_err(|e| if e == "malformed bson" { "error recursing into document".into() } else { e })?,
+            Value::Array(d) => traverse_subtype6(d, cb).map_err(|e| if e == "malformed bson" { "error recursing into array".into() } else { e })?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// `_mongocrypt_transform_binary_in_bson`: a copy with every matching binary replaced by `cb`'s value
 /// (a `wrap_value` document)
 fn transform(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<Vec<u8>, String>) -> std::result::Result<Vec<u8>, String> {
