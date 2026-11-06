@@ -22,6 +22,16 @@ thread_local! {
     static GLOBAL: RefCell<Subscribers> = const { RefCell::new(Vec::new()) };
     /// MONGODB_G(managers): live Manager objects in creation order, with their client
     static MANAGERS: RefCell<Vec<(*mut sys::zend_object, ClientRef)>> = const { RefCell::new(Vec::new()) };
+    /// > 0 while the GC frees garbage (see `super::free_obj`): no subscriber is called
+    static QUIET: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Runs `f` with event dispatch suspended (the events stay queued for the next flush).
+pub fn quiet<R>(f: impl FnOnce() -> R) -> R {
+    QUIET.with(|q| q.set(q.get() + 1));
+    let r = f();
+    QUIET.with(|q| q.set(q.get() - 1));
+    r
 }
 
 unsafe fn ce(n: &CStr) -> *mut sys::zend_class_entry {
@@ -115,7 +125,8 @@ unsafe fn subscribers_for(c: &ClientRef, of: *mut sys::zend_class_entry) -> Vec<
     let mut out = Vec::new();
     let mut take = |list: &Subscribers| {
         for (h, z) in list {
-            if zval::is(z, sys::IS_OBJECT) && obj::instanceof((*z.value.obj).ce, of) && !seen.contains(h) {
+            // a subscriber the GC has freed (or is freeing) is never called
+            if zval::is(z, sys::IS_OBJECT) && obj::is_live(z.value.obj) && obj::instanceof((*z.value.obj).ce, of) && !seen.contains(h) {
                 seen.push(*h);
                 out.push(zval::copy(z));
             }
@@ -131,6 +142,9 @@ unsafe fn subscribers_for(c: &ClientRef, of: *mut sys::zend_class_entry) -> Vec<
 
 /// Dispatches the client's queued events.
 pub unsafe fn flush(c: &ClientRef) {
+    if QUIET.with(|q| q.get()) > 0 {
+        return;
+    }
     let events = match c.try_borrow_mut() {
         Ok(mut cl) if !cl.td.events.0.is_empty() => cl.take_events(),
         _ => return,

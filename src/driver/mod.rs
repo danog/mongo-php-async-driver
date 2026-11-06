@@ -63,6 +63,49 @@ pub fn destroy_persistent_clients() {
     }
 }
 
+/// phongo's `zval manager` of a Server, Cursor, Session or WriteResult: an owned reference to
+/// the Manager object, so the Manager (its subscribers, a disableClientPersistence client)
+/// lives as long as the objects created from it. The objects keep their own client reference
+/// for I/O: the Manager's state is never read through this (the GC may free a cycle's Manager
+/// before the objects that hold it).
+#[derive(Default)]
+pub struct ManagerRef(sys::zval);
+
+impl ManagerRef {
+    /// A reference to the Manager object `m` (none for null).
+    pub unsafe fn new(m: *mut sys::zend_object) -> ManagerRef {
+        if m.is_null() {
+            return ManagerRef::default();
+        }
+        ManagerRef(zval::copy(&*zval::borrowed_obj(m)))
+    }
+
+    /// The Manager object (null: none).
+    pub fn obj(&self) -> *mut sys::zend_object {
+        if unsafe { zval::is(&self.0, sys::IS_OBJECT) } {
+            unsafe { self.0.value.obj }
+        } else {
+            std::ptr::null_mut()
+        }
+    }
+
+    /// The zval, for get_gc.
+    pub fn gc(&mut self) -> *mut sys::zval {
+        &mut self.0
+    }
+}
+
+/// free_obj of the classes whose destruction may notify subscribers (Manager, Cursor,
+/// Session): when the GC frees the object as garbage, subscribers are not called (they may
+/// be garbage of the same cycle, about to be freed); the events stay queued.
+pub unsafe extern "C" fn free_obj<T>(o: *mut sys::zend_object) {
+    if crate::zend::obj::freed_by_gc(o) {
+        apm::quiet(|| crate::zend::obj::free::<T>(o));
+    } else {
+        crate::zend::obj::free::<T>(o);
+    }
+}
+
 /// Whether `c` is one of the persistent clients.
 pub fn is_persistent(c: &ClientRef) -> bool {
     CLIENTS.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, c)))

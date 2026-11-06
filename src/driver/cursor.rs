@@ -68,6 +68,9 @@ pub struct Cursor {
     pub zquery: sys::zval,
     pub zcommand: sys::zval,
     pub zread_preference: sys::zval,
+    /// the Manager it came from (phongo_cursor_t.manager); declared last: released after the
+    /// cursor is killed and its events delivered
+    pub manager: super::ManagerRef,
 }
 
 impl Default for Cursor {
@@ -100,6 +103,7 @@ impl Default for Cursor {
             zquery: zval::undef(),
             zcommand: zval::undef(),
             zread_preference: zval::undef(),
+            manager: super::ManagerRef::default(),
         }
     }
 }
@@ -141,9 +145,17 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
     obj::alloc(c, Cursor::default(), addr_of_mut!(H_CURSOR))
 }
 
-/// A Cursor object holding `c`.
-pub unsafe fn new_cursor(c: Cursor) -> sys::zval {
+/// A Cursor object holding `c`, of the Manager object `manager`.
+pub unsafe fn new_cursor(mut c: Cursor, manager: *mut sys::zend_object) -> sys::zval {
+    c.manager = super::ManagerRef::new(manager);
     zval::obj(obj::alloc(CE, c, addr_of_mut!(H_CURSOR)))
+}
+
+/// The PHP values it holds, for the GC.
+unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+    let c = obj::data::<Cursor>(o);
+    let extra: [*mut sys::zval; 6] = [&mut c.zchild, &mut c.session, &mut c.zquery, &mut c.zcommand, &mut c.zread_preference, c.manager.gc()];
+    obj::get_gc_with(o, table, n, extra)
 }
 
 /// phongo_cursor_get_debug_info
@@ -163,7 +175,7 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
     hash::str_update(ht, b"isDead", zval::bool(!c.more()));
     hash::str_update(ht, b"currentIndex", zval::long(c.current));
     hash::str_update(ht, b"currentDocument", opt_zval(&c.zchild));
-    hash::str_update(ht, b"server", c.client.as_ref().map_or_else(zval::null, |cl| super::server::new_server(cl.clone(), c.server_id)));
+    hash::str_update(ht, b"server", c.client.as_ref().map_or_else(zval::null, |cl| super::server::new_server(cl.clone(), c.server_id, c.manager.obj())));
     ht
 }
 
@@ -172,6 +184,8 @@ pub unsafe fn init_MongoDB_Driver_Cursor(c: *mut sys::zend_class_entry) {
     (*c).__bindgen_anon_2.create_object = Some(create);
     let h = obj::handlers::<Cursor>(addr_of_mut!(H_CURSOR));
     h.get_debug_info = Some(get_debug_info);
+    h.get_gc = Some(get_gc);
+    h.free_obj = Some(super::free_obj::<Cursor>);
 }
 
 fn find<'a>(d: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
@@ -566,7 +580,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_getServer(ex: Ex, rv: *mut sy
     if call::none(ex) {
         let c = me(ex);
         if let Some(cl) = &c.client {
-            zval::write(rv, super::server::new_server(cl.clone(), c.server_id));
+            zval::write(rv, super::server::new_server(cl.clone(), c.server_id, c.manager.obj()));
         }
     }
 }

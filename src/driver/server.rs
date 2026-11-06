@@ -12,6 +12,8 @@ use std::ptr::{addr_of_mut, null_mut};
 pub struct Server {
     pub client: Option<ClientRef>,
     pub server_id: u32,
+    /// the Manager it came from (phongo_server_t.manager); released last
+    pub manager: super::ManagerRef,
 }
 
 static mut H_SERVER: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
@@ -141,10 +143,17 @@ pub unsafe fn init_MongoDB_Driver_Server(c: *mut sys::zend_class_entry) {
     let h = obj::handlers::<Server>(addr_of_mut!(H_SERVER));
     h.compare = Some(compare);
     h.get_debug_info = Some(get_debug_info);
+    h.get_gc = Some(get_gc);
 }
 
-pub unsafe fn new_server(client: ClientRef, server_id: u32) -> sys::zval {
-    zval::obj(obj::alloc(CE, Server { client: Some(client), server_id }, addr_of_mut!(H_SERVER)))
+unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+    let s = obj::data::<Server>(o);
+    obj::get_gc_with(o, table, n, [s.manager.gc()])
+}
+
+/// phongo_server_init: a Server of the Manager object `manager`.
+pub unsafe fn new_server(client: ClientRef, server_id: u32, manager: *mut sys::zend_object) -> sys::zval {
+    zval::obj(obj::alloc(CE, Server { client: Some(client), server_id, manager: super::ManagerRef::new(manager) }, addr_of_mut!(H_SERVER)))
 }
 
 #[inline]
@@ -264,7 +273,7 @@ macro_rules! exec {
         pub unsafe extern "C" fn $f(ex: Ex, rv: *mut sys::zval) {
             let s = me(ex);
             let Some(c) = s.client.clone() else { return };
-            super::manager::execute_command_args(ex, rv, c, $ty, Some(s.server_id));
+            super::manager::execute_command_args(ex, rv, c, $ty, Some(s.server_id), s.manager.obj());
         }
     };
 }
@@ -276,11 +285,11 @@ exec!(zim_MongoDB_Driver_Server_executeReadWriteCommand, super::manager::CmdType
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWrite(ex: Ex, rv: *mut sys::zval) {
     let s = me(ex);
     let Some(c) = s.client.clone() else { return };
-    super::manager::execute_bulk_write(ex, rv, c, Some(s.server_id));
+    super::manager::execute_bulk_write(ex, rv, c, Some(s.server_id), s.manager.obj());
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeQuery(ex: Ex, rv: *mut sys::zval) {
     let s = me(ex);
     let Some(c) = s.client.clone() else { return };
-    super::manager::execute_query(ex, rv, c, Some(s.server_id));
+    super::manager::execute_query(ex, rv, c, Some(s.server_id), s.manager.obj());
 }

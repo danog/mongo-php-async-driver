@@ -48,6 +48,48 @@ pub unsafe extern "C" fn free<T>(o: *mut sys::zend_object) {
     std::ptr::drop_in_place(data::<T>(o) as *mut T);
 }
 
+/// Whether the object being freed is garbage freed by the cycle collector (zend_gc_collect_cycles
+/// sets GC_NULL as its type just before free_obj; nothing else frees an object typed so).
+#[inline]
+pub unsafe fn freed_by_gc(o: *mut sys::zend_object) -> bool {
+    (*o).gc.u.type_info & 0xf != sys::IS_OBJECT
+}
+
+/// Whether `o` is a live object (not freed, nor garbage being freed by the GC).
+#[inline]
+pub unsafe fn is_live(o: *mut sys::zend_object) -> bool {
+    !freed_by_gc(o) && (*o).gc.u.type_info & sys::IS_OBJ_FREE_CALLED == 0
+}
+
+/// get_gc for objects holding PHP values outside their properties: the declared properties
+/// (or the properties table) as zend_std_get_gc gives them, plus `extra`, through the
+/// request's GC buffer (zend_get_gc_buffer_create/add_zval/use).
+pub unsafe fn get_gc_with(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32, extra: impl IntoIterator<Item = *mut sys::zval>) -> *mut sys::HashTable {
+    let (mut t, mut cnt): (*mut sys::zval, i32) = (null_mut(), 0);
+    let ht = std_get_gc(o, &mut t, &mut cnt);
+    let buf = sys::zend_get_gc_buffer_create();
+    let add = |z: *mut sys::zval| {
+        // zend_get_gc_buffer_add_zval: refcounted values only
+        if (*z).u1.type_info & 0xff00 != 0 {
+            if (*buf).cur == (*buf).end {
+                sys::zend_get_gc_buffer_grow(buf);
+            }
+            std::ptr::copy_nonoverlapping(z, (*buf).cur, 1);
+            (*buf).cur = (*buf).cur.add(1);
+        }
+    };
+    for i in 0..cnt.max(0) as usize {
+        add(t.add(i));
+    }
+    for z in extra {
+        add(z);
+    }
+    // zend_get_gc_buffer_use
+    *table = (*buf).start;
+    *n = (*buf).cur.offset_from((*buf).start) as i32;
+    ht
+}
+
 /// phongo_std_object_handlers: std handlers without clone, with phongo's get_gc.
 pub static mut STD: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
 

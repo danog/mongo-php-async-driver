@@ -20,6 +20,8 @@ pub struct Session {
     pub default_rp: ReadPreference,
     /// the running transaction's read preference
     pub txn_rp: ReadPreference,
+    /// the Manager it came from (phongo_session_t.manager); released last
+    pub manager: super::ManagerRef,
 }
 
 impl Drop for Session {
@@ -54,12 +56,20 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
 pub unsafe fn init_MongoDB_Driver_Session(c: *mut sys::zend_class_entry) {
     CE = c;
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<Session>(addr_of_mut!(H_SESSION)).get_debug_info = Some(debug_info);
+    let h = obj::handlers::<Session>(addr_of_mut!(H_SESSION));
+    h.get_debug_info = Some(debug_info);
+    h.get_gc = Some(get_gc);
+    h.free_obj = Some(super::free_obj::<Session>);
+}
+
+unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+    let s = obj::data::<Session>(o);
+    obj::get_gc_with(o, table, n, [s.manager.gc()])
 }
 
 /// phongo_session_init
-pub unsafe fn new_session(client: ClientRef, cs: ClientSession, default_rp: ReadPreference) -> sys::zval {
-    let s = Session { cs: Some(Rc::new(RefCell::new(cs))), client: Some(client), txn_rp: default_rp.clone(), default_rp };
+pub unsafe fn new_session(client: ClientRef, cs: ClientSession, default_rp: ReadPreference, manager: *mut sys::zend_object) -> sys::zval {
+    let s = Session { cs: Some(Rc::new(RefCell::new(cs))), client: Some(client), txn_rp: default_rp.clone(), default_rp, manager: super::ManagerRef::new(manager) };
     zval::obj(obj::alloc(CE, s, addr_of_mut!(H_SESSION)))
 }
 
@@ -217,7 +227,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_getServer(ex: Ex, rv: *mut s
     let sid = cs.borrow().pinned_server_id;
     zval::write(rv, match (sid, me(ex).client.clone()) {
         (0, _) | (_, None) => zval::null(),
-        (s, Some(c)) => super::server::new_server(c, s),
+        (s, Some(c)) => super::server::new_server(c, s, me(ex).manager.obj()),
     });
 }
 
@@ -373,7 +383,7 @@ unsafe extern "C" fn debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> 
     hash::str_update(ht, b"operationTime", if t != 0 && i != 0 { crate::bson::types::new_timestamp(i, t) } else { zval::null() });
     let server = match (cs.pinned_server_id, s.client.clone()) {
         (0, _) | (_, None) => zval::null(),
-        (sid, Some(c)) => super::server::new_server(c, sid),
+        (sid, Some(c)) => super::server::new_server(c, sid, s.manager.obj()),
     };
     hash::str_update(ht, b"server", server);
     hash::str_update(ht, b"dirty", zval::bool(cs.dirty()));

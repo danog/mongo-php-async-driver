@@ -28,6 +28,22 @@ pub struct Manager {
 }
 
 unsafe extern "C" fn free(o: *mut sys::zend_object) {
+    // freed by the GC as garbage: its subscribers may be garbage too, nothing is dispatched
+    if obj::freed_by_gc(o) {
+        super::apm::quiet(|| free_manager(o));
+    } else {
+        free_manager(o);
+    }
+}
+
+/// The subscribers it holds, for the GC (a subscriber referencing the Manager, or an object
+/// holding it, is a collectable cycle).
+unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+    let m = obj::data::<Manager>(o);
+    obj::get_gc_with(o, table, n, m.subscribers.iter_mut().map(|(_, z)| z as *mut sys::zval))
+}
+
+unsafe fn free_manager(o: *mut sys::zend_object) {
     let m = obj::data::<Manager>(o);
     // a client of this Manager only (disableClientPersistence) is destroyed with it
     if let Some(c) = m.client.as_ref() {
@@ -73,7 +89,7 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
     let cluster = hash::new(ids.len() as u32);
     if let Some(c) = &m.client {
         for id in ids {
-            hash::push(cluster, super::server::new_server(c.clone(), id));
+            hash::push(cluster, super::server::new_server(c.clone(), id, o));
         }
     }
     hash::str_update(ht, b"cluster", zval::arr(cluster));
@@ -87,6 +103,7 @@ pub unsafe fn init_MongoDB_Driver_Manager(c: *mut sys::zend_class_entry) {
     let h = obj::handlers::<Manager>(addr_of_mut!(H_MANAGER));
     h.free_obj = Some(free);
     h.get_debug_info = Some(get_debug_info);
+    h.get_gc = Some(get_gc);
 }
 
 /// The process-wide handshake data (mongoc_handshake_data_append): libmongoc freezes it when
@@ -400,7 +417,7 @@ unsafe fn validate_dbname(db: &[u8]) -> bool {
 }
 
 /// phongo_execute_command for Manager::execute*Command and Server::execute*Command.
-pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef, ty: CmdType, server_id: Option<u32>) {
+pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef, ty: CmdType, server_id: Option<u32>, mgr: *mut sys::zend_object) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut command: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
@@ -619,14 +636,14 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
         // phongo_create_implicit_session: a Session object the cursor holds until it is
         // exhausted (phongo_cursor_free_session_if_exhausted)
         let drp = client_read_preference(&client.borrow().uri);
-        c.session = super::session::new_session(client.clone(), s, drp);
+        c.session = super::session::new_session(client.clone(), s, drp, mgr);
     }
     c.database = Some(db.clone());
     c.zcommand = zval::copy(command);
     if let Some(r) = &rp {
         c.zread_preference = super::readpref::new_readpreference(r.clone());
     }
-    zval::write(rv, super::cursor::new_cursor(c));
+    zval::write(rv, super::cursor::new_cursor(c, mgr));
 }
 
 
@@ -668,7 +685,7 @@ macro_rules! exec {
     ($f:ident, $ty:expr) => {
         pub unsafe extern "C" fn $f(ex: Ex, rv: *mut sys::zval) {
             let Some(c) = client_of(ex) else { return };
-            execute_command_args(ex, rv, c, $ty, None);
+            execute_command_args(ex, rv, c, $ty, None, call::this(ex));
         }
     };
 }
@@ -695,7 +712,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
     let r = c.borrow_mut().select_server_id(OpType::Read, Some(&prefs), &[]);
     super::apm::flush(&c);
     match r {
-        Ok((id, _)) => zval::write(rv, super::server::new_server(c, id)),
+        Ok((id, _)) => zval::write(rv, super::server::new_server(c, id, call::this(ex))),
         Err(e) => super::throw_error(&e, None),
     }
 }
@@ -708,7 +725,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getServers(ex: Ex, rv: *mut 
     if let Some(c) = client_of(ex) {
         let ids: Vec<u32> = c.borrow().td.known_servers().map(|s| s.id).collect();
         for id in ids {
-            hash::push(ht, super::server::new_server(c.clone(), id));
+            hash::push(ht, super::server::new_server(c.clone(), id, call::this(ex)));
         }
     }
     zval::write(rv, zval::arr(ht));
@@ -774,7 +791,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
     match r {
         Ok(cs) => {
             let drp = rp.unwrap_or_else(|| client_read_preference(&c.borrow().uri));
-            zval::write(rv, super::session::new_session(c.clone(), cs, drp));
+            zval::write(rv, super::session::new_session(c.clone(), cs, drp, call::this(ex)));
         }
         Err(e) => super::throw_error(&e, None),
     }
@@ -792,7 +809,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getWriteConcern(ex: Ex, rv: 
 
 /// phongo_execute_bulk_write (Manager::executeBulkWrite selects a primary first; a Server
 /// passes its id).
-pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>) {
+pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>, mgr: *mut sys::zend_object) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut zbulk: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
@@ -852,7 +869,7 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     };
     bw.executed = true;
     super::apm::flush(&client);
-    let result = super::writeresult::new_writeresult(reply.clone(), client.clone(), bw.bulk.server_id, wc);
+    let result = super::writeresult::new_writeresult(reply.clone(), client.clone(), bw.bulk.server_id, wc, mgr);
     zval::write(rv, result);
     if ok {
         return;
@@ -880,11 +897,11 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeBulkWrite(ex: Ex, rv: *mut sys::zval) {
     let Some(c) = client_of(ex) else { return };
-    execute_bulk_write(ex, rv, c, None);
+    execute_bulk_write(ex, rv, c, None, call::this(ex));
 }
 
 /// phongo_execute_query (Manager selects a server with the read preference first).
-pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>) {
+pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>, mgr: *mut sys::zend_object) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut zquery: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
@@ -991,12 +1008,12 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
     if let Some(r) = &rp {
         c.zread_preference = super::readpref::new_readpreference(r.clone());
     }
-    zval::write(rv, super::cursor::new_cursor(c));
+    zval::write(rv, super::cursor::new_cursor(c, mgr));
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeQuery(ex: Ex, rv: *mut sys::zval) {
     let Some(c) = client_of(ex) else { return };
-    execute_query(ex, rv, c, None);
+    execute_query(ex, rv, c, None, call::this(ex));
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getReadConcern(ex: Ex, rv: *mut sys::zval) {

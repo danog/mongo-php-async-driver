@@ -15,12 +15,20 @@ pub struct WriteResult {
     pub server_id: u32,
     pub write_concern: Option<WriteConcern>,
     pub client: Option<ClientRef>,
+    /// the Manager it came from (phongo_writeresult_t.manager); released last
+    pub manager: super::ManagerRef,
 }
 
 impl Default for WriteResult {
     fn default() -> Self {
-        WriteResult { reply: Vec::new(), server_id: 0, write_concern: None, client: None }
+        WriteResult { reply: Vec::new(), server_id: 0, write_concern: None, client: None, manager: super::ManagerRef::default() }
     }
+}
+
+/// Its properties and the Manager it holds, for the GC.
+unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+    let w = obj::data::<WriteResult>(o);
+    obj::get_gc_with(o, table, n, [w.manager.gc()])
 }
 
 static mut H_WR: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
@@ -33,7 +41,7 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
 pub unsafe fn init_MongoDB_Driver_WriteResult(c: *mut sys::zend_class_entry) {
     CE = c;
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<WriteResult>(addr_of_mut!(H_WR));
+    obj::handlers::<WriteResult>(addr_of_mut!(H_WR)).get_gc = Some(get_gc);
 }
 
 fn find<'a>(d: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
@@ -163,14 +171,14 @@ unsafe fn upserted_ids(w: &WriteResult) -> sys::zval {
 
 unsafe fn server_zval(w: &WriteResult) -> sys::zval {
     match &w.client {
-        Some(c) => super::server::new_server(c.clone(), w.server_id),
+        Some(c) => super::server::new_server(c.clone(), w.server_id, w.manager.obj()),
         None => zval::null(),
     }
 }
 
 /// phongo_writeresult_init
-pub unsafe fn new_writeresult(reply: Vec<u8>, client: ClientRef, server_id: u32, wc: WriteConcern) -> sys::zval {
-    let o = obj::alloc(CE, WriteResult { reply, server_id, write_concern: Some(wc), client: Some(client) }, addr_of_mut!(H_WR));
+pub unsafe fn new_writeresult(reply: Vec<u8>, client: ClientRef, server_id: u32, wc: WriteConcern, manager: *mut sys::zend_object) -> sys::zval {
+    let o = obj::alloc(CE, WriteResult { reply, server_id, write_concern: Some(wc), client: Some(client), manager: super::ManagerRef::new(manager) }, addr_of_mut!(H_WR));
     let w = obj::data::<WriteResult>(o);
     let acked = w.acknowledged();
     for (prop, field) in [("insertedCount", &b"nInserted"[..]), ("matchedCount", b"nMatched"), ("modifiedCount", b"nModified"), ("deletedCount", b"nRemoved"), ("upsertedCount", b"nUpserted")] {

@@ -1,13 +1,10 @@
 --TEST--
-Server: keeps the client alive, not the Manager object
+Server: keeps its Manager alive (subscribers, endSessions and closing events after unset)
 --DESCRIPTION--
-Local test (not upstream). Listed in DIVERGENCES.md (temporary gaps). In ext-mongodb a Server
-holds a reference to its Manager, so the Manager outlives `unset($manager)`: its subscribers keep
-receiving events, and a disableClientPersistence client is destroyed (topologyClosed) only when
-the Server goes. Here a Server holds the client only: the Manager is freed at once, its
-subscribers receive nothing more, and the client is dropped without endSessions and without
-the closing events. The reference prints "started: ping" after "unset", and
-"started: endSessions" and "topologyClosed" after "end".
+Local test (not upstream). As in ext-mongodb, a Server holds a reference to its Manager, so the
+Manager outlives `unset($manager)`: its subscribers keep receiving events, and its
+disableClientPersistence client is destroyed (endSessions, topologyClosed) only when the Server
+goes. Same output as the reference.
 --SKIPIF--
 <?php require __DIR__ . "/../phpt/utils/basic-skipif.inc"; ?>
 <?php skip_if_not_live(); ?>
@@ -43,5 +40,8 @@ echo "done\n";
 ?>
 --EXPECT--
 unset
+started: ping
 end
+started: endSessions
+topologyClosed
 done
