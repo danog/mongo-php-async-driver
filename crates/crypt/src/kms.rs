@@ -346,6 +346,101 @@ pub fn azure_wrap_request(wrap: bool, host: &str, access_token: &str, key_name: 
     Ok(plain_request("POST", &path, headers, &payload).map_err(err)?.into_bytes())
 }
 
+/// kms-message's `_oauth_field_chars_are_valid`: printable ASCII without `"` and `\\`
+fn check_oauth_field(name: &str, v: &str) -> Result<()> {
+    if v.bytes().any(|c| !(b' '..=b'~').contains(&c) || c == b'"' || c == b'\\') {
+        return Err(format!("Invalid character in GCP OAuth request: {name}"));
+    }
+    Ok(())
+}
+
+/// `kms_sign_rsaes_pkcs1_v1_5`: RSASSA-PKCS1-v1_5 with SHA-256 by a DER private key (PKCS#8 or
+/// PKCS#1); as kms-message, only 256-byte signatures (2048-bit keys) are produced
+fn rsa_sign(der: &[u8], input: &[u8]) -> Option<Vec<u8>> {
+    use graviola::signing::rsa::SigningKey;
+    let key = SigningKey::from_pkcs8_der(der).or_else(|_| SigningKey::from_pkcs1_der(der)).ok()?;
+    if key.modulus_len_bytes() != 256 {
+        return None;
+    }
+    let mut sig = vec![0u8; 256];
+    key.sign_pkcs1_sha256(&mut sig, input).ok()?;
+    Some(sig)
+}
+
+/// `kms_gcp_request_oauth_new` (`_mongocrypt_kms_ctx_init_gcp_auth`): the signed JWT bearer
+/// token request; `issued_at` in seconds since the epoch
+pub fn gcp_oauth_request(host: &str, email: &str, audience: &str, scope: &str, private_key: &[u8], issued_at: u64) -> Result<Vec<u8>> {
+    let err = |e: String| format!("error constructing KMS message: {e}");
+    check_oauth_field("email", email).map_err(err)?;
+    check_oauth_field("audience", audience).map_err(err)?;
+    check_oauth_field("scope", scope).map_err(err)?;
+    // base64url of {"alg":"RS256","typ":"JWT"}
+    let header = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9";
+    let claims = format!(
+        "{{\"iss\": \"{email}\", \"aud\": \"{audience}\", \"scope\": \"{scope}\", \"iat\": {issued_at}, \"exp\": {}}}",
+        issued_at + 300
+    );
+    let signed = format!("{header}.{}", b64url(claims.as_bytes()));
+    let sig = rsa_sign(private_key, signed.as_bytes()).ok_or_else(|| err("Failed to create GCP oauth request signature".into()))?;
+    let payload = format!("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={signed}.{}", b64url(&sig));
+    let headers = vec![
+        ("Connection".into(), "close".into()),
+        ("Content-Type".into(), "application/x-www-form-urlencoded".into()),
+        ("Host".into(), host.into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    Ok(plain_request("POST", "/token", headers, &payload).map_err(err)?.into_bytes())
+}
+
+/// kms-message's `_check_key_identifier`
+fn check_gcp_identifier(name: &str, v: &str) -> Result<()> {
+    if !v.bytes().all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c)) {
+        return Err(format!("Invalid character in GCP KMS key identifier: {name}"));
+    }
+    if !v.bytes().any(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("Invalid GCP KMS key identifier: {name}"));
+    }
+    Ok(())
+}
+
+/// The fields of a GCP key name
+pub struct GcpKey<'a> {
+    pub project_id: &'a str,
+    pub location: &'a str,
+    pub key_ring: &'a str,
+    pub key_name: &'a str,
+    pub key_version: Option<&'a str>,
+}
+
+/// `kms_gcp_request_encrypt_new` / `_decrypt_new`
+pub fn gcp_crypt_request(encrypt: bool, host: &str, access_token: &str, key: &GcpKey, value: &[u8]) -> Result<Vec<u8>> {
+    let op = if encrypt { "encrypt" } else { "decrypt" };
+    let err = |e: String| format!("error constructing GCP KMS {op} message: {e}");
+    let version = key.key_version.filter(|v| !v.is_empty());
+    for (n, v) in [("projectId", key.project_id), ("location", key.location), ("keyRing", key.key_ring), ("keyName", key.key_name)] {
+        check_gcp_identifier(n, v).map_err(err)?;
+    }
+    if let Some(v) = version {
+        check_gcp_identifier("keyVersion", v).map_err(err)?;
+    }
+    let mut path = format!("/v1/projects/{}/locations/{}/keyRings/{}/cryptoKeys/{}", key.project_id, key.location, key.key_ring, key.key_name);
+    if let Some(v) = version {
+        path.push_str(&format!("/cryptoKeyVersions/{v}"));
+    }
+    path.push(':');
+    path.push_str(op);
+    let field = if encrypt { "plaintext" } else { "ciphertext" };
+    let payload = format!("{{\"{field}\": \"{}\"}}", base64_encode(value));
+    let headers = vec![
+        ("Connection".into(), "close".into()),
+        ("Authorization".into(), format!("Bearer {access_token}")),
+        ("Content-Type".into(), "application/json".into()),
+        ("Host".into(), host.into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    Ok(plain_request("POST", &path, headers, &payload).map_err(err)?.into_bytes())
+}
+
 /// The JSON body of an OAuth or Azure response (`_ctx_done_oauth`, `_ctx_done_azure_wrapkey_unwrapkey`)
 fn json_body(r: &Response) -> Result<Vec<u8>> {
     let body = String::from_utf8_lossy(&r.body);

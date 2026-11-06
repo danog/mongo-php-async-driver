@@ -63,6 +63,11 @@ fn azure_retry(status: i32) -> bool {
     [408, 429, 500, 502, 503, 504].contains(&status)
 }
 
+/// `should_retry_http` for GCP requests
+fn gcp_retry(status: i32) -> bool {
+    status == 408 || status == 429 || status / 500 == 1
+}
+
 /// libmongocrypt's `kms_max_attempts`
 const KMS_MAX_ATTEMPTS: u32 = 3;
 
@@ -234,11 +239,63 @@ impl Crypt {
         self.kms_call(io, &req, true, azure_retry, &|r| crate::kms::azure_done(r))
     }
 
+    /// A GCP access token: configured, cached, or from a JWT bearer OAuth request
+    /// (`_mongocrypt_kms_ctx_init_gcp_auth`); `kms_endpoint` (the key's) sets the requested scope
+    fn gcp_token<I: Io>(&self, io: &mut I, kmsid: &str, kms_endpoint: Option<&crate::opts::Endpoint>) -> Result<String, I::Error> {
+        let Some(crate::opts::Creds::Gcp(creds)) = self.kms.get(kmsid) else {
+            return Err(format!("KMS provider `{kmsid}` is not configured").into());
+        };
+        let (email, private_key, auth) = match creds {
+            crate::opts::GcpCreds::AccessToken(t) => return Ok(t.clone()),
+            crate::opts::GcpCreds::ServiceAccount { email, private_key, endpoint } => (email, private_key, endpoint),
+        };
+        let scope = match kms_endpoint {
+            Some(e) => format!("https://www.{}/auth/cloudkms", e.domain),
+            None => "https://www.googleapis.com/auth/cloudkms".to_string(),
+        };
+        // cached per provider and scope, as for Azure (safety divergence)
+        let cache_key = format!("{kmsid}\n{scope}");
+        if let Some(t) = self.cached_token(&cache_key) {
+            return Ok(t);
+        }
+        let (endpoint, host) = match auth {
+            Some(e) => (with_default_port(e, 443), e.host.clone()),
+            None => ("oauth2.googleapis.com:443".to_string(), "oauth2.googleapis.com".to_string()),
+        };
+        let audience = format!("https://{host}/token");
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let msg = crate::kms::gcp_oauth_request(&host, email, &audience, &scope, private_key, now)?;
+        let req = crate::kms::KmsRequest { kmsid: kmsid.to_string(), endpoint, message: msg, tls: self.tls_for(kmsid) };
+        let (token, ttl) = self.kms_call(io, &req, true, gcp_retry, &crate::kms::oauth_done)?;
+        self.cache_token(&cache_key, token.clone(), ttl);
+        Ok(token)
+    }
+
+    /// Google Cloud KMS encrypt/decrypt
+    fn gcp<I: Io>(&self, io: &mut I, kek: &Kek, encrypt: bool, data: &[u8]) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Gcp { endpoint, project_id, location, key_ring, key_name, key_version } = &kek.provider else {
+            return Err("expected gcp kms provider".into());
+        };
+        let token = self.gcp_token(io, &kek.kmsid, endpoint.as_ref())?;
+        let (ep, host) = match endpoint {
+            Some(e) => (with_default_port(e, 443), e.host.clone()),
+            None => ("cloudkms.googleapis.com:443".to_string(), "cloudkms.googleapis.com".to_string()),
+        };
+        // decryption names no key version (the ciphertext carries it), as libmongocrypt
+        let key_version = if encrypt { key_version.as_deref() } else { None };
+        let key = crate::kms::GcpKey { project_id, location, key_ring, key_name, key_version };
+        let msg = crate::kms::gcp_crypt_request(encrypt, &host, &token, &key, data)?;
+        let req = crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: ep, message: msg, tls: self.tls_for(&kek.kmsid) };
+        let field = if encrypt { "ciphertext" } else { "plaintext" };
+        self.kms_call(io, &req, true, gcp_retry, &|r| crate::kms::aws_done(r, field))
+    }
+
     /// The key material of a key document whose KEK is remote
     fn kms_unwrap<I: Io>(&self, io: &mut I, key: &crate::key::KeyDoc) -> Result<Vec<u8>, I::Error> {
         match key.kek.kms_type() {
             crate::opts::KmsType::Aws => self.aws(io, &key.kek, true, &key.key_material),
             crate::opts::KmsType::Azure => self.azure(io, &key.kek, false, &key.key_material),
+            crate::opts::KmsType::Gcp => self.gcp(io, &key.kek, false, &key.key_material),
             t => Err(format!("the {} KMS provider is not supported by this build yet", t.name()).into()),
         }
     }
@@ -248,6 +305,7 @@ impl Crypt {
         let e = match kek.kms_type() {
             crate::opts::KmsType::Aws => self.aws(io, kek, false, material)?,
             crate::opts::KmsType::Azure => self.azure(io, kek, true, material)?,
+            crate::opts::KmsType::Gcp => self.gcp(io, kek, true, material)?,
             t => return Err(format!("the {} KMS provider is not supported by this build yet", t.name()).into()),
         };
         if e.len() < crypto::KEY_LEN {

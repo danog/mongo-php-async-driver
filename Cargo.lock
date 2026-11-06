@@ -949,6 +949,7 @@ dependencies = [
  "cbc",
  "ctr",
  "getrandom 0.3.4",
+ "graviola",
  "hmac 0.13.0",
  "mongo-core",
  "serde_json",
