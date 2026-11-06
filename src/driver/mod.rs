@@ -259,6 +259,14 @@ pub unsafe fn type_by_const(z: *const sys::zval) -> String {
 /// phongo_bson_value_to_zval_legacy: the value of the single element of `doc` (documents and
 /// arrays as stdClass / array).
 pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
+    // phongo_bson_value_to_zval: an int64 is always an Int64 object
+    if let Some(mut it) = mongo_core::bson::iter::Iter::new(doc) {
+        if it.next() {
+            if let mongo_core::bson::iter::Value::Int64(v) = it.value() {
+                return Some(crate::bson::types::new_int64(v));
+            }
+        }
+    }
     let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
     let z = to_zval(doc, &tm)?;
     let mut r = None;

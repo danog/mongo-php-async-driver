@@ -7,3 +7,4 @@ pub mod bson;
 pub mod broker;
 pub mod engine;
 pub mod key;
+pub mod fle2;

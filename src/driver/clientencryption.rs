@@ -787,7 +787,7 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
         o.query_type = Some(zstr::c_part(&fetch_string(z)).to_vec());
     }
     if opt(options, b"rangeOpts").is_some() || opt(options, b"stringOpts").is_some() {
-        throw_crypt("Queryable Encryption is not supported by this build yet");
+        throw_crypt("Queryable Encryption's range and string algorithms are not supported by this build yet");
         return None;
     }
     Some(o)

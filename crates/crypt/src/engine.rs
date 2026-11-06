@@ -140,6 +140,20 @@ impl Crypt {
             return Ok(doc.to_vec());
         }
         self.fetch(&mut kb, io)?;
+        // _check_for_K_KeyId: indexed values name a second key inside their S_Key envelope
+        let mut more = false;
+        traverse(doc, &mut |b| {
+            if matches!(b[0], crate::fle2::SUBTYPE_IEV_EQUALITY_V2 | crate::fle2::SUBTYPE_IEV_RANGE_V2 | crate::fle2::SUBTYPE_IEV_TEXT) {
+                let iev = crate::fle2::Iev::parse(b)?;
+                let s = kb.key_by_id(&iev.s_key_id)?;
+                kb.request_id(&iev.add_s_key(&s)?.k_key_id);
+                more = true;
+            }
+            Ok(())
+        })?;
+        if more {
+            self.fetch(&mut kb, io)?;
+        }
         Ok(transform(doc, &mut |b| decrypt_value(&kb, b))?)
     }
 
@@ -317,7 +331,19 @@ fn collect_key(kb: &mut KeyBroker, b: &[u8]) -> std::result::Result<(), String> 
             kb.request_id(&ct.key_id);
             Ok(())
         }
-        _ => Err("Queryable Encryption payloads are not supported by this build yet".into()),
+        crate::fle2::SUBTYPE_IEV_EQUALITY_V2 | crate::fle2::SUBTYPE_IEV_RANGE_V2 | crate::fle2::SUBTYPE_IEV_TEXT => {
+            kb.request_id(&crate::fle2::Iev::parse(b)?.s_key_id);
+            Ok(())
+        }
+        crate::fle2::SUBTYPE_UEV_V2 => {
+            kb.request_id(&crate::fle2::Uev::parse(b)?.key_id);
+            Ok(())
+        }
+        crate::fle2::SUBTYPE_IUP_V2 => {
+            kb.request_id(&crate::fle2::Iup::parse(b)?.user_key_id);
+            Ok(())
+        }
+        _ => Err("Queryable Encryption v1 payloads are not supported by this build".into()),
     }
 }
 
@@ -331,7 +357,23 @@ fn decrypt_value(kb: &KeyBroker, b: &[u8]) -> std::result::Result<Vec<u8>, Strin
             let p = Algorithm::Fle1.decrypt(Some(&aad), &material, ct.data)?;
             wrap_value(ct.original_bson_type, &p).ok_or_else(|| "malformed encrypted bson".to_string())
         }
-        _ => Err("Queryable Encryption payloads are not supported by this build yet".into()),
+        crate::fle2::SUBTYPE_IEV_EQUALITY_V2 | crate::fle2::SUBTYPE_IEV_RANGE_V2 | crate::fle2::SUBTYPE_IEV_TEXT => {
+            let iev = crate::fle2::Iev::parse(b)?;
+            let inner = iev.add_s_key(&kb.key_by_id(&iev.s_key_id)?)?;
+            let v = inner.add_k_key(&kb.key_by_id(&inner.k_key_id)?)?;
+            wrap_value(iev.value_type, &v).ok_or_else(|| "decrypted clientValue is not valid BSON".to_string())
+        }
+        crate::fle2::SUBTYPE_UEV_V2 => {
+            let u = crate::fle2::Uev::parse(b)?;
+            let p = u.decrypt(&kb.key_by_id(&u.key_id)?)?;
+            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+        }
+        crate::fle2::SUBTYPE_IUP_V2 => {
+            let u = crate::fle2::Iup::parse(b)?;
+            let p = u.decrypt(&kb.key_by_id(&u.user_key_id)?)?;
+            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+        }
+        _ => Err("Queryable Encryption v1 payloads are not supported by this build".into()),
     }
 }
 
@@ -390,10 +432,22 @@ impl IndexType {
     }
 }
 
+/// `mc_validate_contention`
+pub fn validate_contention(c: i64) -> std::result::Result<(), String> {
+    if c < 0 {
+        return Err(format!("Error validating contention: contention must be non-negative, got: {c}"));
+    }
+    if c == i64::MAX {
+        return Err(format!("Error validating contention: contention must be < INT64_MAX, got: {c}"));
+    }
+    Ok(())
+}
+
 /// The checked options (`ctx->opts`)
 struct Checked {
     fle1: Option<Fle1Algorithm>,
     index_type: Option<IndexType>,
+    query_type: Option<QueryType>,
     key: KeySel,
 }
 
@@ -496,13 +550,7 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
         return Err("cannot set string opts without string index type".into());
     }
     if let Some(c) = o.contention_factor {
-        // mc_validate_contention
-        if c < 0 {
-            return Err(format!("Error validating contention: contention must be non-negative, got: {c}"));
-        }
-        if c == i64::MAX {
-            return Err(format!("Error validating contention: contention must be < INT64_MAX, got: {c}"));
-        }
+        validate_contention(c)?;
     }
     match index_type {
         Some(IndexType::Equality) if !cf => return Err("contention factor is required for indexed algorithm".into()),
@@ -529,7 +577,7 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     if expression && !is_range_query {
         return Err("EncryptExpression may only be used for range queries.".into());
     }
-    Ok(Checked { fle1, index_type, key })
+    Ok(Checked { fle1, index_type, query_type, key })
 }
 
 impl Crypt {
@@ -538,8 +586,44 @@ impl Crypt {
         let c = check_explicit(o, false)?;
         match (c.fle1, c.index_type) {
             (Some(a), _) => self.encrypt_fle1(io, value, &c.key, a),
-            _ => Err("Queryable Encryption is not supported by this build yet".into()),
+            (None, Some(t @ (IndexType::None | IndexType::Equality))) => {
+                let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
+                self.encrypt_fle2(io, value, &key_id, t, c.query_type, o.contention_factor.unwrap_or(0))
+            }
+            _ => Err("Queryable Encryption's range and string algorithms are not supported by this build yet".into()),
         }
+    }
+
+    /// `_fle2_finalize_explicit` for the Unindexed and Indexed (equality) algorithms
+    fn encrypt_fle2<I: Io>(&self, io: &mut I, value: &[u8], key_id: &[u8; 16], t: IndexType, q: Option<QueryType>, cf: i64) -> Result<Vec<u8>, I::Error> {
+        let mut it = Iter::new(value).ok_or("unable to convert input to BSON")?;
+        if !it.find(b"v") {
+            return Err("invalid input BSON, must contain 'v'".into());
+        }
+        permitted_for_encryption(&it.value(), Fle1Algorithm::Random)?;
+        let mut kb = KeyBroker::new(&self.kms, &self.cache);
+        kb.request_id(key_id);
+        self.fetch(&mut kb, io)?;
+        let key = kb.key_by_id(key_id).map_err(|_| "unable to retrieve key")?;
+        let value_type = it.value().type_code();
+        let plaintext = value_bytes(&it);
+        let mut out = Vec::new();
+        match (t, q) {
+            (IndexType::None, _) => {
+                return Ok(crate::fle2::uev_encrypt(key_id, value_type, plaintext, &key)?);
+            }
+            (_, Some(_)) => {
+                out.push(crate::fle2::SUBTYPE_FIND_EQUALITY_V2);
+                out.extend(crate::fle2::find_equality_payload(&key, plaintext, cf)?);
+            }
+            (_, None) => {
+                // _fle2_choose_contention_factor: uniform in [0, maxContentionFactor]
+                let k = if cf > 0 { crypto::random_int64(cf + 1)? } else { 0 };
+                out.push(crate::fle2::SUBTYPE_IUP_V2);
+                out.extend(crate::fle2::insert_update_payload(key_id, &key, key_id, &key, value_type, plaintext, k)?);
+            }
+        }
+        Ok(out)
     }
 
     /// `_mongoc_crypt_explicit_encrypt_expression`
