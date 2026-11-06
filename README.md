@@ -19,7 +19,8 @@ ported yet throw an `Error`.
   zstd. The Zend Engine layer is [ext-php-rs](https://github.com/extphprs/ext-php-rs) (its
   bindgen-generated bindings and its small `wrapper.c` are the only C involved). TLS is rustls
   with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust with inline
-  assembly, no C).
+  assembly, no C). Wire compression is pure Rust too: zlib through flate2 on miniz_oxide,
+  zstd through ruzstd, snappy through snap.
 - **I/O on the PHP thread,** through one poll set (epoll/kqueue via mio) that the extension's own
   Revolt watcher drives; connections are released as soon as the server has answered, and
   waiters queue in FIFO order, so lazily-resumed fibers cannot deadlock the pool.

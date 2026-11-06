@@ -45,6 +45,7 @@ impl Settings {
             hello: HelloOpts {
                 load_balanced: uri.get_bool("loadbalanced", false),
                 compressors: uri.compressors.clone(),
+                zlib_level: uri.get_int32("zlibcompressionlevel", -1),
                 sasl_user: crate::auth::sasl_user(uri),
                 ..Default::default()
             },
@@ -302,6 +303,7 @@ impl Client {
         self.nodes[i].auth = NodeAuth { has_auth: false, speculative: speculative_reply, scram: speculative.map(|s| s.1) };
         let sd = ServerDescription::from_hello(&self.nodes[i].addr, &reply, rtt);
         conn.set_max_message_size(sd.max_msg_size);
+        conn.compressor = handshake::negotiated(&sd, &self.settings.hello);
         self.nodes[i].handshake = Some(sd);
         self.nodes[i].conn = Some(conn);
         Ok((reply, rtt))
@@ -612,7 +614,11 @@ impl Client {
                     NetError::Protocol(m) => m.to_string(),
                     e => format!("Failure during socket delivery: {e}"),
                 };
-                let err = Error::new(domain::STREAM, code::STREAM_SOCKET, format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"));
+                let err = if matches!(e, NetError::Protocol(m) if m == crate::wire::DECOMPRESS_ERROR) {
+                    Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, detail)
+                } else {
+                    Error::new(domain::STREAM, code::STREAM_SOCKET, format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"))
+                };
                 self.handle_network_error(server_id, generation, &err, matches!(e, NetError::Timeout));
                 Err(err)
             }

@@ -875,7 +875,7 @@ impl Uri {
     pub fn set_compressors(&mut self, value: &str) {
         self.compressors.clear();
         for c in value.split(',').filter(|c| !c.is_empty()) {
-            if ["snappy", "zlib", "zstd"].iter().any(|s| s.eq_ignore_ascii_case(c)) {
+            if crate::compress::id_of(c).is_some() {
                 let lc = c.to_ascii_lowercase();
                 self.compressors.retain(|x| *x != lc);
                 self.compressors.push(lc);
@@ -1067,7 +1067,7 @@ impl Uri {
                 while !r.is_empty() {
                     let (c, rest) = r.split_once(',').unwrap_or((r, ""));
                     r = rest;
-                    if ["snappy", "zlib", "zstd"].iter().any(|s| s.eq_ignore_ascii_case(c)) {
+                    if crate::compress::id_of(c).is_some() {
                         let lc = c.to_ascii_lowercase();
                         self.compressors.retain(|x| *x != lc);
                         self.compressors.push(lc);

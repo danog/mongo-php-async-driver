@@ -9,6 +9,8 @@
 #   tls         mongodb://127.0.0.1:28016/?tls=true&tlsCAFile=$SSL_DIR/ca.pem (standalone with --tlsMode requireTLS,
 #               server.pem of tools/tls-certs.sh $SSL_DIR; client certificates of ca.pem are accepted, not required);
 #               28017 the same with server-ip.pem (valid for 127.0.0.2 only)
+#   compress    mongodb://127.0.0.1:28018/?compressors=zstd (standalone with --networkMessageCompressors
+#               snappy,zstd,zlib); 28019 the same with compression disabled
 # Env: MONGO_BIN (dir with mongod/mongos), TOPO_DATA (data dir), TOPO_PHP (a PHP with a mongodb extension, to initiate).
 #      TOPO_DOCKER=1 (default on macOS): every mongod/mongos runs in its own container (image TOPO_IMAGE,
 #      default mongo:8.0) on the host network, so the addresses are the same; containers are named
@@ -101,6 +103,9 @@ start() {
       # 28017: a certificate for 127.0.0.2 only (host name mismatch when reached as 127.0.0.1)
       DOCKER_EXTRA=${DOCKER_EXTRA:-} mongod_start tls-ip 28017 --tlsMode requireTLS --tlsCertificateKeyFile $C/server-ip.pem \
         --tlsCAFile $C/ca.pem --tlsAllowConnectionsWithoutCertificates ;;
+    compress)
+      mongod_start compress 28018 --networkMessageCompressors snappy,zstd,zlib
+      mongod_start compress-off 28019 --networkMessageCompressors disabled ;;
     all) start standalone; start replset; start sharded ;;
   esac
 }
@@ -109,6 +114,7 @@ stop() {
     standalone) mongod_stop standalone ;;
     auth) mongod_stop auth ;;
     tls) mongod_stop tls; mongod_stop tls-ip ;;
+    compress) mongod_stop compress; mongod_stop compress-off ;;
     replset) for p in 28011 28012 28013; do mongod_stop rs0-$p; done ;;
     sharded)
       for p in 28030 28031; do mongos_stop $p; done

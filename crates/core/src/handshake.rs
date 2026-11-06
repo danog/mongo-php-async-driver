@@ -29,6 +29,8 @@ pub struct HelloOpts {
     pub api_deprecation_errors: Option<bool>,
     pub load_balanced: bool,
     pub compressors: Vec<String>,
+    /// zlibCompressionLevel (-1: zlib's default)
+    pub zlib_level: i32,
     /// "db.user" for saslSupportedMechs
     pub sasl_user: Option<String>,
 }
@@ -133,14 +135,29 @@ pub fn run_msg(conn: &mut Conn, body: &[u8], payload: crate::wire::Payloads<'_>,
     for (id, docs) in payload {
         m.sequence_raw(id, docs);
     }
-    let msg = m.finish();
+    let mut msg = m.finish();
+    if let Some((id, level)) = conn.compressor {
+        if crate::compress::is_compressible(crate::compress::command_name(body)) {
+            msg = wire::compress_message(&msg, id, level).map_err(|_| NetError::Protocol("could not compress the message"))?;
+        }
+    }
     if more_to_come {
         conn.send(&msg, timeout)?;
         return Ok(None);
     }
+    let max = conn.max_message_size();
     let reply = conn.roundtrip(&msg, timeout)?;
+    if wire::op_code(reply) == wire::OP_COMPRESSED {
+        let full = wire::decompress_message(reply, max).map_err(NetError::Protocol)?;
+        return Ok(Some(wire::parse_reply(&full).map_err(NetError::Protocol)?.body.to_vec()));
+    }
     let r = wire::parse_reply(reply).map_err(NetError::Protocol)?;
     Ok(Some(r.body.to_vec()))
+}
+
+/// The compressor of a handshake reply's `compression` list (as a server description holds it).
+pub fn negotiated(sd: &ServerDescription, o: &HelloOpts) -> Option<(u8, i32)> {
+    crate::compress::negotiate(&sd.compressors).map(|id| (id, o.zlib_level))
 }
 
 /// Connects to `host:port` and runs the handshake; the server description it yields.
@@ -153,5 +170,6 @@ pub fn connect_and_hello(host: &str, port: u16, connect_timeout: Option<Duration
     let rtt = t0.elapsed().as_millis() as i64;
     let sd = ServerDescription::from_hello(&conn.addr, &reply, rtt);
     conn.set_max_message_size(sd.max_msg_size);
+    conn.compressor = negotiated(&sd, o);
     Ok((conn, sd))
 }

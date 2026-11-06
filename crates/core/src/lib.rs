@@ -18,6 +18,7 @@ pub mod bulk;
 pub mod bulkwrite;
 pub mod cmd;
 pub mod cmdparts;
+pub mod compress;
 pub mod concern;
 pub mod error;
 pub mod handshake;

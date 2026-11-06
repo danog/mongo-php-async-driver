@@ -46,6 +46,12 @@ aes, des, cbc, scrypt, salsa20 and pbkdf2 (https://github.com/RustCrypto; MIT OR
 OCSP uses the RustCrypto crates x509-cert, x509-ocsp, der, spki and const-oid (Apache-2.0 OR
 MIT), flagset (Apache-2.0) and sha1 (above).
 Logging fingerprints use hmac and sha2 (above).
+Wire compression uses, as dependencies (pure Rust): flate2 (https://github.com/rust-lang/flate2-rs;
+MIT OR Apache-2.0) with miniz_oxide (https://github.com/Frommi/miniz_oxide; MIT OR Zlib OR
+Apache-2.0), adler2 (0BSD OR MIT OR Apache-2.0), simd-adler32 (https://github.com/mcountryman/
+simd-adler32; MIT) and crc32fast (MIT OR Apache-2.0); ruzstd (https://github.com/KillingSpark/
+zstd-rs; MIT); snap (https://github.com/BurntSushi/rust-snappy; BSD-3-Clause, Copyright 2011 The
+Snappy-Rust Authors and Copyright 2016 Andrew Gallant).
 
 The MongoDB Specifications (https://github.com/mongodb/specifications), whose test files the
 test suites read, are licensed under the Creative Commons Attribution-NonCommercial-ShareAlike

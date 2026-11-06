@@ -153,6 +153,8 @@ pub struct Conn {
     pub generation: u64,
     /// Registered with a reactor (backend-specific bookkeeping).
     pub registered: bool,
+    /// The negotiated compressor and the zlib level (OP_COMPRESSED), None: uncompressed.
+    pub compressor: Option<(u8, i32)>,
 }
 
 /// Resolves `host:port` (all addresses, in resolver order, as libmongoc tries them).
@@ -211,6 +213,7 @@ impl Conn {
                         write_timeout: None,
                         generation: 0,
                         registered: false,
+                        compressor: None,
                     });
                 }
                 Err(e) => last = Some(e),
@@ -223,6 +226,11 @@ impl Conn {
     /// `max_message_size_for`).
     pub fn set_max_message_size(&mut self, advertised: i32) {
         self.max_msg = max_message_size_for(advertised);
+    }
+
+    /// The largest message accepted from the server.
+    pub fn max_message_size(&self) -> usize {
+        self.max_msg
     }
 
     /// Runs the TLS handshake on the connected socket (mongoc_stream_tls_handshake_block),

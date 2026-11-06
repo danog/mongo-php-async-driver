@@ -911,6 +911,7 @@ dependencies = [
  "cbc",
  "der 0.7.10",
  "des",
+ "flate2",
  "getrandom 0.3.4",
  "graviola",
  "hmac 0.13.0",
@@ -921,9 +922,11 @@ dependencies = [
  "pkcs8",
  "rustls",
  "rustls-graviola",
+ "ruzstd",
  "serde_json",
  "sha1",
  "sha2 0.11.1",
+ "snap",
  "unicode-normalization",
  "x509-cert",
  "x509-ocsp",
@@ -1309,6 +1312,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "ruzstd"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
+
+[[package]]
 name = "salsa20"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1503,6 +1512,12 @@ name = "smallvec"
 version = "1.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
+
+[[package]]
+name = "snap"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "199905e6153d6405f9728fe44daace35f8f837bbf830bb6e85fbd5828709a886"
 
 [[package]]
 name = "spki"

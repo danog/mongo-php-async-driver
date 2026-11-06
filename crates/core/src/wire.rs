@@ -169,3 +169,43 @@ mod tests {
         assert_eq!(r.sequences, vec![(&b"documents"[..], &[&d[..], &d[..]].concat()[..])]);
     }
 }
+
+/// The OP_COMPRESSED form of a complete message (requestID kept, responseTo 0).
+pub fn compress_message(msg: &[u8], id: u8, zlib_level: i32) -> Result<Vec<u8>, String> {
+    let data = crate::compress::compress(id, zlib_level, &msg[HEADER_LEN..])?;
+    let len = i32::try_from(HEADER_LEN + 9 + data.len()).map_err(|_| "message too large".to_owned())?;
+    let mut out = Vec::with_capacity(len as usize);
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&msg[4..8]);
+    out.extend_from_slice(&0i32.to_le_bytes());
+    out.extend_from_slice(&OP_COMPRESSED.to_le_bytes());
+    out.extend_from_slice(&op_code(msg).to_le_bytes());
+    out.extend_from_slice(&((msg.len() - HEADER_LEN) as i32).to_le_bytes());
+    out.push(id);
+    out.extend_from_slice(&data);
+    Ok(out)
+}
+
+/// libmongoc's error for every reply that cannot be decompressed (MONGOC_ERROR_PROTOCOL_INVALID_REPLY).
+pub const DECOMPRESS_ERROR: &str = "could not decompress message from server";
+
+/// The message an OP_COMPRESSED reply carries (header rebuilt with the original opcode;
+/// mcd_rpc_message_decompress). The uncompressed size must keep the message within `max`
+/// (the message size limit) and the data must decompress to exactly that size.
+pub fn decompress_message(m: &[u8], max: usize) -> Result<Vec<u8>, &'static str> {
+    if m.len() < HEADER_LEN + 9 || message_length(m) as usize != m.len() {
+        return Err(DECOMPRESS_ERROR);
+    }
+    let original = rd_i32(m, 16);
+    let size = rd_i32(m, 20);
+    if size < 0 || HEADER_LEN + size as usize > max {
+        return Err(DECOMPRESS_ERROR);
+    }
+    let body = crate::compress::decompress(m[24], &m[25..], size as usize).map_err(|_| DECOMPRESS_ERROR)?;
+    let mut out = Vec::with_capacity(HEADER_LEN + body.len());
+    out.extend_from_slice(&((HEADER_LEN + body.len()) as i32).to_le_bytes());
+    out.extend_from_slice(&m[4..12]);
+    out.extend_from_slice(&original.to_le_bytes());
+    out.extend_from_slice(&body);
+    Ok(out)
+}

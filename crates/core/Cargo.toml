@@ -25,6 +25,10 @@ pkcs8 = { version = "0.10", default-features = false, features = ["std", "encryp
 aes = { version = "0.8", default-features = false }
 des = { version = "0.8", default-features = false }
 cbc = { version = "0.1", default-features = false, features = ["alloc", "block-padding"] }
+# wire compression (pure Rust: miniz_oxide behind flate2, ruzstd, snap)
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+ruzstd = { version = "0.9", default-features = false, features = ["std"] }
+snap = "1.1"
 # OCSP: certificates, requests and responses (pure-Rust DER; every length is bounded by its input)
 der = { version = "0.7", default-features = false, features = ["alloc", "oid"] }
 x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
