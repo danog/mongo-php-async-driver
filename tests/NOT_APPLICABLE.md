@@ -56,6 +56,19 @@ without message, a missing key in ClientEncryption::deleteKey()); they are track
 | Atlas search index tests | need Atlas: skipped |
 | Kerberos, MONGODB-AWS, MONGODB-OIDC auth tests | need a KDC / AWS / an identity provider: not runnable on ct |
 
+### PHPLIB 2.5.0 results (tools/phplib.sh; ours vs the reference on the same topologies)
+
+Pending features, not bugs to hide (they fail on ours until the feature lands):
+
+| Tests | Reason |
+|---|---|
+| `ClientTest::testCreateClientEncryption*` (3), `ClientTest::testConstructorAutoEncryptionOpts` (2), CSFLE spec/prose tests | client-side encryption is not built: this extension behaves as ext-mongodb built without libmongocrypt (see `DIVERGENCES.md`) |
+| `UnifiedSpecTest::testLoadBalancers` "connection establishment if loadBalanced=true" (standalone) | no load-balancer topology in tools/topo.sh yet |
+
+Ours-only failures under investigation (driver bugs to fix, see the state notes): the retryable-writes
+`*-errorLabels` "fails if server does not return RetryableWriteError" cases and
+`transactions/retryable-{abort,commit}-errorLabels` (replica set), `Prose9_BulkWriteHandlesGetMoreErrorTest`.
+
 ## Rust driver and specification tests (crates/core, cargo test)
 
 Ported (as each phase lands): BSON corpus, URI options, connection string, auth (connection

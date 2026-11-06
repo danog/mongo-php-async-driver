@@ -206,7 +206,8 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
     } else {
         let mut b = WebPkiServerVerifier::builder_with_provider(roots.clone(), p.clone());
         if !crls.is_empty() {
-            b = b.with_crls(crls).only_check_end_entity_revocation();
+            // an expired CRL fails the handshake (OpenSSL: "CRL has expired")
+            b = b.with_crls(crls).only_check_end_entity_revocation().enforce_revocation_expiration();
         }
         let inner = b.build().map_err(|e| fail(format!("Cannot set up certificate verification: {e}")))?;
         if o.allow_invalid_hostname {
@@ -289,6 +290,7 @@ pub fn describe(e: &rustls::Error) -> String {
                 CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => (9, "certificate is not yet valid".to_owned()),
                 CertificateError::Revoked => (23, "certificate revoked".to_owned()),
                 CertificateError::UnknownRevocationStatus => (3, "unable to get certificate CRL".to_owned()),
+                CertificateError::ExpiredRevocationList | CertificateError::ExpiredRevocationListContext { .. } => (12, "CRL has expired".to_owned()),
                 CertificateError::BadSignature => (7, "certificate signature failure".to_owned()),
                 CertificateError::NotValidForNameContext { expected: ServerName::IpAddress(_), .. } => (64, "IP address mismatch".to_owned()),
                 CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => (62, "hostname mismatch".to_owned()),
