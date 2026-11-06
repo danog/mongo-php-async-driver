@@ -66,6 +66,8 @@ struct Returned {
 /// One key broker per operation
 pub struct KeyBroker<'a> {
     kms: &'a KmsProviders,
+    /// on-demand credentials provided for this operation
+    provided: Option<KmsProviders>,
     cache: &'a KeyCache,
     requests: Vec<Request>,
     returned: Vec<Returned>,
@@ -79,7 +81,7 @@ fn intersects(a: &[AltName], b: &[AltName]) -> bool {
 
 impl<'a> KeyBroker<'a> {
     pub fn new(kms: &'a KmsProviders, cache: &'a KeyCache) -> Self {
-        KeyBroker { kms, cache, requests: Vec::new(), returned: Vec::new(), cached: Vec::new(), any: false }
+        KeyBroker { kms, provided: None, cache, requests: Vec::new(), returned: Vec::new(), cached: Vec::new(), any: false }
     }
 
     fn find_request(&self, id: Option<&[u8; 16]>, alt: &[AltName]) -> Option<usize> {
@@ -92,6 +94,11 @@ impl<'a> KeyBroker<'a> {
             self.requests[i].satisfied = true;
             self.cached.push(Returned { doc: e.doc, material: Some(e.material) });
         }
+    }
+
+    /// `mongocrypt_ctx_provide_kms_providers`
+    pub fn provide(&mut self, kms: KmsProviders) {
+        self.provided = Some(kms);
     }
 
     /// `_mongocrypt_key_broker_request_id`
@@ -177,7 +184,7 @@ impl<'a> KeyBroker<'a> {
         if self.returned.iter().any(|r| r.doc.id == key.id || intersects(&r.doc.alt_names, &key.alt_names)) {
             return Err("keys returned have duplicate keyAltNames or _id".into());
         }
-        let creds = self.kms.get(&key.kek.kmsid);
+        let creds = self.kms.get(&key.kek.kmsid).or_else(|| self.provided.as_ref().and_then(|k| k.get(&key.kek.kmsid)));
         if creds.is_none() {
             return Err(format!("KMS provider `{}` is not configured", key.kek.kmsid));
         }

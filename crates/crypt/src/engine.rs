@@ -40,6 +40,27 @@ pub trait Io {
     fn kms(&mut self, req: &crate::kms::KmsRequest, feed: &mut dyn FnMut(&[u8]) -> bool) -> std::result::Result<(), KmsFailure<Self::Error>>;
     /// A stream error (MONGOC_ERROR_STREAM_SOCKET) with this message
     fn stream_error(&self, msg: String) -> Self::Error;
+    /// On-demand AWS credentials (`_mongoc_aws_credentials_obtain`): key id, secret, session token
+    fn aws_credentials(&mut self) -> std::result::Result<(String, String, Option<String>), Self::Error> {
+        Err(self.stream_error("on-demand AWS credentials are not available".into()))
+    }
+    /// An Azure IMDS access token for Key Vault and its lifetime
+    fn azure_imds_token(&mut self) -> std::result::Result<(String, std::time::Duration), Self::Error> {
+        Err(self.stream_error("on-demand Azure credentials are not available".into()))
+    }
+    /// A GCP metadata server access token
+    fn gcp_metadata_token(&mut self) -> std::result::Result<String, Self::Error> {
+        Err(self.stream_error("on-demand GCP credentials are not available".into()))
+    }
+}
+
+/// Clears the per-operation on-demand credentials when the operation ends
+struct OnDemand<'a>(&'a std::sync::Mutex<Option<KmsProviders>>);
+
+impl Drop for OnDemand<'_> {
+    fn drop(&mut self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
 }
 
 /// Where a KMS round trip failed
@@ -87,6 +108,10 @@ pub struct Crypt {
     pub tls: Vec<(String, mongo_core::tls::TlsOptions)>,
     /// `cache_oauth`: OAuth access tokens per KMS provider id, with when they expire
     oauth: std::sync::Mutex<Vec<(String, String, std::time::Instant)>>,
+    /// the on-demand credentials of the running operation (`per_ctx_kms_providers`)
+    ondemand: std::sync::Mutex<Option<KmsProviders>>,
+    /// libmongoc's `azure_token`: the IMDS token and when it was issued plus its lifetime
+    azure_imds: std::sync::Mutex<Option<(String, std::time::Instant)>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,7 +130,65 @@ pub enum KeySel {
 impl Crypt {
     pub fn new(kms_providers: &[u8], key_expiration_ms: Option<u64>) -> std::result::Result<Crypt, String> {
         let kms = KmsProviders::parse(kms_providers)?;
-        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new(), oauth: Default::default() })
+        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new(), oauth: Default::default(), ondemand: Default::default(), azure_imds: Default::default() })
+    }
+
+    /// The credentials of a KMS provider: configured, or provided on demand for this operation
+    fn creds(&self, kmsid: &str) -> Option<crate::opts::Creds> {
+        if let Some(c) = self.kms.get(kmsid) {
+            return Some(c.clone());
+        }
+        let od = self.ondemand.lock().unwrap_or_else(|e| e.into_inner());
+        od.as_ref().and_then(|k| k.get(kmsid).cloned())
+    }
+
+    /// Whether `kmsid` is a provider configured as `{}` (credentials on demand)
+    fn on_demand(&self, kmsid: &str) -> bool {
+        !kmsid.contains(':') && self.kms.get(kmsid).is_none() && crate::opts::parse_kmsid(kmsid).is_ok_and(|(t, _)| self.kms.need_credentials.contains(&t))
+    }
+
+    /// libmongoc's `_state_need_kms_credentials`: credentials for every on-demand provider, in
+    /// the order aws, azure, gcp; they hold until the returned guard is dropped
+    fn obtain_credentials<I: Io>(&self, io: &mut I) -> Result<OnDemand<'_>, I::Error> {
+        use crate::opts::KmsType;
+        let mut w = Writer::with_capacity(256);
+        let need = &self.kms.need_credentials;
+        if need.contains(&KmsType::Aws) {
+            let (akid, secret, token) = io.aws_credentials().map_err(Error::Io)?;
+            let p = w.begin(T_DOCUMENT, b"aws");
+            w.utf8(b"accessKeyId", akid.as_bytes());
+            w.utf8(b"secretAccessKey", secret.as_bytes());
+            if let Some(t) = &token {
+                w.utf8(b"sessionToken", t.as_bytes());
+            }
+            w.end(p);
+        }
+        if need.contains(&KmsType::Azure) {
+            // reused while it is valid for at least one more minute
+            let mut cache = self.azure_imds.lock().unwrap_or_else(|e| e.into_inner());
+            let fresh = cache.as_ref().filter(|(_, exp)| *exp >= std::time::Instant::now() + std::time::Duration::from_secs(60)).map(|(t, _)| t.clone());
+            let token = match fresh {
+                Some(t) => t,
+                None => {
+                    let issued = std::time::Instant::now();
+                    let (t, life) = io.azure_imds_token().map_err(Error::Io)?;
+                    *cache = Some((t.clone(), issued.checked_add(life).unwrap_or(issued)));
+                    t
+                }
+            };
+            let p = w.begin(T_DOCUMENT, b"azure");
+            w.utf8(b"accessToken", token.as_bytes());
+            w.end(p);
+        }
+        if need.contains(&KmsType::Gcp) {
+            let t = io.gcp_metadata_token().map_err(Error::Io)?;
+            let p = w.begin(T_DOCUMENT, b"gcp");
+            w.utf8(b"accessToken", t.as_bytes());
+            w.end(p);
+        }
+        let provided = KmsProviders::parse(&w.finish())?;
+        *self.ondemand.lock().unwrap_or_else(|e| e.into_inner()) = Some(provided);
+        Ok(OnDemand(&self.ondemand))
     }
 
     /// The TLS options of a KMS provider (libmongoc's per-kmsid `mongoc_ssl_opt_t`)
@@ -167,7 +250,8 @@ impl Crypt {
         let crate::opts::KekProvider::Aws { cmk, region, endpoint } = &kek.provider else {
             return Err("expected aws kms provider".into());
         };
-        let Some(crate::opts::Creds::Aws { access_key_id, secret_access_key, session_token }) = self.kms.get(&kek.kmsid) else {
+        let creds = self.creds(&kek.kmsid);
+        let Some(crate::opts::Creds::Aws { access_key_id, secret_access_key, session_token }) = &creds else {
             return Err(format!("KMS provider `{}` is not configured", kek.kmsid).into());
         };
         // the Host header: decryption uses host:port, encryption the host only (as libmongocrypt)
@@ -201,7 +285,8 @@ impl Crypt {
     /// An Azure access token: configured, cached, or from an OAuth request
     /// (`_mongocrypt_kms_ctx_init_azure_auth`); `key_vault` sets the requested scope
     fn azure_token<I: Io>(&self, io: &mut I, kmsid: &str, key_vault: &crate::opts::Endpoint) -> Result<String, I::Error> {
-        let Some(crate::opts::Creds::Azure(creds)) = self.kms.get(kmsid) else {
+        let found = self.creds(kmsid);
+        let Some(crate::opts::Creds::Azure(creds)) = &found else {
             return Err(format!("KMS provider `{kmsid}` is not configured").into());
         };
         let (tenant_id, client_id, client_secret, ipe) = match creds {
@@ -242,7 +327,8 @@ impl Crypt {
     /// A GCP access token: configured, cached, or from a JWT bearer OAuth request
     /// (`_mongocrypt_kms_ctx_init_gcp_auth`); `kms_endpoint` (the key's) sets the requested scope
     fn gcp_token<I: Io>(&self, io: &mut I, kmsid: &str, kms_endpoint: Option<&crate::opts::Endpoint>) -> Result<String, I::Error> {
-        let Some(crate::opts::Creds::Gcp(creds)) = self.kms.get(kmsid) else {
+        let found = self.creds(kmsid);
+        let Some(crate::opts::Creds::Gcp(creds)) = &found else {
             return Err(format!("KMS provider `{kmsid}` is not configured").into());
         };
         let (email, private_key, auth) = match creds {
@@ -312,11 +398,11 @@ impl Crypt {
         let crate::opts::KekProvider::Kmip { endpoint, .. } = &kek.provider else {
             return Err("KMS provider is not KMIP".into());
         };
-        let configured = match self.kms.get(&kek.kmsid) {
+        let configured = match self.creds(&kek.kmsid) {
             Some(crate::opts::Creds::Kmip { endpoint }) => Some(endpoint),
             _ => None,
         };
-        let e = endpoint.as_ref().or(configured).ok_or("endpoint not set for KMIP request")?;
+        let e = endpoint.as_ref().or(configured.as_ref()).ok_or("endpoint not set for KMIP request")?;
         Ok(crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: with_default_port(e, 5696), message, tls: self.tls_for(&kek.kmsid) })
     }
 
@@ -408,6 +494,16 @@ impl Crypt {
     }
 
     fn fetch<I: Io>(&self, kb: &mut KeyBroker, io: &mut I) -> Result<(), I::Error> {
+        // KB_ADDING_DOCS: on-demand credentials are obtained before the key documents are read
+        let _ondemand = if kb.needs_keys() && !self.kms.need_credentials.is_empty() {
+            let g = self.obtain_credentials(io)?;
+            if let Some(k) = self.ondemand.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                kb.provide(k.clone());
+            }
+            Some(g)
+        } else {
+            None
+        };
         if kb.needs_keys() {
             let docs = io.find_keys(&kb.filter()).map_err(Error::Io)?;
             for d in docs {
@@ -519,6 +615,7 @@ impl Crypt {
             }
             None => crypto::random(crypto::KEY_LEN)?,
         };
+        let _ondemand = if self.on_demand(&kek.kmsid) { Some(self.obtain_credentials(io)?) } else { None };
         let (encrypted, kek) = self.wrap(io, kek, &material)?;
         Ok(key_document(&kek, &encrypted, alt_names)?)
     }
@@ -526,13 +623,10 @@ impl Crypt {
     /// The datakey context's KMS step: `material` encrypted with `kek`, and the KEK to store (a
     /// KMIP KEK gains the keyId of the object it registered or created)
     fn wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<(Vec<u8>, Kek), I::Error> {
-        match self.kms.get(&kek.kmsid) {
+        match self.creds(&kek.kmsid).as_ref() {
             Some(crate::opts::Creds::Local { key }) => Ok((crypto::wrap_key(key, material)?, kek.clone())),
             Some(crate::opts::Creds::Kmip { .. }) => self.kmip_wrap(io, kek, material),
             Some(_) => Ok((self.kms_wrap(io, kek, material)?, kek.clone())),
-            None if self.kms.need_credentials.contains(&kek.kms_type()) && !kek.kmsid.contains(':') => {
-                Err("on-demand KMS credentials are not supported by this build yet".into())
-            }
             None => Err(format!("requested kms provider required by datakey is not configured: `{}`", kek.kmsid).into()),
         }
     }
@@ -540,10 +634,21 @@ impl Crypt {
     /// `mongocrypt_ctx_rewrap_many_datakey_init`: for each key document, its id and the
     /// `{masterKey, keyMaterial}` to `$set` (re-encrypted with `new_kek`, or with its own KEK).
     /// The key broker runs as libmongocrypt's: cached keys are not decrypted again, and come first.
-    pub fn rewrap_many<I: Io>(&self, io: &mut I, docs: &[Vec<u8>], new_kek: Option<&Kek>) -> Result<Vec<([u8; 16], Vec<u8>)>, I::Error> {
+    /// On-demand credentials are obtained first, then the key documents matching `filter` read.
+    pub fn rewrap_many<I: Io>(&self, io: &mut I, filter: &[u8], new_kek: Option<&Kek>) -> Result<Vec<([u8; 16], Vec<u8>)>, I::Error> {
         let mut kb = KeyBroker::new(&self.kms, &self.cache);
+        let _ondemand = if self.kms.need_credentials.is_empty() {
+            None
+        } else {
+            let g = self.obtain_credentials(io)?;
+            if let Some(k) = self.ondemand.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                kb.provide(k.clone());
+            }
+            Some(g)
+        };
+        let docs = io.find_keys(filter).map_err(Error::Io)?;
         kb.request_any();
-        for d in docs {
+        for d in &docs {
             kb.add_doc(d)?;
         }
         kb.docs_done()?;

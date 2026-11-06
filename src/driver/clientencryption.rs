@@ -249,6 +249,21 @@ fn kms_exchange(req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) 
     })
 }
 
+
+/// On-demand credentials from the environment and metadata services (libmongoc's)
+fn aws_env_credentials() -> Result<(String, String, Option<String>), Error> {
+    let c = mongo_core::cloud_creds::aws_credentials(&mongo_core::cloud_creds::Hosts::default()).map_err(|e| Error::new(e.domain, e.code, &e.message))?;
+    Ok((c.access_key_id, c.secret_access_key, c.session_token))
+}
+
+fn azure_imds() -> Result<(String, std::time::Duration), Error> {
+    mongo_core::cloud_creds::azure_imds_token(&mongo_core::cloud_creds::Hosts::default()).map_err(|e| Error::new(e.domain, e.code, &e.message))
+}
+
+fn gcp_metadata() -> Result<String, Error> {
+    mongo_core::cloud_creds::gcp_metadata_token(&mongo_core::cloud_creds::Hosts::default()).map_err(|e| Error::new(e.domain, e.code, &e.message))
+}
+
 fn stream_error(msg: String) -> Error {
     let mut m = msg;
     mongo_core::bulk::truncate_message(&mut m);
@@ -266,6 +281,15 @@ impl Io for KvIo<'_> {
     }
     fn stream_error(&self, msg: String) -> IoError {
         (stream_error(msg), None)
+    }
+    fn aws_credentials(&mut self) -> Result<(String, String, Option<String>), IoError> {
+        aws_env_credentials().map_err(|e| (e, None))
+    }
+    fn azure_imds_token(&mut self) -> Result<(String, std::time::Duration), IoError> {
+        azure_imds().map_err(|e| (e, None))
+    }
+    fn gcp_metadata_token(&mut self) -> Result<String, IoError> {
+        gcp_metadata().map_err(|e| (e, None))
     }
     fn find_keys(&mut self, filter: &[u8]) -> Result<Vec<Vec<u8>>, IoError> {
         unsafe { self.0.find_all(filter.to_vec()) }.map_err(|(mut e, r)| {
@@ -808,14 +832,6 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(e
     }
     let Some((kv, crypt)) = parts(me(ex)) else { return };
     // _mongoc_crypt_rewrap_many_datakey: the key documents matching `filter`, re-encrypted
-    let docs = match kv.find_all(filter) {
-        Ok(d) => d,
-        Err((mut e, r)) => {
-            e.message = format!("key vault error: {}", e.message);
-            throw_io(&(e, r));
-            return;
-        }
-    };
     let new_kek = match &provider {
         None => None,
         Some(p) => {
@@ -833,7 +849,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(e
             }
         }
     };
-    let rewrapped = match crypt.rewrap_many(&mut KvIo(kv), &docs, new_kek.as_ref()) {
+    let rewrapped = match crypt.rewrap_many(&mut KvIo(kv), &filter, new_kek.as_ref()) {
         Ok(r) => r,
         Err(e) => {
             throw_engine(&e);
@@ -1041,6 +1057,15 @@ impl Io for CoreIo<'_> {
     }
     fn stream_error(&self, msg: String) -> Error {
         stream_error(msg)
+    }
+    fn aws_credentials(&mut self) -> Result<(String, String, Option<String>), Error> {
+        aws_env_credentials()
+    }
+    fn azure_imds_token(&mut self) -> Result<(String, std::time::Duration), Error> {
+        azure_imds()
+    }
+    fn gcp_metadata_token(&mut self) -> Result<String, Error> {
+        gcp_metadata()
     }
     fn find_keys(&mut self, filter: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
         let (db, coll) = (self.db, self.coll);

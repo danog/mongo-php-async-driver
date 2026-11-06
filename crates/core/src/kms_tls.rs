@@ -23,15 +23,20 @@ fn stream_err(m: String) -> Error {
 }
 
 /// Sends `msg` to `endpoint` ("host:port") over TLS and passes what is read to `feed` until it
-/// returns true
+/// returns true; at the end of the stream `feed` gets an empty slice
 pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), (Phase, Error)> {
+    exchange_timeout(endpoint, tls, msg, feed, SOCKET_TIMEOUT)
+}
+
+/// `exchange` with another socket timeout
+pub fn exchange_timeout(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnMut(&[u8]) -> bool, timeout: Duration) -> Result<(), (Phase, Error)> {
     let (host, port) = crate::client::split_host_port(endpoint);
     let connect = || -> Result<rustls::StreamOwned<rustls::ClientConnection, TcpStream>, Error> {
         let addrs = crate::net::resolve(&host, port).map_err(|_| stream_err(format!("Failed to resolve '{host}'")))?;
         let mut last = None;
         let mut tcp = None;
         for a in addrs {
-            match TcpStream::connect_timeout(&a, SOCKET_TIMEOUT) {
+            match TcpStream::connect_timeout(&a, timeout) {
                 Ok(s) => {
                     tcp = Some(s);
                     break;
@@ -41,8 +46,8 @@ pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnM
         }
         let _ = last;
         let tcp = tcp.ok_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, format!("Failed to connect to target host: {endpoint}")))?;
-        tcp.set_read_timeout(Some(SOCKET_TIMEOUT)).ok();
-        tcp.set_write_timeout(Some(SOCKET_TIMEOUT)).ok();
+        tcp.set_read_timeout(Some(timeout)).ok();
+        tcp.set_write_timeout(Some(timeout)).ok();
         let cfg = client_config(tls)?;
         let conn = rustls::ClientConnection::new(cfg, server_name(&host)?).map_err(|_| stream_err(format!("Failed to create TLS stream to: {endpoint}")))?;
         let mut s = rustls::StreamOwned::new(conn, tcp);
@@ -62,6 +67,8 @@ pub fn exchange(endpoint: &str, tls: &TlsOptions, msg: &[u8], feed: &mut dyn FnM
     let mut chunk = vec![0u8; 16 * 1024];
     loop {
         match s.read(&mut chunk) {
+            // the end of the stream: `feed` gets an empty slice (true: the response is complete)
+            Ok(0) if feed(&[]) => return Ok(()),
             Ok(0) => return Err((Phase::Read, stream_err("connection closed".into()))),
             Ok(n) => {
                 if feed(&chunk[..n]) {

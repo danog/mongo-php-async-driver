@@ -66,7 +66,7 @@ pub fn parse_url(url: &str) -> Result<Url, String> {
 }
 
 /// The request head (_mongoc_http_render_request_head).
-fn request_head(method: &str, url: &Url, extra_headers: &str, body_len: usize) -> String {
+pub fn request_head(method: &str, url: &Url, extra_headers: &str, body_len: usize) -> String {
     let mut h = format!("{method} {} HTTP/1.0\r\nHost: {}:{}\r\nConnection: close\r\n", url.path, url.host, url.port);
     if body_len > 0 {
         h.push_str(&format!("Content-Length: {body_len}\r\n"));
@@ -95,6 +95,8 @@ fn connect(url: &Url, deadline: Instant) -> Result<TcpStream, String> {
 /// The status code and body of a response (_mongoc_http_send's parsing).
 pub struct Response {
     pub status: u16,
+    /// the status line and header lines (libmongoc's `headers`)
+    pub headers: String,
     pub body: Vec<u8>,
 }
 
@@ -145,7 +147,7 @@ pub fn parse_response(buf: &[u8]) -> Result<Response, String> {
     let code = buf.get(lead..lead + 3).filter(|c| c.iter().all(u8::is_ascii_digit)).ok_or("Invalid HTTP response status string")?;
     let status = code.iter().fold(0u16, |a, d| a * 10 + u16::from(d - b'0'));
     let end = buf.windows(4).position(|w| w == b"\r\n\r\n").ok_or("Error occurred reading response: end of headers not found")?;
-    Ok(Response { status, body: buf[end + 4..].to_vec() })
+    Ok(Response { status, headers: String::from_utf8_lossy(&buf[..end]).into_owned(), body: buf[end + 4..].to_vec() })
 }
 
 #[cfg(test)]
