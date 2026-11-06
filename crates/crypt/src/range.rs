@@ -1,6 +1,7 @@
 //! Queryable Encryption range indexes (libmongocrypt's `mc-rangeopts.c`, `mc-range-encoding.c`,
 //! `mc-range-edge-generation.c`): range options, the order-preserving encodings of int32, int64,
-//! date and double values, and edge generation. Decimal128 is not supported yet (user decision).
+//! date, double and Decimal128 values (crate::dec128, as libmongocrypt built with Decimal128
+//! support), and edge generation.
 
 use crate::fle2::{common, encrypted_tokens, token_key};
 use mongo_core::bson::fmt::fmt_g;
@@ -88,6 +89,12 @@ impl Val {
         match self.value() {
             Value::Double(v) => v,
             _ => 0.0,
+        }
+    }
+    fn dec(&self) -> crate::dec128::Dec {
+        match self.value() {
+            Value::Decimal128(d) => crate::dec128::Dec::from_bytes(&d.to_le_bytes()),
+            _ => crate::dec128::Dec::from_i64(0),
         }
     }
     fn append(&self, w: &mut Writer, key: &[u8]) {
@@ -207,7 +214,7 @@ impl RangeOpts {
                     w.double(b"", dflt);
                     Ok(Val { t: T_DOUBLE, elem: w.finish() })
                 }
-                T_DECIMAL128 => Err(format!("{p}unsupported BSON type (Decimal128) for range: libmongocrypt was built without extended Decimal128 support")),
+                T_DECIMAL128 => Ok(decimal_extreme(dflt < 0.0)),
                 t => Err(format!("{p}unsupported BSON type: {} for range", type_name(t))),
             }
         };
@@ -249,6 +256,13 @@ impl RangeOpts {
                     _ => (0.0, None),
                 };
                 64 - type_info_double(v, b, self.precision)?.max.leading_zeros()
+            }
+            T_DECIMAL128 => {
+                let (v, b) = match (&self.min, &self.max) {
+                    (Some(a), Some(b)) => (a.dec(), Some((a.dec(), b.dec()))),
+                    _ => (crate::dec128::Dec::from_i64(0), None),
+                };
+                128 - type_info_decimal(v, b, self.precision)?.max.leading_zeros()
             }
             t => return Err(format!("{P}unsupported BSON type: {} for range", type_name(t))),
         };
@@ -481,7 +495,12 @@ pub fn get_edges(spec: &InsertSpec, sparsity: usize) -> Result<Edges> {
             let o = type_info_double(spec.v.f64(), b, spec.precision)?;
             edges_new(&bits(o.value, 64, o.max.leading_zeros()), sparsity, spec.trim_factor)
         }
-        T_DECIMAL128 => Err("unsupported BSON type (Decimal128) for range: libmongocrypt was built without extended Decimal128 support".into()),
+        T_DECIMAL128 => {
+            let b = spec.precision.map(|_| (spec.min.dec(), spec.max.dec()));
+            let o = type_info_decimal(spec.v.dec(), b, spec.precision)?;
+            let s = format!("{:0128b}", o.value);
+            edges_new(&s[o.max.leading_zeros() as usize..], sparsity, spec.trim_factor)
+        }
         t => Err(format!("unsupported BSON type: {} for range", type_name(t))),
     }
 }
@@ -570,6 +589,253 @@ mod tests {
 // ---------------------------------------------------------------------------------------------
 // Range queries: mincover (mc-range-mincover*.c), FLE2RangeFindDriverSpec (mc-fle2-rfds.c) and
 // FLE2FindRangePayloadV2 (mc-fle2-find-range-payload-v2.c)
+
+/// `MinCoverGenerator_u128`
+fn min_cover128(range_min: u128, range_max: u128, max: u128, sparsity: usize, tf: Option<i32>) -> Result<(Vec<String>, i32)> {
+    if range_min > range_max {
+        return Err(format!("Range min ({REDACTED}) must be less than or equal to range max ({REDACTED}) for range search"));
+    }
+    if range_max > max {
+        return Err(format!("Range max ({REDACTED}) must be less than or equal to max ({max}) for range search"));
+    }
+    if sparsity == 0 {
+        return Err("Sparsity must be > 0".into());
+    }
+    let maxlen = (128 - max.leading_zeros()) as usize;
+    let trim = trim_factor_default(maxlen, tf);
+    if trim != 0 && trim as i64 >= maxlen as i64 {
+        return Err(format!(
+            "Trim factor must be less than the number of bits ({maxlen}) used to represent an element of the domain, but got {trim}"
+        ));
+    }
+    if trim < 0 {
+        return Err(format!("Trim factor must be >= 0, but got ({trim})"));
+    }
+    let apply_mask = |v: u128, masked: usize| if masked == 0 { v } else { v | (u128::MAX >> (128 - masked)) };
+    let stored = |masked: usize| {
+        let level = maxlen - masked;
+        masked == 0 || (level >= trim as usize && level % sparsity == 0)
+    };
+    let to_string = |start: u128, masked: usize| -> String {
+        if masked == maxlen {
+            return "root".into();
+        }
+        let s = format!("{:0128b}", start >> masked);
+        s[128 - maxlen + masked..].to_string()
+    };
+    let mut out = Vec::new();
+    #[allow(clippy::too_many_arguments)]
+    fn rec(
+        out: &mut Vec<String>,
+        start: u128,
+        masked: usize,
+        lo: u128,
+        hi: u128,
+        apply_mask: &dyn Fn(u128, usize) -> u128,
+        stored: &dyn Fn(usize) -> bool,
+        to_string: &dyn Fn(u128, usize) -> String,
+    ) {
+        let end = apply_mask(start, masked);
+        if end < lo || start > hi {
+            return;
+        }
+        if start >= lo && end <= hi && stored(masked) {
+            out.push(to_string(start, masked));
+            return;
+        }
+        let nb = masked - 1;
+        rec(out, start, nb, lo, hi, apply_mask, stored, to_string);
+        rec(out, start | (1u128 << nb), nb, lo, hi, apply_mask, stored, to_string);
+    }
+    rec(&mut out, 0, maxlen, range_min, range_max, &apply_mask, &stored, &to_string);
+    Ok((out, trim))
+}
+
+/// `adjustBounds_u128`
+fn adjust_bounds128(lo: &mut u128, inc_lo: bool, min: u128, hi: &mut u128, inc_hi: bool, max: u128) -> Result<()> {
+    if !inc_lo {
+        if *lo >= max {
+            return Err(format!("Lower bound ({REDACTED}) must be less than the range maximum ({max}) if lower bound is excluded from range."));
+        }
+        *lo += 1;
+    }
+    if !inc_hi {
+        if *hi <= min {
+            return Err(format!("Upper bound ({REDACTED}) must be greater than the range minimum ({min}) if upper bound is excluded from range."));
+        }
+        *hi -= 1;
+    }
+    Ok(())
+}
+
+impl PartialOrd for crate::dec128::Dec {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        self.cmp_value(o)
+    }
+}
+
+/// MC_DEC128_LARGEST_NEGATIVE / MC_DEC128_LARGEST_POSITIVE as a value
+fn decimal_extreme(negative: bool) -> Val {
+    let d = crate::dec128::Dec::finite(negative, crate::dec128::pow10(34) - 1, 6111);
+    let mut w = Writer::with_capacity(32);
+    w.value(b"", &Value::Decimal128(mongo_core::bson::decimal128::Decimal128::from_le_bytes(d.to_bytes())));
+    Val { t: T_DECIMAL128, elem: w.finish() }
+}
+
+/// `dec128_to_uint128` / `dec128_to_int128` (wrapping, as mlib_int128)
+fn dec_to_int128(d: &crate::dec128::Dec) -> u128 {
+    use crate::dec128::{pow10_wrapping, EXPONENT_BIAS};
+    let neg = d.is_negative();
+    let exp = d.biased_exp() - EXPONENT_BIAS;
+    let e = pow10_wrapping(exp.unsigned_abs().min(255));
+    let mag = if exp < 0 { d.coeff() / e.max(1) } else { d.coeff().wrapping_mul(e) };
+    if neg { mag.wrapping_neg() } else { mag }
+}
+
+/// 2^127 - 1 and 2^128 - 1 as decimal128 (34 digits, rounded)
+fn int128_max_dec() -> crate::dec128::Dec {
+    crate::dec128::Dec::finite(false, 1701411834604692317316873037158841, 5)
+}
+fn uint128_max_dec() -> crate::dec128::Dec {
+    crate::dec128::Dec::finite(false, 3402823669209384634633746074317682, 5)
+}
+
+/// `mc_canUsePrecisionModeDecimal`: Ok(Some(bits)) when usable, Ok(None) when not (>= 128 bits)
+fn can_use_precision_mode_decimal(min: crate::dec128::Dec, max: crate::dec128::Dec, precision: i32) -> Result<Option<u32>> {
+    use crate::dec128::Dec;
+    if !max.is_finite() {
+        return Err("Invalid upper bound for Decimal128 precision. Max is infinite.".into());
+    }
+    if !min.is_finite() {
+        return Err("Invalid lower bound for Decimal128 precision. Min is infinite.".into());
+    }
+    if min.greater_equal(&max) {
+        return Err(format!(
+            "Invalid upper and lower bounds for Decimal128 precision. Min must be strictly less than max. min: {}, max: {}",
+            min.to_intel_string(),
+            max.to_intel_string()
+        ));
+    }
+    let smax = max.scale(precision as i64);
+    let smin = min.scale(precision as i64);
+    if smax.not_equal(&smax.trunc()) {
+        return Err(format!(
+            "Invalid upper bound for Decimal128 precision. Fractional digits must be less than the specified precision value. max: {}, precision: {precision}",
+            max.to_intel_string()
+        ));
+    }
+    if smin.not_equal(&smin.trunc()) {
+        return Err(format!(
+            "Invalid lower bound for Decimal128 precision. Fractional digits must be less than the specified precision value. min: {}, precision: {precision}",
+            min.to_intel_string()
+        ));
+    }
+    if smax.abs().greater(&int128_max_dec()) {
+        return Err(format!(
+            "Invalid upper bound for Decimal128 precision. Absolute scaled value must be less than or equal to {}. max: {}",
+            int128_max_dec().to_intel_string(),
+            max.to_intel_string()
+        ));
+    }
+    if smin.abs().greater(&int128_max_dec()) {
+        return Err(format!(
+            "Invalid lower bound for Decimal128 precision. Absolute scaled value must be less than or equal to {}. min: {}",
+            int128_max_dec().to_intel_string(),
+            min.to_intel_string()
+        ));
+    }
+    let t1 = smax.sub(&smin);
+    let t4 = uint128_max_dec().sub(&t1);
+    // t_5 = floor(log10(t_4)) - 1
+    let t5 = t4.floor_log10().map(|l| l - 1);
+    if t5.is_none_or(|t| t < precision as i64) {
+        return Err(format!("Invalid value for precision. precision: {precision}"));
+    }
+    let range128 = dec_to_int128(&smax).wrapping_sub(dec_to_int128(&smin));
+    if precision > u8::MAX as i32 {
+        return Err(format!("Invalid value for precision. Must be less than 255. precision: {precision}"));
+    }
+    let i3 = range128.wrapping_add(crate::dec128::pow10_wrapping(precision as u32));
+    if i3 == 0 {
+        return Err("Invalid input to ceil_log2_int128 function. Input cannot be 0.".into());
+    }
+    let clz = i3.leading_zeros();
+    let bits = if i3 & (i3 - 1) == 0 { 128 - clz - 1 } else { 128 - clz };
+    let _ = Dec::from_i64(0);
+    Ok(if bits >= 128 { None } else { Some(bits) })
+}
+
+/// `mc_getTypeInfoDecimal128`
+pub fn type_info_decimal(value: crate::dec128::Dec, bounds: Option<(crate::dec128::Dec, crate::dec128::Dec)>, precision: Option<i32>) -> Result<Ost<u128>> {
+    use crate::dec128::{pow10, Dec};
+    if bounds.is_some() != precision.is_some() {
+        return Err("min, max, and precision must all be set or must all be unset".into());
+    }
+    if let Some(p) = precision {
+        if p < 0 {
+            return Err(format!("Precision must be non-negative, but got {p}"));
+        }
+        if !Dec::from_i64(1).scale(p as i64).is_finite() {
+            return Err("Precision is too large and cannot be used to calculate the scaled range bounds".into());
+        }
+    }
+    if value.is_inf() || value.is_nan() {
+        return Err("Infinity and Nan Decimal128 values are not supported.".into());
+    }
+    if let Some((min, max)) = &bounds {
+        if min.greater_equal(max) {
+            return Err(format!("The minimum value must be less than the maximum value, got min: {}, max: {}", min.to_intel_string(), max.to_intel_string()));
+        }
+        if value.greater(max) || value.less(min) {
+            return Err(format!(
+                "Value must be greater than or equal to the minimum value and less than or equal to the maximum value, got min: {}, max: {}, value: {REDACTED}",
+                min.to_intel_string(),
+                max.to_intel_string()
+            ));
+        }
+    }
+    if let (Some((min, max)), Some(p)) = (bounds, precision) {
+        let Some(bits) = can_use_precision_mode_decimal(min, max, p)? else {
+            return Err(format!(
+                "The domain of decimal values specified by the min, max, and precision cannot be represented in fewer than 128 bits. min: {}, max: {}, precision: {p}",
+                min.to_intel_string(),
+                max.to_intel_string()
+            ));
+        };
+        let v_prime = value.scale(p as i64).trunc().scale(-(p as i64));
+        let v_prime2 = v_prime.sub(&min).scale(p as i64).trunc();
+        // libmongocrypt asserts log2(v_prime2) < 128; here it is an error
+        if v_prime2.greater_equal(&uint128_max_dec()) || !v_prime2.is_finite() {
+            return Err("Decimal128 value out of range for precision mode".into());
+        }
+        let ost_max = (1u128 << bits).wrapping_sub(1);
+        return Ok(Ost { value: dec_to_int128(&v_prime2), max: ost_max });
+    }
+    let coeff = value.coeff();
+    let two127 = 1u128 << 127;
+    if coeff == 0 {
+        return Ok(Ost { value: two127, max: u128::MAX });
+    }
+    let c_max = pow10(34) - 1;
+    let c_max_div_ten = c_max / 10;
+    let exp_biased = value.biased_exp() as u32;
+    let mut rho = 0u32;
+    let mut scaled = coeff;
+    while scaled < c_max_div_ten {
+        rho += 1;
+        scaled *= 10;
+    }
+    let mut result = if rho <= exp_biased {
+        scaled.wrapping_add(c_max.wrapping_mul((exp_biased - rho) as u128))
+    } else {
+        crate::dec128::pow10_wrapping(exp_biased).wrapping_mul(coeff)
+    };
+    result = result.wrapping_add(two127);
+    if value.is_negative() {
+        result = result.wrapping_neg();
+    }
+    Ok(Ost { value: result, max: u128::MAX })
+}
 
 /// `MinCoverGenerator` (32- or 64-bit): the edges and the trim factor used
 fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usize, tf: Option<i32>) -> Result<(Vec<String>, i32)> {
@@ -740,7 +1006,16 @@ fn mincover(e: &EdgesInfo, sparsity: usize) -> Result<(Vec<String>, i32)> {
             adjust_bounds(&mut l, inc_lo, 0, &mut h, inc_hi, c.max)?;
             min_cover(l, h, a.max, 64, sparsity, tf)
         }
-        T_DECIMAL128 => Err("FLE2 find is not supported for Decimal128: libmongocrypt was built without Decimal128 support".into()),
+        T_DECIMAL128 => {
+            let b = e.precision.map(|_| (e.index_min.dec(), e.index_max.dec()));
+            // CHECK_BOUNDS with the indexMin/indexMax as given (without precision they are unset)
+            check_bounds(lo.dec(), inc_lo, hi.dec(), inc_hi, b, &|v| v.to_intel_string())?;
+            let a = type_info_decimal(lo.dec(), b, e.precision)?;
+            let c = type_info_decimal(hi.dec(), b, e.precision)?;
+            let (mut l, mut h) = (a.value, c.value);
+            adjust_bounds128(&mut l, inc_lo, 0, &mut h, inc_hi, c.max)?;
+            min_cover128(l, h, a.max, sparsity, tf)
+        }
         t => Err(format!("FLE2 find is not supported for type: {}", type_name(t))),
     }
 }
@@ -995,7 +1270,7 @@ pub fn encrypt_expression(input: &[u8], ro: &RangeOpts, max_contention: i64, key
                 w.double(b"", dflt);
                 Ok(Val { t: T_DOUBLE, elem: w.finish() })
             }
-            T_DECIMAL128 => Err(format!("{p}unsupported BSON type (Decimal128) for range: libmongocrypt was built without extended Decimal128 support")),
+            T_DECIMAL128 => Ok(decimal_extreme(dflt < 0.0)),
             t => Err(format!("{p}unsupported BSON type: {} for range", type_name(t))),
         }
     };

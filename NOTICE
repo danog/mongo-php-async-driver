@@ -62,6 +62,12 @@ pointing to that repository.
 The NOTICE and THIRD_PARTY_NOTICES files of the projects above apply to the ported code and the
 copied tests.
 
+The Decimal128 arithmetic of Queryable Encryption range indexes (crates/crypt/src/dec128.rs)
+follows the semantics of the Intel(R) Decimal Floating-Point Math Library
+(https://www.intel.com/content/www/us/en/developer/articles/tool/intel-decimal-floating-point-math-library.html),
+Copyright (c) 2007-2018, Intel Corp., licensed under the BSD 3-Clause License: no Intel code is
+included, only its behaviour (rounding, scalbn, round-to-integral, string format) is reproduced.
+
 Server Side Public License
 --------------------------
 The files in crates/crypt/src/unicode/ (mod.rs, case_fold_map.rs, diacritic_fold_map.rs) are
