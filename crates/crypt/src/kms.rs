@@ -266,6 +266,142 @@ pub fn aws_request(
     r.signed().map_err(|e| format!("failed to create KMS message: {e}"))
 }
 
+/// `kms_request_to_string` for a request that is not signed (Azure, GCP): the request line, the
+/// headers sorted by name (Content-Length added), the body. Every header is checked for CR/LF.
+fn plain_request(method: &str, path_and_query: &str, mut headers: Vec<(String, String)>, payload: &str) -> Result<String> {
+    if path_and_query.contains([' ', '\r', '\n']) {
+        return Err("HTTP path contains invalid characters".into());
+    }
+    if !headers.iter().any(|(k, _)| k == "Host") {
+        return Err("Required Host header not set".into());
+    }
+    if !payload.is_empty() {
+        headers.push(("Content-Length".into(), payload.len().to_string()));
+    }
+    for (k, v) in &headers {
+        check_header_value("header name", k)?;
+        check_header_value("header value", v)?;
+    }
+    headers.sort_by_key(|(k, _)| k.to_ascii_lowercase());
+    let mut s = format!("{method} {path_and_query} HTTP/1.1\r\n");
+    for (k, v) in &headers {
+        s.push_str(k);
+        s.push(':');
+        s.push_str(v);
+        s.push_str("\r\n");
+    }
+    s.push_str("\r\n");
+    s.push_str(payload);
+    Ok(s)
+}
+
+/// kms-message's `_check_path_segment`: unreserved characters only, at least one alphanumeric
+fn check_path_segment(name: &str, value: &str) -> Result<()> {
+    if !value.bytes().all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c)) {
+        return Err(format!("Invalid character in Azure KMS identifier: {name}"));
+    }
+    if !value.bytes().any(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("Invalid Azure KMS identifier: {name}"));
+    }
+    Ok(())
+}
+
+/// `kms_message_raw_to_b64url` (the padding is kept)
+fn b64url(data: &[u8]) -> String {
+    base64_encode(data).replace('+', "-").replace('/', "_")
+}
+
+/// `kms_azure_request_oauth_new` (`_mongocrypt_kms_ctx_init_azure_auth`): the client credentials
+/// token request; `scope` is already %-encoded
+pub fn azure_oauth_request(host: &str, scope: &str, tenant_id: &str, client_id: &str, client_secret: &str) -> Result<Vec<u8>> {
+    let err = |e: String| format!("error constructing KMS message: {e}");
+    check_path_segment("tenantId", tenant_id).map_err(err)?;
+    let payload = format!("client_id={client_id}&scope={scope}&client_secret={client_secret}&grant_type=client_credentials");
+    let headers = vec![
+        ("Connection".into(), "close".into()),
+        ("Content-Type".into(), "application/x-www-form-urlencoded".into()),
+        ("Host".into(), host.into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    Ok(plain_request("POST", &format!("/{tenant_id}/oauth2/v2.0/token"), headers, &payload).map_err(err)?.into_bytes())
+}
+
+/// `kms_azure_request_wrapkey_new` / `_unwrapkey_new`
+pub fn azure_wrap_request(wrap: bool, host: &str, access_token: &str, key_name: &str, key_version: Option<&str>, value: &[u8]) -> Result<Vec<u8>> {
+    let op = if wrap { "wrapkey" } else { "unwrapkey" };
+    let err = |e: String| format!("error constructing KMS {op} message: {e}");
+    check_path_segment("keyName", key_name).map_err(err)?;
+    if let Some(v) = key_version.filter(|v| !v.is_empty()) {
+        check_path_segment("keyVersion", v).map_err(err)?;
+    }
+    let path = format!("/keys/{key_name}/{}/{op}?api-version=7.1", key_version.unwrap_or_default());
+    let payload = format!("{{\"alg\": \"RSA-OAEP-256\", \"value\": \"{}\"}}", b64url(value));
+    let headers = vec![
+        ("Connection".into(), "close".into()),
+        ("Authorization".into(), format!("Bearer {access_token}")),
+        ("Content-Type".into(), "application/json".into()),
+        ("Host".into(), host.into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    Ok(plain_request("POST", &path, headers, &payload).map_err(err)?.into_bytes())
+}
+
+/// The JSON body of an OAuth or Azure response (`_ctx_done_oauth`, `_ctx_done_azure_wrapkey_unwrapkey`)
+fn json_body(r: &Response) -> Result<Vec<u8>> {
+    let body = String::from_utf8_lossy(&r.body);
+    if r.body.is_empty() {
+        return Err(format!("Empty KMS response. HTTP status={}", r.status));
+    }
+    let doc = mongo_core::bson::json_parse::from_json(&r.body)
+        .map_err(|e| format!("Error parsing JSON in KMS response '{e}'. HTTP status={}. Response body=\n{body}", r.status))?;
+    if r.status != 200 {
+        return Err(non200(r.status, &r.body));
+    }
+    Ok(doc)
+}
+
+/// `_ctx_done_oauth` + `mc_mapof_kmsid_to_token_add_response`: the access token and how long it
+/// may be cached
+pub fn oauth_done(r: &Response) -> Result<(String, std::time::Duration)> {
+    use mongo_core::bson::iter::Value;
+    let doc = json_body(r)?;
+    if !matches!(crate::opts::find(&doc, "access_token"), Some(Value::Utf8(_))) {
+        return Err(format!(
+            "Invalid KMS response. KMS JSON response does not include field 'access_token'. HTTP status={}. Response body=\n{}",
+            r.status,
+            String::from_utf8_lossy(&r.body)
+        ));
+    }
+    let expires_in = match crate::opts::find(&doc, "expires_in") {
+        Some(Value::Int32(n)) => n as i64,
+        Some(Value::Int64(n)) => n,
+        _ => return Err("OAuth response invalid, no 'expires_in' field.".into()),
+    };
+    let Some(Value::Utf8(token)) = crate::opts::find(&doc, "access_token") else { unreachable!() };
+    // MONGOCRYPT_OAUTH_CACHE_EVICTION_PERIOD_US: tokens are dropped 5 s before they expire
+    // (libmongocrypt aborts on an expires_in that overflows; here it saturates)
+    let ttl = std::time::Duration::from_secs(expires_in.max(0) as u64).saturating_sub(std::time::Duration::from_secs(5));
+    Ok((String::from_utf8_lossy(token).into_owned(), ttl))
+}
+
+/// `_ctx_done_azure_wrapkey_unwrapkey`: the base64url-decoded `value`
+pub fn azure_done(r: &Response) -> Result<Vec<u8>> {
+    let doc = json_body(r)?;
+    let body = String::from_utf8_lossy(&r.body);
+    let Some(mongo_core::bson::iter::Value::Utf8(v)) = crate::opts::find(&doc, "value") else {
+        return Err(format!("KMS JSON response does not include field 'value'. HTTP status={}. Response body=\n{body}", r.status));
+    };
+    let mut b64: Vec<u8> = v.iter().map(|&c| match c {
+        b'-' => b'+',
+        b'_' => b'/',
+        c => c,
+    }).collect();
+    while b64.len() % 4 != 0 {
+        b64.push(b'=');
+    }
+    base64_decode(&b64).ok_or_else(|| format!("Failed to base64 decode response. HTTP status={}. Response body=\n{body}", r.status))
+}
+
 /// A complete HTTP response
 pub struct Response {
     pub status: i32,

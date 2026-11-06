@@ -251,8 +251,8 @@ impl<'a> KeyBroker<'a> {
         Ok((r.material.clone().ok_or("unexpected, key not decrypted")?, r.doc.id))
     }
 
-    /// The key documents returned (rewrapManyDataKey)
-    pub fn docs(&self) -> impl Iterator<Item = (&KeyDoc, Option<&Vec<u8>>)> {
-        self.returned.iter().map(|r| (&r.doc, r.material.as_ref()))
+    /// Every decrypted key, the cached ones first (rewrapManyDataKey; after `kms_done`)
+    pub fn all_keys(&self) -> impl Iterator<Item = (&KeyDoc, &Vec<u8>)> {
+        self.cached.iter().chain(self.returned.iter()).filter_map(|r| r.material.as_ref().map(|m| (&r.doc, m)))
     }
 }

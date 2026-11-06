@@ -833,22 +833,21 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(e
             }
         }
     };
-    let mut ops = Vec::new();
-    for d in &docs {
-        match crypt.rewrap(&mut KvIo(kv), d, new_kek.as_ref()) {
-            Ok((id, set)) => {
-                let mut u = Writer::with_capacity(set.len() + 64);
-                u.document(b"$set", &set);
-                let p = u.begin(T_DOCUMENT, b"$currentDate");
-                u.bool(b"updateDate", true);
-                u.end(p);
-                ops.push((id_doc(&id), u.finish()));
-            }
-            Err(e) => {
-                throw_engine(&e);
-                return;
-            }
+    let rewrapped = match crypt.rewrap_many(&mut KvIo(kv), &docs, new_kek.as_ref()) {
+        Ok(r) => r,
+        Err(e) => {
+            throw_engine(&e);
+            return;
         }
+    };
+    let mut ops = Vec::with_capacity(rewrapped.len());
+    for (id, set) in rewrapped {
+        let mut u = Writer::with_capacity(set.len() + 64);
+        u.document(b"$set", &set);
+        let p = u.begin(T_DOCUMENT, b"$currentDate");
+        u.bool(b"updateDate", true);
+        u.end(p);
+        ops.push((id_doc(&id), u.finish()));
     }
     let mut w = Writer::with_capacity(256);
     if ops.is_empty() {
