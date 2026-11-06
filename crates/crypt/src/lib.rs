@@ -2,3 +2,8 @@
 //! (Apache-2.0, see NOTICE). No C, no OpenSSL: RustCrypto primitives.
 
 pub mod crypto;
+pub mod opts;
+pub mod bson;
+pub mod broker;
+pub mod engine;
+pub mod key;
