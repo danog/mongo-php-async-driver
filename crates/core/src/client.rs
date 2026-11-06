@@ -264,8 +264,10 @@ impl Client {
         w.finish()
     }
 
-    /// Checks one node: a hello on its connection, or connect + handshake. Ok((reply, rtt)).
-    fn check_node(&mut self, i: usize) -> Result<(Vec<u8>, i64), Error> {
+    /// Checks one node: a hello on its connection, or connect + handshake. Ok((reply, rtt)), or
+    /// the error and whether it happened while setting up the stream (name resolution, a UNIX
+    /// domain socket's connect: libmongoc reports those without " calling hello on ...").
+    fn check_node(&mut self, i: usize) -> Result<(Vec<u8>, i64), (Error, bool)> {
         let connect_timeout = ms(self.settings.connect_timeout_ms);
         let t0 = std::time::Instant::now();
         if let Some(mut conn) = self.nodes[i].conn.take() {
@@ -276,30 +278,40 @@ impl Client {
                     self.nodes[i].conn = Some(conn);
                     return Ok((r, t0.elapsed().as_millis() as i64));
                 }
-                Err(e) => return Err(net_check_error(e)),
+                Err(e) => return Err((net_check_error(e), false)),
             }
         }
-        let (host, port) = split_host_port(&self.nodes[i].addr);
         // a TLS configuration that failed to load fails the check before any connection
         if let Some(Err(e)) = &self.tls {
-            return Err(e.clone());
+            return Err((e.clone(), false));
         }
-        let mut conn = Conn::connect(&host, port, connect_timeout).map_err(|e| match e {
-            NetError::Resolve(_) => Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{host}'")),
-            e => net_check_error(e),
-        })?;
+        let addr = &self.nodes[i].addr;
+        // the host parser's AF_UNIX rule (a '/' and ".sock"): the address is the path
+        let (host, mut conn) = if addr.contains('/') && addr.contains(".sock") {
+            (addr.clone(), Conn::connect_unix(addr).map_err(|e| (net_check_error(e), true))?)
+        } else {
+            let (host, port) = split_host_port(addr);
+            let conn = Conn::connect(&host, port, connect_timeout).map_err(|e| match e {
+                NetError::Resolve(_) => (Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{host}'")), true),
+                e => (net_check_error(e), false),
+            })?;
+            (host, conn)
+        };
         // mongoc_stream_tls_new_with_hostname + the handshake, bounded by connectTimeoutMS
         match &self.tls {
             None => {}
-            Some(Err(e)) => return Err(e.clone()),
-            Some(Ok(cfg)) => conn = conn.into_tls(cfg.clone(), crate::tls::server_name(&host)?, connect_timeout).map_err(net_check_error)?,
+            Some(Err(e)) => return Err((e.clone(), false)),
+            Some(Ok(cfg)) => {
+                let name = crate::tls::server_name(&host).map_err(|e| (e, false))?;
+                conn = conn.into_tls(cfg.clone(), name, connect_timeout).map_err(|e| (net_check_error(e), false))?;
+            }
         }
         // single-threaded libmongoc negotiates the mechanism in a node's first handshake and
         // starts a speculative authentication in each one
         let negotiate = self.nodes[i].mechs.is_none();
         let speculative = crate::auth::speculative_start(&self.uri);
         let body = handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, speculative.as_ref().map(|s| &s.0[..]));
-        let reply = handshake::run_command(&mut conn, &body, connect_timeout).map_err(net_check_error)?;
+        let reply = handshake::run_command(&mut conn, &body, connect_timeout).map_err(|e| (net_check_error(e), false))?;
         let rtt = t0.elapsed().as_millis() as i64;
         let speculative_reply = crate::auth::speculative_reply(&reply);
         // the speculativeAuthenticate reply is seen by the authentication only
@@ -365,14 +377,13 @@ impl Client {
                         self.td.handle_hello(id, Some(&reply), rtt, None);
                     }
                 }
-                Err(e) => {
+                Err((e, setup)) => {
                     let n = &mut self.nodes[i];
                     n.conn = None;
                     n.handshake = None;
                     n.last_used = monotonic_usec();
                     n.last_failed = n.last_used;
-                    let msg = if e.domain == domain::STREAM && e.code == code::STREAM_NAME_RESOLUTION { e.message.clone() } else { format!("{} calling hello on '{}'", e.message, n.addr) };
-                    let last = if e.code == code::STREAM_NAME_RESOLUTION { e.clone() } else { Error::new(domain::CLIENT, code::STREAM_CONNECT, msg) };
+                    let last = if setup { e.clone() } else { Error::new(domain::CLIENT, code::STREAM_CONNECT, format!("{} calling hello on '{}'", e.message, n.addr)) };
                     n.last_error = Some(last.clone());
                     let addr = n.addr.clone();
                     self.td.events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error: last });
@@ -701,6 +712,7 @@ fn net_check_error(e: NetError) -> Error {
         NetError::Io(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Failed to write rpc bytes."),
         NetError::Protocol(_) => Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply from server."),
         NetError::Tls(m) => Error::new(domain::STREAM, code::STREAM_SOCKET, format!("TLS handshake failed: {m}")),
+        NetError::Unix(c, m) => Error::new(domain::STREAM, c, m),
     }
 }
 

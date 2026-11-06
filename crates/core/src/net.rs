@@ -53,6 +53,8 @@ pub enum NetError {
     Protocol(&'static str),
     /// The TLS handshake failed (the text after "TLS handshake failed: ").
     Tls(String),
+    /// Setting up a UNIX domain socket failed: libmongoc's error code and message.
+    Unix(u32, String),
 }
 
 impl std::fmt::Display for NetError {
@@ -64,6 +66,7 @@ impl std::fmt::Display for NetError {
             NetError::Closed => write!(f, "connection closed"),
             NetError::Protocol(s) => write!(f, "{s}"),
             NetError::Tls(s) => write!(f, "TLS handshake failed: {s}"),
+            NetError::Unix(_, s) => write!(f, "{s}"),
         }
     }
 }
@@ -220,6 +223,43 @@ impl Conn {
             }
         }
         Err(NetError::Connect(last.unwrap()))
+    }
+
+    /// Connects to the UNIX domain socket at `path` (mongoc_topology_scanner_node_connect_unix:
+    /// a blocking connect, without connectTimeoutMS, and libmongoc's messages).
+    #[cfg(unix)]
+    pub fn connect_unix(path: &str) -> Result<Conn, NetError> {
+        use crate::error::code;
+        use std::os::fd::{FromRawFd, IntoRawFd};
+        // sockaddr_un.sun_path, and libmongoc's check (`snprintf` into sizeof - 1 bytes must
+        // not reach sizeof - 1)
+        const SUN_PATH: usize = if cfg!(any(target_os = "linux", target_os = "android")) { 108 } else { 104 };
+        if path.len() >= SUN_PATH - 1 || path.contains('\0') {
+            return Err(NetError::Unix(code::STREAM_SOCKET, "Failed to define socket address path.".into()));
+        }
+        let unix = std::os::unix::net::UnixStream::connect(path).map_err(|e| {
+            // bson_strerror_r: the system's text without Rust's " (os error N)"
+            let text = e.to_string();
+            let text = text.rsplit_once(" (os error ").map_or(text.as_str(), |(t, _)| t).to_owned();
+            NetError::Unix(code::STREAM_CONNECT, format!("Failed to connect to UNIX domain socket: {text}"))
+        })?;
+        // SAFETY: an owned, connected stream socket. TcpStream is used for the generic socket
+        // calls only (read, write, SO_RCVTIMEO/SO_SNDTIMEO, O_NONBLOCK, close), which behave the
+        // same on AF_UNIX sockets; no TCP-only call (set_nodelay, addresses) is made on it. This
+        // keeps one plain-stream type, so the TCP path has no extra branch.
+        let stream = unsafe { TcpStream::from_raw_fd(unix.into_raw_fd()) };
+        Ok(Conn {
+            stream: Stream::Plain(stream),
+            addr: path.to_owned(),
+            rbuf: Vec::new(),
+            max_msg: DEFAULT_MAX_MSG_SIZE,
+            nonblocking: false,
+            read_timeout: None,
+            write_timeout: None,
+            generation: 0,
+            registered: false,
+            compressor: None,
+        })
     }
 
     /// The server's maxMessageSizeBytes, once the handshake told it (bounded, see
@@ -485,6 +525,47 @@ mod tests {
             std::thread::sleep(Duration::from_millis(200));
         });
         (Conn::connect("127.0.0.1", port, Some(Duration::from_secs(5))).unwrap(), h)
+    }
+
+    #[test]
+    fn unix_domain_sockets() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!("mdrop-unix-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("m.sock");
+        let l = UnixListener::bind(&path).unwrap();
+        // a reply-shaped message from the peer; timeouts and blocking switches work on the socket
+        let mut msg = 20i32.to_le_bytes().to_vec();
+        msg.extend_from_slice(&[7; 16]);
+        let sent = msg.clone();
+        let h = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            s.write_all(&sent).unwrap();
+            let mut b = [0u8; 4];
+            s.read_exact(&mut b).unwrap();
+            assert_eq!(&b, b"ping");
+        });
+        let mut c = Conn::connect_unix(path.to_str().unwrap()).unwrap();
+        assert_eq!(c.addr, path.to_str().unwrap());
+        assert_eq!(c.recv(Some(Duration::from_secs(5))).unwrap(), &msg[..]);
+        c.set_nonblocking().unwrap();
+        c.send(b"ping", Some(Duration::from_secs(5))).unwrap();
+        h.join().unwrap();
+        let err = |p: &str| match Conn::connect_unix(p) {
+            Err(NetError::Unix(code, m)) => (code, m),
+            _ => panic!("{p}: connected"),
+        };
+        let missing = dir.join("missing.sock");
+        assert_eq!(err(missing.to_str().unwrap()), (crate::error::code::STREAM_CONNECT, "Failed to connect to UNIX domain socket: No such file or directory".to_owned()));
+        let file = dir.join("file.sock");
+        std::fs::write(&file, b"").unwrap();
+        assert!(err(file.to_str().unwrap()).1.starts_with("Failed to connect to UNIX domain socket: "));
+        // libmongoc's bound: the path and its NUL must leave one byte of sun_path free
+        let max = if cfg!(target_os = "linux") { 108 } else { 104 } - 2;
+        let long = format!("/{}", "a".repeat(max));
+        assert_eq!(err(&long), (crate::error::code::STREAM_SOCKET, "Failed to define socket address path.".to_owned()));
+        assert_eq!(err(&long[..max]).1, "Failed to connect to UNIX domain socket: No such file or directory");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

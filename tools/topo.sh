@@ -1,6 +1,7 @@
 #!/bin/bash
 # Test topologies for the PHPT/PHPLIB suites: topo.sh start|stop standalone|replset|sharded|all
-#   standalone  mongodb://127.0.0.1:28010
+#   standalone  mongodb://127.0.0.1:28010, also through the UNIX domain socket /tmp/mongodb-28010.sock (mongod's own;
+#               with Docker a relay, tools/unix-relay.php)
 #   replset     mongodb://127.0.0.1:28011,127.0.0.1:28012,127.0.0.1:28013/?replicaSet=rs0
 #   sharded     mongodb://127.0.0.1:28030,127.0.0.1:28031 (2 mongos; config rs cfg 28020, shards sh1 28021, sh2 28022)
 #   auth        mongodb://root:toor@127.0.0.1:28015/?authSource=admin (standalone with --auth; users root/toor,
@@ -25,6 +26,7 @@ PHPI=${TOPO_PHP:-php8.4 -n -d extension=mongodb}
 H=127.0.0.1
 DOCKER=${TOPO_DOCKER:-$([ "$(uname)" = Darwin ] && echo 1 || echo 0)}
 IMAGE=${TOPO_IMAGE:-mongo:8.0}
+RELAY_PID=/tmp/mdrop-unix-relay-28010.pid
 
 wait_port() { # port
   for _ in $(seq 1 120); do nc -z $H "$1" 2>/dev/null && return 0; sleep 0.25; done
@@ -73,7 +75,16 @@ members() { # set port...
 
 start() {
   case $1 in
-    standalone) mongod_start standalone 28010 ;;
+    standalone)
+      mongod_start standalone 28010
+      # mongod's own /tmp/mongodb-28010.sock stays inside the Docker VM: relay one for the
+      # UNIX-domain-socket tests
+      if [ "$DOCKER" = 1 ]; then
+        rm -f /tmp/mongodb-28010.sock
+        nohup $PHPI "$(dirname "$0")/unix-relay.php" /tmp/mongodb-28010.sock 28010 >/dev/null 2>&1 &
+        echo $! > "$RELAY_PID"
+        for _ in $(seq 1 40); do [ -S /tmp/mongodb-28010.sock ] && break; sleep 0.25; done
+      fi ;;
     replset) for p in 28011 28012 28013; do mongod_start rs0-$p $p --replSet rs0; done; initiate 28011 "$(members rs0 28011 28012 28013)" ;;
     sharded)
       mongod_start cfg 28020 --replSet cfg --configsvr; initiate 28020 '{"_id":"cfg","configsvr":true,"members":[{"_id":0,"host":"'$H':28020"}]}'
@@ -129,7 +140,7 @@ start() {
 }
 stop() {
   case $1 in
-    standalone) mongod_stop standalone ;;
+    standalone) mongod_stop standalone; [ -f "$RELAY_PID" ] && kill "$(cat "$RELAY_PID")" 2>/dev/null; rm -f "$RELAY_PID" ;;
     auth) mongod_stop auth ;;
     tls) mongod_stop tls; mongod_stop tls-ip ;;
     x509) mongod_stop x509 ;;
