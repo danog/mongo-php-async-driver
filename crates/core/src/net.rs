@@ -51,6 +51,8 @@ pub enum NetError {
     Io(io::Error),
     /// A malformed or oversized message.
     Protocol(&'static str),
+    /// The TLS handshake failed (the text after "TLS handshake failed: ").
+    Tls(String),
 }
 
 impl std::fmt::Display for NetError {
@@ -61,7 +63,21 @@ impl std::fmt::Display for NetError {
             NetError::Timeout => write!(f, "socket timeout"),
             NetError::Closed => write!(f, "connection closed"),
             NetError::Protocol(s) => write!(f, "{s}"),
+            NetError::Tls(s) => write!(f, "TLS handshake failed: {s}"),
         }
+    }
+}
+
+/// A handshake I/O error: rustls's own errors (verification) carry their description.
+fn tls_io_err(e: io::Error) -> NetError {
+    if let Some(r) = e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) {
+        return NetError::Tls(crate::tls::describe(r));
+    }
+    match io_err(e) {
+        NetError::Timeout => NetError::Tls("Connection timed out".into()),
+        NetError::Closed => NetError::Tls("Connection reset by peer".into()),
+        NetError::Io(e) => NetError::Tls(e.to_string()),
+        other => other,
     }
 }
 
@@ -73,8 +89,58 @@ fn io_err(e: io::Error) -> NetError {
     }
 }
 
+/// The connection's byte stream: plain TCP, or TLS over it (one match per read or write).
+enum Stream {
+    Plain(TcpStream),
+    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
+}
+
+impl Stream {
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Stream::Plain(s) => s,
+            Stream::Tls(t) => &t.sock,
+        }
+    }
+}
+
+impl Read for Stream {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.read(buf),
+            Stream::Tls(t) => t.read(buf),
+        }
+    }
+}
+
+impl Write for Stream {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.write(buf),
+            Stream::Tls(t) => t.write(buf),
+        }
+    }
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Stream::Plain(_) => Ok(()),
+            Stream::Tls(t) => t.flush(),
+        }
+    }
+    #[inline]
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        match self {
+            Stream::Plain(s) => s.write_all(buf),
+            // the records are only on the wire after the flush
+            Stream::Tls(t) => t.write_all(buf).and_then(|()| t.flush()),
+        }
+    }
+}
+
 pub struct Conn {
-    stream: TcpStream,
+    stream: Stream,
     /// The server address as the topology names it ("host:port").
     pub addr: String,
     /// The message being received (complete after `recv` / `try_recv` returned it).
@@ -104,6 +170,15 @@ impl Conn {
     pub fn abandon(self) {
         let Conn { stream, addr, rbuf, .. } = self;
         drop((addr, rbuf));
+        // the TLS state is freed without sending anything (no close_notify)
+        let stream = match stream {
+            Stream::Plain(s) => s,
+            Stream::Tls(t) => {
+                let t = *t;
+                drop(t.conn);
+                t.sock
+            }
+        };
         #[cfg(unix)]
         {
             use std::os::fd::IntoRawFd;
@@ -127,7 +202,7 @@ impl Conn {
                     stream.set_nodelay(true).map_err(NetError::Connect)?;
                     let addr = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
                     return Ok(Conn {
-                        stream,
+                        stream: Stream::Plain(stream),
                         addr,
                         rbuf: Vec::new(),
                         max_msg: DEFAULT_MAX_MSG_SIZE,
@@ -150,14 +225,34 @@ impl Conn {
         self.max_msg = max_message_size_for(advertised);
     }
 
+    /// Runs the TLS handshake on the connected socket (mongoc_stream_tls_handshake_block),
+    /// bounded by `timeout` per read and write (connectTimeoutMS): the connection over TLS.
+    /// Certificate and host name verification happen in the handshake; on failure the socket
+    /// is closed.
+    pub fn into_tls(mut self, config: std::sync::Arc<rustls::ClientConfig>, name: rustls::pki_types::ServerName<'static>, timeout: Option<Duration>) -> Result<Conn, NetError> {
+        self.set_blocking()?;
+        let t = timeout.filter(|t| !t.is_zero());
+        let mut sock = match self.stream {
+            Stream::Plain(s) => s,
+            Stream::Tls(_) => return Err(NetError::Tls("already TLS".into())),
+        };
+        sock.set_read_timeout(t).map_err(NetError::Io)?;
+        sock.set_write_timeout(t).map_err(NetError::Io)?;
+        let mut conn = rustls::ClientConnection::new(config, name).map_err(|e| NetError::Tls(crate::tls::describe(&e)))?;
+        while conn.is_handshaking() {
+            conn.complete_io(&mut sock).map_err(tls_io_err)?;
+        }
+        Ok(Conn { stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))), read_timeout: t, write_timeout: t, ..self })
+    }
+
     #[cfg(unix)]
     pub fn raw_fd(&self) -> std::os::fd::RawFd {
-        std::os::fd::AsRawFd::as_raw_fd(&self.stream)
+        std::os::fd::AsRawFd::as_raw_fd(self.stream.tcp())
     }
 
     fn set_blocking(&mut self) -> Result<(), NetError> {
         if self.nonblocking {
-            self.stream.set_nonblocking(false).map_err(NetError::Io)?;
+            self.stream.tcp().set_nonblocking(false).map_err(NetError::Io)?;
             self.nonblocking = false;
         }
         Ok(())
@@ -166,7 +261,7 @@ impl Conn {
     /// Switches to non-blocking mode (for `try_send` / `try_recv`).
     pub fn set_nonblocking(&mut self) -> Result<(), NetError> {
         if !self.nonblocking {
-            self.stream.set_nonblocking(true).map_err(NetError::Io)?;
+            self.stream.tcp().set_nonblocking(true).map_err(NetError::Io)?;
             self.nonblocking = true;
         }
         Ok(())
@@ -177,7 +272,7 @@ impl Conn {
         self.set_blocking()?;
         let t = timeout.filter(|t| !t.is_zero());
         if t != self.write_timeout {
-            self.stream.set_write_timeout(t).map_err(NetError::Io)?;
+            self.stream.tcp().set_write_timeout(t).map_err(NetError::Io)?;
             self.write_timeout = t;
         }
         self.stream.write_all(msg).map_err(io_err)
@@ -188,7 +283,7 @@ impl Conn {
         self.set_blocking()?;
         let t = timeout.filter(|t| !t.is_zero());
         if t != self.read_timeout {
-            self.stream.set_read_timeout(t).map_err(NetError::Io)?;
+            self.stream.tcp().set_read_timeout(t).map_err(NetError::Io)?;
             self.read_timeout = t;
         }
         self.rbuf.clear();

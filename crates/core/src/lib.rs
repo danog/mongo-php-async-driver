@@ -25,6 +25,8 @@ pub mod log;
 pub mod net;
 pub mod sdam;
 pub mod session;
+pub mod tls;
+pub mod tls_key;
 pub mod topology;
 pub mod uri;
 pub mod wire;

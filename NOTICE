@@ -37,6 +37,13 @@ crates sha1, sha2, md-5, hmac and pbkdf2 (https://github.com/RustCrypto), getran
 (https://github.com/unicode-rs/unicode-normalization). The SASLprep tables in
 crates/core/src/auth/tables.rs are libmongoc's copy of the RFC 3454 tables.
 
+TLS uses, as dependencies (pure Rust): rustls (Apache-2.0 OR ISC OR MIT), rustls-webpki (ISC)
+and rustls-pki-types (MIT OR Apache-2.0) (https://github.com/rustls), the rustls-rustcrypto crypto provider and
+the RustCrypto crates it and the key-file loader use (aes, aes-gcm, chacha20poly1305, des, cbc,
+pkcs8, pkcs5, p256, p384, ecdsa, rsa, ed25519-dalek, x25519-dalek; https://github.com/RustCrypto,
+https://github.com/dalek-cryptography; MIT OR Apache-2.0, curve25519-dalek BSD-3-Clause).
+Logging fingerprints use hmac and sha2 (above).
+
 The MongoDB Specifications (https://github.com/mongodb/specifications), whose test files the
 test suites read, are licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
 3.0 United States License. They are not part of this repository: tests/spec is a git submodule

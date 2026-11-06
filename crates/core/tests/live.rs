@@ -132,20 +132,6 @@ fn client_select_and_command() {
     assert!(matches!(get(&r, b"ok"), Some(Value::Double(f)) if f == 1.0));
 }
 
-#[test]
-fn client_refuses_tls() {
-    use mongo_core::client::{Client, Settings};
-    use mongo_core::uri::Uri;
-    for u in ["mongodb://127.0.0.1:28099/?tls=true", "mongodb://127.0.0.1:28099/?ssl=true", "mongodb://127.0.0.1:28099/?tlsCAFile=/x", "mongodb://127.0.0.1:28099/?tlsInsecure=true"] {
-        let uri = Uri::parse(u).unwrap();
-        let s = Settings::from_uri(&uri);
-        let e = Client::new(uri, s).err().unwrap_or_else(|| panic!("{u} accepted"));
-        assert_eq!(e.message, "Can't create SSL client, SSL not enabled in this build.");
-    }
-    let uri = Uri::parse("mongodb://127.0.0.1:28099/?tls=false").unwrap();
-    assert!(Client::new(uri.clone(), Settings::from_uri(&uri)).is_ok());
-}
-
 /// After fork(), the child never touches the parent's connection: it opens its own, and both
 /// processes keep working without mixed-up replies.
 #[cfg(unix)]

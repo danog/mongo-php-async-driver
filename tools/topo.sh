@@ -6,6 +6,9 @@
 #   auth        mongodb://root:toor@127.0.0.1:28015/?authSource=admin (standalone with --auth; users root/toor,
 #               and the auth specification's test users: user/pencil, sha1/sha1, sha256/sha256, both/both, IX/IX,
 #               \u2168/\u2163, created through the localhost exception)
+#   tls         mongodb://127.0.0.1:28016/?tls=true&tlsCAFile=$SSL_DIR/ca.pem (standalone with --tlsMode requireTLS,
+#               server.pem of tools/tls-certs.sh $SSL_DIR; client certificates of ca.pem are accepted, not required);
+#               28017 the same with server-ip.pem (valid for 127.0.0.2 only)
 # Env: MONGO_BIN (dir with mongod/mongos), TOPO_DATA (data dir), TOPO_PHP (a PHP with a mongodb extension, to initiate).
 #      TOPO_DOCKER=1 (default on macOS): every mongod/mongos runs in its own container (image TOPO_IMAGE,
 #      default mongo:8.0) on the host network, so the addresses are the same; containers are named
@@ -25,7 +28,7 @@ wait_port() { # port
 mongod_start() { # name port extra...
   local name=$1 port=$2; shift 2
   if [ "$DOCKER" = 1 ]; then
-    docker run -d --rm --name "mdrop-$name" --network host "$IMAGE" mongod --port "$port" --bind_ip $H \
+    docker run -d --rm --name "mdrop-$name" --network host ${DOCKER_EXTRA:-} "$IMAGE" mongod --port "$port" --bind_ip $H \
       --wiredTigerCacheSizeGB 0.5 --setParameter enableTestCommands=1 "$@" >/dev/null
     wait_port "$port"
     return
@@ -90,6 +93,14 @@ start() {
             if (strpos($e->getMessage(), "already exists") === false) throw $e;
           }
         }' ;;
+    tls)
+      : "${SSL_DIR:?set SSL_DIR (tools/tls-certs.sh output)}"
+      if [ "$DOCKER" = 1 ]; then C=/certs; DOCKER_EXTRA="-v $SSL_DIR:/certs:ro"; else C=$SSL_DIR; fi
+      DOCKER_EXTRA=${DOCKER_EXTRA:-} mongod_start tls 28016 --tlsMode requireTLS --tlsCertificateKeyFile $C/server.pem \
+        --tlsCAFile $C/ca.pem --tlsAllowConnectionsWithoutCertificates
+      # 28017: a certificate for 127.0.0.2 only (host name mismatch when reached as 127.0.0.1)
+      DOCKER_EXTRA=${DOCKER_EXTRA:-} mongod_start tls-ip 28017 --tlsMode requireTLS --tlsCertificateKeyFile $C/server-ip.pem \
+        --tlsCAFile $C/ca.pem --tlsAllowConnectionsWithoutCertificates ;;
     all) start standalone; start replset; start sharded ;;
   esac
 }
@@ -97,6 +108,7 @@ stop() {
   case $1 in
     standalone) mongod_stop standalone ;;
     auth) mongod_stop auth ;;
+    tls) mongod_stop tls; mongod_stop tls-ip ;;
     replset) for p in 28011 28012 28013; do mongod_stop rs0-$p; done ;;
     sharded)
       for p in 28030 28031; do mongos_stop $p; done

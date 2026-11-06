@@ -335,10 +335,17 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
             return;
         }
     }
-    // TLS settings among the driver options request TLS too: no cleartext fallback
-    if !driver_options.is_null() && has_tls_driver_option((*driver_options).value.arr) {
-        throw(E::InvalidArgument, format!("Failed to parse URI options: {}", mongo_core::client::tls_unavailable().message));
-        return;
+    // phongo_make_ssl_opt: ca_dir and crl_file (they turn TLS on, as mongoc_client_set_ssl_opts
+    // does); the TLS keys of other drivers or of ext-mongodb 1.x are refused rather than ignored
+    let (mut ca_dir, mut crl_file) = (None, None);
+    if !driver_options.is_null() {
+        if let Some(k) = legacy_tls_driver_option((*driver_options).value.arr) {
+            throw(E::InvalidArgument, format!("Unsupported driver option \"{k}\": TLS is configured with the URI options (tls, tlsCAFile, tlsCertificateKeyFile, ...) and the \"ca_dir\" and \"crl_file\" driver options"));
+            return;
+        }
+        let ht = (*driver_options).value.arr;
+        ca_dir = hash::find(ht, b"ca_dir").map(|z| fetch_string(zval::deref(z)));
+        crl_file = hash::find(ht, b"crl_file").map(|z| fetch_string(zval::deref(z)));
     }
     log::debug(PHONGO, || {
         format!(
@@ -361,6 +368,11 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
         log_uri_warnings(&mut uri);
         r.map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
         let mut s = Settings::from_uri(&uri);
+        if ca_dir.is_some() || crl_file.is_some() {
+            let t = s.tls.get_or_insert_with(|| mongo_core::tls::TlsOptions::from_uri(&uri));
+            t.ca_dir = ca_dir.clone();
+            t.crl_file = crl_file.clone();
+        }
         (s.metadata.driver_name, s.metadata.driver_version, s.metadata.platform) = hs;
         if let Ok(Some(a)) = &api {
             s.hello.api_version = Some(a.version.clone());
@@ -369,12 +381,25 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
         }
         Client::new(uri, s)
     };
+    // phongo_manager_set_auto_encryption_opts of a build without libmongocrypt: refused, so that
+    // nothing is ever written unencrypted when automatic encryption was asked for
+    let auto_encryption = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"autoEncryption").is_some();
     let r = match &api {
         Err(msg) => {
             if let Err(e) = make() {
                 throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message));
+            } else if auto_encryption {
+                throw(E::InvalidArgument, no_cse("Cannot enable automatic field-level encryption."));
             } else {
                 throw(E::InvalidArgument, msg.clone());
+            }
+            return;
+        }
+        Ok(_) if auto_encryption => {
+            if let Err(e) = make() {
+                throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message));
+            } else {
+                throw(E::InvalidArgument, no_cse("Cannot enable automatic field-level encryption."));
             }
             return;
         }
@@ -397,17 +422,19 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     }
 }
 
-/// Driver options that configure TLS (phongo's ca_dir/crl_file, the 1.x TLS keys and any
-/// tls*/ssl* key).
-unsafe fn has_tls_driver_option(ht: *mut sys::HashTable) -> bool {
-    const KEYS: &[&str] = &["ca_dir", "crl_file", "ca_file", "pem_file", "pem_pwd", "context", "allow_invalid_hostname", "weak_cert_validation", "allow_self_signed"];
-    let mut found = false;
+/// A TLS key of ext-mongodb 1.x's driver options (or any other tls*/ssl* key): ext-mongodb 2.x
+/// ignores them, which would leave a connection the application meant to configure unverified
+/// or in cleartext.
+unsafe fn legacy_tls_driver_option(ht: *mut sys::HashTable) -> Option<String> {
+    const KEYS: &[&str] = &["ca_file", "pem_file", "pem_pwd", "context", "allow_invalid_hostname", "weak_cert_validation", "allow_self_signed"];
+    let mut found = None;
     let mut buf = String::new();
     hash::each(ht, true, |k, _| {
         if let hash::Key::Str(_) = k {
-            let key = String::from_utf8_lossy(hash::key_bytes(k, &mut buf)).to_ascii_lowercase();
+            let raw = String::from_utf8_lossy(hash::key_bytes(k, &mut buf)).into_owned();
+            let key = raw.to_ascii_lowercase();
             if KEYS.contains(&key.as_str()) || key.starts_with("tls") || key.starts_with("ssl") {
-                found = true;
+                found = Some(raw);
                 return false;
             }
         }
@@ -416,9 +443,42 @@ unsafe fn has_tls_driver_option(ht: *mut sys::HashTable) -> bool {
     found
 }
 
+/// phongo_fetch_string (php_array_fetch_string): the value converted to a string.
+unsafe fn fetch_string(z: *mut sys::zval) -> String {
+    let s = sys::zval_get_string_func(z);
+    let r = String::from_utf8_lossy(zstr::bytes(s)).into_owned();
+    zstr::release(s);
+    r
+}
+
 /// phongo's handshake platform string ("PHP 8.4.13 ...")
 fn php_platform() -> String {
     format!("PHP {}", php_version())
+}
+
+/// phongo_throw_exception_no_cse
+pub fn no_cse(message: &str) -> String {
+    format!("{message} Please recompile with support for libmongocrypt using the with-mongodb-client-side-encryption configure switch.")
+}
+
+/// Manager::getEncryptedFieldsMap(): null (automatic encryption cannot be enabled)
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(ex: Ex, _rv: *mut sys::zval) {
+    let _ = call::none(ex);
+}
+
+/// Manager::createClientEncryption(array $options): phongo_clientencryption_init of a build
+/// without libmongocrypt
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(ex: Ex, _rv: *mut sys::zval) {
+    let mut a: *mut sys::zval = null_mut();
+    if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
+        return;
+    }
+    throw(E::Runtime, no_cse("Cannot configure clientEncryption object."));
+}
+
+/// ClientEncryption::__construct(array $options): as createClientEncryption
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption___construct(ex: Ex, rv: *mut sys::zval) {
+    zim_MongoDB_Driver_Manager_createClientEncryption(ex, rv);
 }
 
 /// PHP_VERSION

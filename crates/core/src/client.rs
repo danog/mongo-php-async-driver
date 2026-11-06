@@ -24,6 +24,8 @@ pub struct Settings {
     pub min_heartbeat_ms: i64,
     pub metadata: Metadata,
     pub hello: HelloOpts,
+    /// TLS settings (None: plain TCP)
+    pub tls: Option<crate::tls::TlsOptions>,
 }
 
 /// MONGOC_DEFAULT_SOCKETTIMEOUTMS
@@ -46,6 +48,7 @@ impl Settings {
                 sasl_user: crate::auth::sasl_user(uri),
                 ..Default::default()
             },
+            tls: uri.tls().then(|| crate::tls::TlsOptions::from_uri(uri)),
         }
     }
 }
@@ -103,13 +106,11 @@ pub struct Client {
     pub operation_id: i64,
     /// mongoc_cluster_t.request_id
     pub request_id: i32,
+    /// The TLS configuration (_mongoc_openssl_ctx_new at client creation; its error fails
+    /// every connection)
+    tls: Option<Result<std::sync::Arc<rustls::ClientConfig>, Error>>,
 }
 
-/// The error libmongoc built without TLS gives for a URI that requests TLS (the transport is
-/// not there yet: fail closed, never send anything in cleartext).
-pub fn tls_unavailable() -> Error {
-    Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Can't create SSL client, SSL not enabled in this build.")
-}
 
 /// The most addresses discovered during one scan that join it (a replica set has at most 50
 /// members).
@@ -140,11 +141,9 @@ impl Client {
     /// transport is not implemented yet.
     pub fn new(uri: Uri, settings: Settings) -> Result<Self, Error> {
         detect_nongenuine_hosts(&uri);
-        if uri.tls() {
-            return Err(tls_unavailable());
-        }
+        let tls = settings.tls.as_ref().map(crate::tls::client_config);
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0 };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, tls };
         c.reconcile_nodes();
         Ok(c)
     }
@@ -273,10 +272,20 @@ impl Client {
             }
         }
         let (host, port) = split_host_port(&self.nodes[i].addr);
+        // a TLS configuration that failed to load fails the check before any connection
+        if let Some(Err(e)) = &self.tls {
+            return Err(e.clone());
+        }
         let mut conn = Conn::connect(&host, port, connect_timeout).map_err(|e| match e {
             NetError::Resolve(_) => Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{host}'")),
             e => net_check_error(e),
         })?;
+        // mongoc_stream_tls_new_with_hostname + the handshake, bounded by connectTimeoutMS
+        match &self.tls {
+            None => {}
+            Some(Err(e)) => return Err(e.clone()),
+            Some(Ok(cfg)) => conn = conn.into_tls(cfg.clone(), crate::tls::server_name(&host)?, connect_timeout).map_err(net_check_error)?,
+        }
         // single-threaded libmongoc negotiates the mechanism in a node's first handshake and
         // starts a speculative authentication in each one
         let negotiate = self.nodes[i].mechs.is_none();
@@ -661,6 +670,7 @@ fn net_check_error(e: NetError) -> Error {
         NetError::Closed => Error::new(domain::STREAM, code::STREAM_SOCKET, "Server closed connection."),
         NetError::Io(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Failed to write rpc bytes."),
         NetError::Protocol(_) => Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply from server."),
+        NetError::Tls(m) => Error::new(domain::STREAM, code::STREAM_SOCKET, format!("TLS handshake failed: {m}")),
     }
 }
 

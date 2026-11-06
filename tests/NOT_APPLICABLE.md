@@ -24,7 +24,7 @@ without message, a missing key in ClientEncryption::deleteKey()); they are track
 | `atlas.phpt` | Atlas clusters and credentials (`TESTS=tests/atlas.phpt`) |
 | `ocsp-success.phpt`, `ocsp-failure.phpt` | an OCSP responder and certificates from drivers-evergreen-tools |
 | `clientEncryption/*` using AWS, Azure, GCP or KMIP KMS providers | KMS credentials / a KMIP server; the local KMS provider runs |
-| `standalone-x509-*`, `standalone-ssl-*` | a mongod with TLS / X.509 set up (to be added to tools/topo.sh with TLS). The SCRAM tests (`connect/standalone-auth-*`, `tests/local/manager-scram-001.phpt`) run with `tools/topo.sh auth` and `MONGODB_URI=mongodb://root:toor@127.0.0.1:28015/?authSource=admin` |
+| `standalone-x509-*`, `standalone-ssl-*` | a mongod with TLS (and X.509 for the x509 ones): `tools/tls-certs.sh $SSL_DIR` + `SSL_DIR=... tools/topo.sh start tls`, then `MONGODB_URI=mongodb://localhost:28016/?ssl=true`. `standalone-ssl-no_verify-003` and `-verify_cert-003` still skip there (their `skip_if_not_live()` connects without the test CA); `-verify_cert-error-003` passes (the reference fails it: it reports "connection closed"). `tests/local/tls-verify-001.phpt` covers the TLS matrix. The SCRAM tests (`connect/standalone-auth-*`, `tests/local/manager-scram-001.phpt`) run with `tools/topo.sh auth` and `MONGODB_URI=mongodb://root:toor@127.0.0.1:28015/?authSource=admin` |
 | `frankenphp/` | not tests: a FrankenPHP worker-mode restart script (ZTS); this extension is NTS-only |
 
 ### Observe libmongoc internals (to be emulated, or documented as differences)

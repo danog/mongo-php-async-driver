@@ -16,6 +16,15 @@ pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 getrandom = "0.3"
 unicode-normalization = { version = "0.1", default-features = false }
 
+# TLS: rustls with the pure-Rust RustCrypto provider (no ring, no aws-lc); key files: PKCS#8
+# (PBES2-encrypted too) and OpenSSL's legacy PEM encryption
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "=0.0.2-alpha"
+pkcs8 = { version = "0.10", default-features = false, features = ["std", "encryption"] }
+aes = { version = "0.8", default-features = false }
+des = { version = "0.8", default-features = false }
+cbc = { version = "0.1", default-features = false, features = ["alloc", "block-padding"] }
+
 [target.'cfg(unix)'.dependencies]
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 
