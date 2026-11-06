@@ -17,7 +17,9 @@ ported yet throw an `Error`.
   code run unchanged.
 - **No C libraries:** no libbson, libmongoc or libmongocrypt, no OpenSSL, ring or aws-lc, no C
   zstd. The Zend Engine layer is [ext-php-rs](https://github.com/extphprs/ext-php-rs) (its
-  bindgen-generated bindings and its small `wrapper.c` are the only C involved).
+  bindgen-generated bindings and its small `wrapper.c` are the only C involved). TLS is rustls
+  with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust with inline
+  assembly, no C).
 - **I/O on the PHP thread,** through one poll set (epoll/kqueue via mio) that the extension's own
   Revolt watcher drives; connections are released as soon as the server has answered, and
   waiters queue in FIFO order, so lazily-resumed fibers cannot deadlock the pool.

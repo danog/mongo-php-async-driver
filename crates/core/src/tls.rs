@@ -1,4 +1,4 @@
-//! TLS on rustls with a pure-Rust crypto provider (rustls-rustcrypto): the settings of
+//! TLS on rustls with the graviola crypto provider (no C): the settings of
 //! mongoc-ssl.c / mongoc-openssl.c (_mongoc_openssl_ctx_new) and phongo's driver options.
 //!
 //! Verification is on unless an explicit opt-in turns part of it off:
@@ -66,10 +66,23 @@ impl TlsOptions {
     }
 }
 
-fn provider() -> Arc<CryptoProvider> {
-    static P: std::sync::OnceLock<Arc<CryptoProvider>> = std::sync::OnceLock::new();
-    P.get_or_init(|| Arc::new(rustls_rustcrypto::provider())).clone()
+/// The CPU instructions graviola requires (it asserts them at every entry point: checked here
+/// first so that a CPU without them gets an error, never a panic inside a handshake).
+#[cfg(target_arch = "x86_64")]
+const CPU_FEATURES: &str = "AES-NI, PCLMULQDQ, AVX, AVX2, BMI1 and ADX";
+#[cfg(target_arch = "aarch64")]
+const CPU_FEATURES: &str = "NEON, AES, PMULL and SHA2";
+
+/// The crypto provider, or the error every TLS connection gets on a CPU graviola cannot use.
+fn provider() -> Result<Arc<CryptoProvider>, Error> {
+    static P: std::sync::OnceLock<Option<Arc<CryptoProvider>>> = std::sync::OnceLock::new();
+    provider_if(P.get_or_init(|| graviola::util::is_cpu_supported().then(|| Arc::new(rustls_graviola::default_provider()))))
 }
+
+fn provider_if(p: &Option<Arc<CryptoProvider>>) -> Result<Arc<CryptoProvider>, Error> {
+    p.clone().ok_or_else(|| handshake_error(format!("TLS is not available on this CPU: the TLS library needs the {CPU_FEATURES} instructions")))
+}
+
 
 /// The error of a TLS setup or handshake failure (libmongoc reports both at connection time).
 pub fn handshake_error(detail: impl std::fmt::Display) -> Error {
@@ -175,7 +188,7 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
         crate::log::error(crate::log::MONGOC, || m.clone());
         handshake_error(m)
     };
-    let p = provider();
+    let p = provider().inspect_err(|e| crate::log::error(crate::log::MONGOC, || e.message.clone()))?;
     let builder = ClientConfig::builder_with_provider(p.clone()).with_safe_default_protocol_versions().map_err(|e| handshake_error(e))?;
     let mut roots = RootCertStore::empty();
     if o.ca_file.is_some() || o.ca_dir.is_some() {
@@ -303,5 +316,15 @@ pub fn describe(e: &rustls::Error) -> String {
             }
         }
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unsupported_cpu_is_an_error() {
+        let e = super::provider_if(&None).unwrap_err();
+        assert!(e.message.starts_with("TLS handshake failed: TLS is not available on this CPU: the TLS library needs the "), "{}", e.message);
+        assert!(super::provider().is_ok(), "this CPU should be supported");
     }
 }

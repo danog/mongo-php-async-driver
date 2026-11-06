@@ -37,11 +37,12 @@ crates sha1, sha2, md-5, hmac and pbkdf2 (https://github.com/RustCrypto), getran
 (https://github.com/unicode-rs/unicode-normalization). The SASLprep tables in
 crates/core/src/auth/tables.rs are libmongoc's copy of the RFC 3454 tables.
 
-TLS uses, as dependencies (pure Rust): rustls (Apache-2.0 OR ISC OR MIT), rustls-webpki (ISC)
-and rustls-pki-types (MIT OR Apache-2.0) (https://github.com/rustls), the rustls-rustcrypto crypto provider and
-the RustCrypto crates it and the key-file loader use (aes, aes-gcm, chacha20poly1305, des, cbc,
-pkcs8, pkcs5, p256, p384, ecdsa, rsa, ed25519-dalek, x25519-dalek; https://github.com/RustCrypto,
-https://github.com/dalek-cryptography; MIT OR Apache-2.0, curve25519-dalek BSD-3-Clause).
+TLS uses, as dependencies (no C): rustls (Apache-2.0 OR ISC OR MIT), rustls-webpki (ISC)
+and rustls-pki-types (MIT OR Apache-2.0) (https://github.com/rustls), the graviola crypto
+library and its rustls provider rustls-graviola (https://github.com/ctz/graviola; Apache-2.0
+OR ISC OR MIT-0; Rust with inline assembly, parts of it derived from s2n-bignum, Apache-2.0
+OR ISC OR MIT-0), and for the key-file loader the RustCrypto crates pkcs8, pkcs5, spki, der,
+aes, des, cbc, scrypt, salsa20 and pbkdf2 (https://github.com/RustCrypto; MIT OR Apache-2.0).
 Logging fingerprints use hmac and sha2 (above).
 
 The MongoDB Specifications (https://github.com/mongodb/specifications), whose test files the

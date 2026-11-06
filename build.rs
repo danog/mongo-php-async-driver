@@ -21,6 +21,11 @@ fn main() {
     if width != "64" || std::env::var_os("CARGO_CFG_UNIX").is_none() {
         panic!("only 64-bit Unix targets are supported for now (target pointer width {width})");
     }
+    // graviola (the TLS crypto library) exists for these two architectures
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    if arch != "x86_64" && arch != "aarch64" {
+        panic!("only x86_64 and aarch64 targets are supported (target architecture {arch})");
+    }
     for v in ["php84", "php85"] {
         println!("cargo:rustc-check-cfg=cfg({v})");
     }
