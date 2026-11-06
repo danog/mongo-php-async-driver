@@ -19,7 +19,7 @@ ext-php-rs = { version = "=0.16.4", default-features = false, features = ["runti
 libc = "0.2"
 
 [workspace]
-members = ["crates/core"]
+members = ["crates/core", "crates/crypt"]
 
 [profile.release]
 opt-level = 3
