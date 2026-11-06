@@ -290,12 +290,105 @@ impl Crypt {
         self.kms_call(io, &req, true, gcp_retry, &|r| crate::kms::aws_done(r, field))
     }
 
+    /// One KMIP round trip (never retried: KMIP requests are not idempotent)
+    fn kmip_call<I: Io, T>(&self, io: &mut I, req: &crate::kms::KmsRequest, parse: &dyn Fn(&[u8]) -> std::result::Result<T, String>) -> Result<T, I::Error> {
+        let mut parser = crate::kmip::Parser::default();
+        let res = io.kms(req, &mut |b: &[u8]| parser.feed(b));
+        match res {
+            Ok(()) => Ok(parse(&parser.finish()?)?),
+            Err(f) => {
+                let msg = "KMS request failed due to network error";
+                Err(Error::Io(match f {
+                    KmsFailure::Connect(e) => e,
+                    KmsFailure::Write(_) => io.stream_error(format!("{msg}. Failed to write to KMS stream: {}", req.endpoint)),
+                    KmsFailure::Read(_) => io.stream_error(format!("{msg}. Failed to read from KMS stream to: {}", req.endpoint)),
+                }))
+            }
+        }
+    }
+
+    /// The KMIP endpoint: the KEK's, else the provider's (default port 5696)
+    fn kmip_request(&self, kek: &Kek, message: Vec<u8>) -> std::result::Result<crate::kms::KmsRequest, String> {
+        let crate::opts::KekProvider::Kmip { endpoint, .. } = &kek.provider else {
+            return Err("KMS provider is not KMIP".into());
+        };
+        let configured = match self.kms.get(&kek.kmsid) {
+            Some(crate::opts::Creds::Kmip { endpoint }) => Some(endpoint),
+            _ => None,
+        };
+        let e = endpoint.as_ref().or(configured).ok_or("endpoint not set for KMIP request")?;
+        Ok(crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: with_default_port(e, 5696), message, tls: self.tls_for(&kek.kmsid) })
+    }
+
+    /// The datakey context's KMIP steps (`_kms_kmip_start`)
+    fn kmip_wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<(Vec<u8>, Kek), I::Error> {
+        let crate::opts::KekProvider::Kmip { endpoint, key_id, delegated } = &kek.provider else {
+            return Err("KMS provider is not KMIP".into());
+        };
+        let uid_of = |what: &'static str| move |m: &[u8]| crate::kmip::unique_identifier(m).map_err(|e| format!("Error getting UniqueIdentifer from KMIP {what} response: {e}"));
+        let uid = match key_id {
+            Some(k) => k.clone(),
+            None => {
+                let msg = if *delegated {
+                    crate::kmip::create()
+                } else {
+                    let secret = crypto::random(crate::kmip::SECRETDATA_LENGTH)?;
+                    crate::kmip::register_secretdata(&secret).map_err(|e| format!("Error creating KMIP register request: {e}"))?
+                };
+                let req = self.kmip_request(kek, msg)?;
+                let uid = self.kmip_call(io, &req, &uid_of(if *delegated { "Create" } else { "Register" }))?;
+                // _ctx_done_kmip_activate reports errors as a Register response's (as libmongocrypt)
+                let req = self.kmip_request(kek, crate::kmip::activate(&uid))?;
+                self.kmip_call(io, &req, &uid_of("Register"))?;
+                uid
+            }
+        };
+        let encrypted = if *delegated {
+            let req = self.kmip_request(kek, crate::kmip::encrypt_decrypt(true, &uid, material, None))?;
+            self.kmip_call(io, &req, &|m| {
+                let data = crate::kmip::data(m).map_err(|e| format!("Error getting data from KMIP Encrypt response: {e}"))?;
+                let iv = crate::kmip::iv(m).map_err(|e| format!("Error getting IV from KMIP Encrypt response: {e}"))?;
+                if iv.len() != 16 {
+                    return Err(format!("KMIP IV response has unexpected length: {}", iv.len()));
+                }
+                Ok([iv, data].concat())
+            })?
+        } else {
+            let req = self.kmip_request(kek, crate::kmip::get(&uid))?;
+            let secret = self.kmip_call(io, &req, &|m| crate::kmip::secretdata(m).map_err(|e| format!("Error getting SecretData from KMIP Get response: {e}")))?;
+            crypto::wrap_key(&secret, material)?
+        };
+        let kek = Kek { kmsid: kek.kmsid.clone(), provider: crate::opts::KekProvider::Kmip { endpoint: endpoint.clone(), key_id: Some(uid), delegated: *delegated } };
+        Ok((encrypted, kek))
+    }
+
+    /// The key broker's KMIP step: Get the secret and unwrap locally, or have the server decrypt
+    fn kmip_unwrap<I: Io>(&self, io: &mut I, key: &crate::key::KeyDoc) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Kmip { key_id, delegated, .. } = &key.kek.provider else {
+            return Err("KMS provider is not KMIP".into());
+        };
+        let uid = key_id.as_deref().ok_or("KMIP key malformed, no keyId present")?;
+        if *delegated {
+            if key.key_material.len() < 16 {
+                return Err("Error getting IV from key material".into());
+            }
+            let (iv, ct) = key.key_material.split_at(16);
+            let req = self.kmip_request(&key.kek, crate::kmip::encrypt_decrypt(false, uid, ct, Some(iv)))?;
+            self.kmip_call(io, &req, &|m| crate::kmip::data(m).map_err(|e| format!("Error getting data from KMIP Decrypt response: {e}")))
+        } else {
+            let req = self.kmip_request(&key.kek, crate::kmip::get(uid))?;
+            let secret = self.kmip_call(io, &req, &|m| crate::kmip::secretdata(m).map_err(|e| format!("Error getting SecretData from KMIP Get response: {e}")))?;
+            Ok(crypto::unwrap_key(&secret, &key.key_material)?)
+        }
+    }
+
     /// The key material of a key document whose KEK is remote
     fn kms_unwrap<I: Io>(&self, io: &mut I, key: &crate::key::KeyDoc) -> Result<Vec<u8>, I::Error> {
         match key.kek.kms_type() {
             crate::opts::KmsType::Aws => self.aws(io, &key.kek, true, &key.key_material),
             crate::opts::KmsType::Azure => self.azure(io, &key.kek, false, &key.key_material),
             crate::opts::KmsType::Gcp => self.gcp(io, &key.kek, false, &key.key_material),
+            crate::opts::KmsType::Kmip => self.kmip_unwrap(io, key),
             t => Err(format!("the {} KMS provider is not supported by this build yet", t.name()).into()),
         }
     }
@@ -426,15 +519,17 @@ impl Crypt {
             }
             None => crypto::random(crypto::KEY_LEN)?,
         };
-        let encrypted = self.wrap(io, kek, &material)?;
-        Ok(key_document(kek, &encrypted, alt_names)?)
+        let (encrypted, kek) = self.wrap(io, kek, &material)?;
+        Ok(key_document(&kek, &encrypted, alt_names)?)
     }
 
-    /// The datakey context's KMS step: `material` encrypted with `kek`
-    fn wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<Vec<u8>, I::Error> {
+    /// The datakey context's KMS step: `material` encrypted with `kek`, and the KEK to store (a
+    /// KMIP KEK gains the keyId of the object it registered or created)
+    fn wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<(Vec<u8>, Kek), I::Error> {
         match self.kms.get(&kek.kmsid) {
-            Some(crate::opts::Creds::Local { key }) => Ok(crypto::wrap_key(key, material)?),
-            Some(_) => self.kms_wrap(io, kek, material),
+            Some(crate::opts::Creds::Local { key }) => Ok((crypto::wrap_key(key, material)?, kek.clone())),
+            Some(crate::opts::Creds::Kmip { .. }) => self.kmip_wrap(io, kek, material),
+            Some(_) => Ok((self.kms_wrap(io, kek, material)?, kek.clone())),
             None if self.kms.need_credentials.contains(&kek.kms_type()) && !kek.kmsid.contains(':') => {
                 Err("on-demand KMS credentials are not supported by this build yet".into())
             }
@@ -459,8 +554,7 @@ impl Crypt {
         let keys: Vec<(crate::key::KeyDoc, Vec<u8>)> = kb.all_keys().map(|(d, m)| (d.clone(), m.clone())).collect();
         let mut out = Vec::with_capacity(keys.len());
         for (key, material) in keys {
-            let kek = new_kek.unwrap_or(&key.kek);
-            let encrypted = self.wrap(io, kek, &material)?;
+            let (encrypted, kek) = self.wrap(io, new_kek.unwrap_or(&key.kek), &material)?;
             let mut w = Writer::with_capacity(256);
             let p = w.begin(T_DOCUMENT, b"masterKey");
             kek.append(&mut w).map_err(Error::Crypt)?;
