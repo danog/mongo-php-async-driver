@@ -29,6 +29,10 @@ pub struct Manager {
     pub client_hash: Vec<u8>,
     /// Manager::addSubscriber registrations
     pub subscribers: super::apm::Subscribers,
+    /// the "encryptedFieldsMap" autoEncryption option, as given (getEncryptedFieldsMap)
+    pub enc_fields_map: sys::zval,
+    /// the "keyVaultClient" autoEncryption option (kept for its client's lifetime)
+    pub kv_manager: sys::zval,
 }
 
 unsafe extern "C" fn free(o: *mut sys::zend_object) {
@@ -44,7 +48,8 @@ unsafe extern "C" fn free(o: *mut sys::zend_object) {
 /// holding it, is a collectable cycle).
 unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
     let m = obj::data::<Manager>(o);
-    obj::get_gc_with(o, table, n, m.subscribers.iter_mut().map(|(_, z, _)| z as *mut sys::zval))
+    let extra: [*mut sys::zval; 2] = [&mut m.enc_fields_map, &mut m.kv_manager];
+    obj::get_gc_with(o, table, n, m.subscribers.iter_mut().map(|(_, z, _)| z as *mut sys::zval).chain(extra))
 }
 
 unsafe fn free_manager(o: *mut sys::zend_object) {
@@ -411,23 +416,22 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
         Err(msg) => {
             if let Err(e) = make() {
                 throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message));
-            } else if auto_encryption {
-                throw(E::InvalidArgument, no_cse("Cannot enable automatic field-level encryption."));
             } else {
                 throw(E::InvalidArgument, msg.clone());
             }
             return;
         }
-        Ok(_) if auto_encryption => {
-            if let Err(e) = make() {
-                throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message));
-            } else {
-                throw(E::InvalidArgument, no_cse("Cannot enable automatic field-level encryption."));
-            }
-            return;
-        }
         Ok(_) => make().map(|c| std::rc::Rc::new(std::cell::RefCell::new(c))),
     };
+    // phongo_manager_set_auto_encryption_opts (after the client exists; a failure drops it)
+    if auto_encryption {
+        if let Ok(c) = &r {
+            match super::clientencryption::auto_encryption(me, driver_options, !disable_persistence) {
+                Some(ac) => c.borrow_mut().auto_crypt = Some(ac),
+                None => return,
+            }
+        }
+    }
     match r {
         Ok(c) => {
             log::debug(PHONGO, || format!("Created client with hash: {}", log::fingerprint(&key)));
@@ -485,8 +489,14 @@ pub fn no_cse(message: &str) -> String {
 }
 
 /// Manager::getEncryptedFieldsMap(): null (automatic encryption cannot be enabled)
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(ex: Ex, _rv: *mut sys::zval) {
-    let _ = call::none(ex);
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(ex: Ex, rv: *mut sys::zval) {
+    if !call::none(ex) {
+        return;
+    }
+    let m = obj::data::<Manager>(call::this(ex));
+    if !zval::is(&m.enc_fields_map, sys::IS_UNDEF) {
+        zval::write(rv, zval::copy(&m.enc_fields_map));
+    }
 }
 
 /// PHP_VERSION

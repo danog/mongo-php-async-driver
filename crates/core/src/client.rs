@@ -112,6 +112,8 @@ pub struct Client {
     tls: Option<Result<std::sync::Arc<rustls::ClientConfig>, Error>>,
     /// SRV polling of a mongodb+srv:// client (crate::srv::initial's result)
     pub srv: Option<crate::srv::Polling>,
+    /// automatic encryption (mongoc_client_enable_auto_encryption): None for most clients
+    pub auto_crypt: Option<Box<dyn crate::autocrypt::AutoCrypt>>,
 }
 
 
@@ -149,7 +151,7 @@ impl Client {
         }
         let tls = settings.tls.as_ref().map(crate::tls::client_config);
         let td = TopologyDescription::from_uri(&uri, true);
-        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, tls, srv: None };
+        let mut c = Client { uri, td, settings, nodes: Vec::new(), last_scan: 0, stale: true, scan_error: None, invalid: None, pid: std::process::id(), created_pid: std::process::id(), generation: 0, sessions: Default::default(), operation_id: 0, request_id: 0, tls, srv: None, auto_crypt: None };
         c.reconcile_nodes();
         Ok(c)
     }

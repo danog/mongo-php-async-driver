@@ -858,3 +858,172 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_decrypt(ex: Ex, rv:
         }
     }
 }
+
+/// Automatic decryption (mongoc_client_enable_auto_encryption with bypassAutoEncryption): every
+/// successful reply of the client has its ciphertexts decrypted
+struct AutoDecrypt {
+    crypt: Crypt,
+    /// the keyVaultClient's client (None: the encrypted client itself)
+    kv: Option<ClientRef>,
+    db: String,
+    coll: String,
+}
+
+/// The key vault reads of automatic decryption, on the client given (no Cursor: the encrypted
+/// client may be the one running the command)
+struct CoreIo<'a> {
+    cl: &'a mut mongo_core::client::Client,
+    kv: Option<&'a ClientRef>,
+    db: &'a str,
+    coll: &'a str,
+}
+
+impl Io for CoreIo<'_> {
+    type Error = Error;
+    fn find_keys(&mut self, filter: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+        let (db, coll) = (self.db, self.coll);
+        let run = |cl: &mut mongo_core::client::Client| {
+            let rp = super::manager::client_read_preference(&cl.uri);
+            let rc = mongo_core::concern::ReadConcern { level: Some(b"majority".to_vec()) }.to_bson();
+            cl.find_all(db, coll, filter, Some((&rp.prefs(), super::manager::rp_parts(&rp))), &rc)
+        };
+        let r = match self.kv {
+            Some(kv) if kv.as_ptr() != (self.cl as *mut mongo_core::client::Client) => match kv.try_borrow_mut() {
+                Ok(mut k) => run(&mut k),
+                Err(_) => Err(Error::new(domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_STATE, "key vault client is busy")),
+            },
+            _ => run(self.cl),
+        };
+        r.map_err(|mut e| {
+            e.message = format!("key vault error: {}", e.message);
+            mongo_core::bulk::truncate_message(&mut e.message);
+            e
+        })
+    }
+}
+
+impl mongo_core::autocrypt::AutoCrypt for AutoDecrypt {
+    fn decrypt(&mut self, client: &mut mongo_core::client::Client, _db: &str, reply: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut io = CoreIo { cl: client, kv: self.kv.as_ref(), db: &self.db, coll: &self.coll };
+        self.crypt.decrypt_doc(&mut io, reply).map_err(|e| match e {
+            mongo_crypt::engine::Error::Crypt(m) => {
+                let mut m = m;
+                mongo_core::bulk::truncate_message(&mut m);
+                Error::new(domain::CLIENT_SIDE_ENCRYPTION, 1, &m)
+            }
+            mongo_crypt::engine::Error::Io(e) => e,
+        })
+    }
+}
+
+/// phongo_manager_set_auto_encryption_opts + mongoc_client_enable_auto_encryption: the hook to
+/// install (None: an exception was thrown)
+pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *mut sys::zval, use_persistent: bool) -> Option<Box<dyn mongo_core::autocrypt::AutoCrypt>> {
+    let Some(z) = opt(driver_options, b"autoEncryption") else { return None };
+    if !zval::is(z, sys::IS_ARRAY) {
+        throw(E::InvalidArgument, format!("Expected \"autoEncryption\" driver option to be array, {} given", zval::type_name(z)));
+        return None;
+    }
+    let is_true = |k: &[u8]| opt(z, k).is_some_and(|v| sys::zend_is_true(v));
+    let bypass_auto = is_true(b"bypassAutoEncryption");
+    let bypass_qa = is_true(b"bypassQueryAnalysis");
+    let doc_opt = |k: &str| -> Result<Option<Vec<u8>>, ()> {
+        let Some(v) = opt(z, k.as_bytes()) else { return Ok(None) };
+        if !zval::is(v, sys::IS_OBJECT) && !zval::is(v, sys::IS_ARRAY) {
+            throw(E::InvalidArgument, format!("Expected \"{k}\" autoEncryption option to be an array or object, {} given", zval::type_name(v)));
+            return Err(());
+        }
+        encode::to_bson(v, encode::NONE).map(Some).ok_or(())
+    };
+    let efc = doc_opt("encryptedFieldsMap").ok()?;
+    if efc.is_some() {
+        m.enc_fields_map = zval::copy(opt(z, b"encryptedFieldsMap").expect("found above"));
+    }
+    let mut kv: Option<ClientRef> = None;
+    if let Some(v) = opt(z, b"keyVaultClient") {
+        if !zval::is(v, sys::IS_OBJECT) || !obj::instanceof((*(*v).value.obj).ce, super::manager::CE) {
+            throw(E::InvalidArgument, format!("Expected \"keyVaultClient\" autoEncryption option to be MongoDB\\Driver\\Manager, {} given", zval::type_name(v)));
+            return None;
+        }
+        let km = obj::data::<super::manager::Manager>((*v).value.obj);
+        if km.client.as_ref().is_some_and(super::is_persistent) != use_persistent {
+            throw(E::InvalidArgument, "The \"disableClientPersistence\" option for a Manager and its \"keyVaultClient\" must be the same");
+            return None;
+        }
+        kv = km.client.clone();
+        m.kv_manager = zval::copy(v);
+    }
+    let mut ns = None;
+    if let Some(v) = opt(z, b"keyVaultNamespace") {
+        let s = fetch_string(v);
+        if s.contains(&0) {
+            throw(E::InvalidArgument, "Invalid namespace provided: namespaces may not contain a null byte");
+            return None;
+        }
+        match String::from_utf8_lossy(&s).split_once('.') {
+            Some((d, c)) => ns = Some((d.to_string(), c.to_string())),
+            None => {
+                throw(E::InvalidArgument, "Expected \"keyVaultNamespace\" autoEncryption option to contain a full collection namespace");
+                return None;
+            }
+        }
+    }
+    let kms = doc_opt("kmsProviders").ok()?;
+    let schema_map = doc_opt("schemaMap").ok()?;
+    let _tls = doc_opt("tlsOptions").ok()?;
+    let extra = doc_opt("extraOptions").ok()?;
+    // mongoc_client_enable_auto_encryption
+    let Some((db, coll)) = ns else {
+        super::throw_error(&invalid_arg("Key vault namespace option required"), None);
+        return None;
+    };
+    let Some(kms) = kms else {
+        super::throw_error(&invalid_arg("KMS providers option required"), None);
+        return None;
+    };
+    // _parse_extra
+    if let Some(x) = &extra {
+        let checks: [(&[u8], fn(&Value) -> bool, &str); 6] = [
+            (b"mongocryptdBypassSpawn", |v| matches!(v, Value::Bool(_)), "Expected bool for option 'mongocryptdBypassSpawn'"),
+            (b"mongocryptdSpawnPath", |v| matches!(v, Value::Utf8(_)), "Expected string for option 'mongocryptdSpawnPath'"),
+            (b"mongocryptdSpawnArgs", |v| matches!(v, Value::Array(_)), "Expected array for option 'mongocryptdSpawnArgs'"),
+            (b"mongocryptdURI", |v| matches!(v, Value::Utf8(_)), "Expected string for option 'mongocryptdURI'"),
+            (b"cryptSharedLibPath", |v| matches!(v, Value::Utf8(_)), "Expected a string for 'cryptSharedLibPath'"),
+            (b"cryptSharedLibRequired", |v| matches!(v, Value::Bool(_)), "Expected a bool for 'cryptSharedLibRequired'"),
+        ];
+        for (k, ok, msg) in checks {
+            if let Some(v) = find(x, k) {
+                if !ok(&v) {
+                    super::throw_error(&invalid_arg(msg), None);
+                    return None;
+                }
+            }
+        }
+    }
+    // _mongoc_crypt_new: the KMS providers, then mongocrypt_init's map checks
+    let crypt = match Crypt::new(&kms, None) {
+        Ok(c) => c,
+        Err(msg) => {
+            throw_crypt(&msg);
+            return None;
+        }
+    };
+    if let (Some(sm), Some(ef)) = (&schema_map, &efc) {
+        if let Some(mut it) = Iter::new(sm) {
+            while it.next() {
+                if find(ef, it.key()).is_some() {
+                    throw_crypt(&format!("{} is present in both schema_map and encrypted_field_config_map", String::from_utf8_lossy(it.key())));
+                    return None;
+                }
+            }
+        }
+    }
+    if !bypass_auto {
+        // query analysis (mongocryptd or crypt_shared, MongoDB Enterprise) and Queryable
+        // Encryption's automatic encryption are not ported yet: refuse rather than send in clear
+        let what = if bypass_qa { "Queryable Encryption's automatic encryption (\"bypassQueryAnalysis\")" } else { "automatic encryption (query analysis through mongocryptd or crypt_shared)" };
+        throw(E::InvalidArgument, format!("Cannot enable automatic field-level encryption: {what} is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption."));
+        return None;
+    }
+    Some(Box::new(AutoDecrypt { crypt, kv, db, coll }))
+}

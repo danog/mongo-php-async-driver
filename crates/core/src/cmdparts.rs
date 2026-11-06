@@ -354,6 +354,21 @@ impl Client {
             });
         }
         let mut result = result;
+        // _mongoc_cse_auto_decrypt: a successful reply of a client with automatic encryption, after
+        // the succeeded event; a failure skips the handlers below (fail_no_events)
+        if self.auto_crypt.is_some() {
+            if let Ok(r) = &result {
+                if !r.is_empty() {
+                    let mut ac = self.auto_crypt.take().expect("checked above");
+                    let d = ac.decrypt(self, &cmd.db, r);
+                    self.auto_crypt = Some(ac);
+                    match d {
+                        Ok(d) => result = Ok(d),
+                        Err(error) => return Err(Failure { error, reply: Vec::new() }),
+                    }
+                }
+            }
+        }
         if let Err(f) = &result {
             if !f.reply.is_empty() && !f.error.is_network() {
                 self.handle_command_error(cmd.server_id, &f.reply);
@@ -380,6 +395,53 @@ impl Client {
             }
         }
         result
+    }
+
+    /// An internal find (mongoc_collection_find_with_opts iterated to its end, as libmongoc's
+    /// key vault reads do): an implicit session, the given read preference and read concern.
+    pub fn find_all(&mut self, db: &str, coll: &str, filter: &[u8], rp: Option<(&crate::topology::ReadPrefs, (crate::uri::ReadMode, Vec<u8>))>, read_concern: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+        let (sid, _) = self.select_server_id(OpType::Read, rp.as_ref().map(|r| r.0), &[])?;
+        let mut session = self.start_session(true, false).ok();
+        let mut w = Writer::with_capacity(filter.len() + coll.len() + 32);
+        w.utf8(b"find", coll.as_bytes());
+        w.document(b"filter", filter);
+        let body = w.finish();
+        let r = (|| -> Result<Vec<Vec<u8>>, Error> {
+            let mut parts = Parts::new(db, &body);
+            parts.is_read = true;
+            parts.read_prefs = rp.as_ref().map(|r| r.1.clone());
+            parts.read_concern = read_concern.to_vec();
+            parts.session = session.as_mut();
+            self.operation_id += 1;
+            let mut c = self.assemble(parts, sid, false)?;
+            let el = self.read_eligibility(&c, false, true);
+            let reply = self.run_retryable_read(&mut c, session.as_mut(), el).map_err(|f| f.error);
+            self.release_temp_session(&mut c);
+            let reply = reply?;
+            let mut out = Vec::new();
+            let (mut id, mut batch) = cursor_batch(&reply, b"firstBatch");
+            loop {
+                out.append(&mut batch);
+                if id == 0 {
+                    return Ok(out);
+                }
+                let mut g = Writer::with_capacity(64);
+                g.int64(b"getMore", id);
+                g.utf8(b"collection", coll.as_bytes());
+                let gb = g.finish();
+                let mut parts = Parts::new(db, &gb);
+                parts.is_read = true;
+                parts.session = session.as_mut();
+                let mut c = self.assemble(parts, sid, false)?;
+                let reply = self.run_monitored(&mut c, &[], session.as_mut()).map_err(|f| f.error);
+                self.release_temp_session(&mut c);
+                (id, batch) = cursor_batch(&reply?, b"nextBatch");
+            }
+        })();
+        if let Some(mut s) = session.take() {
+            self.end_session(&mut s);
+        }
+        r
     }
 
     /// mongoc_cluster_run_retryable_write: runs a write once, then once more on a retryable
@@ -1067,3 +1129,24 @@ fn end_sessions_warning(what: &str, e: &Error) {
 
 /// MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY
 pub const MONGOC_DEFAULT_WTIMEOUT_FOR_COMMIT_RETRY: i64 = 10_000;
+
+/// The cursor id and the documents of a find/getMore reply's batch
+fn cursor_batch(reply: &[u8], key: &[u8]) -> (i64, Vec<Vec<u8>>) {
+    let Some(Value::Document(c)) = find(reply, b"cursor") else { return (0, Vec::new()) };
+    let id = match find(c, b"id") {
+        Some(Value::Int64(i)) => i,
+        Some(Value::Int32(i)) => i as i64,
+        _ => 0,
+    };
+    let mut docs = Vec::new();
+    if let Some(Value::Array(a)) = find(c, key) {
+        if let Some(mut it) = crate::bson::iter::Iter::new(a) {
+            while it.next() {
+                if let Value::Document(d) = it.value() {
+                    docs.push(d.to_vec());
+                }
+            }
+        }
+    }
+    (id, docs)
+}
