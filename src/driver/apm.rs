@@ -9,13 +9,79 @@ use super::ClientRef;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
 use crate::zend::{obj, sys, zval};
-use mongo_core::apm::{CommandInfo, Event};
+use mongo_core::apm::{CommandInfo, Event, Timed};
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::ptr::null_mut;
 
-/// A registered subscriber: (object handle, the object zval holding a reference).
-pub type Subscribers = Vec<(u32, sys::zval)>;
+/// A registered subscriber: (object handle, the object zval holding a reference, which of
+/// its methods take the trailing hrtime argument: bit i for `METHODS[i]`).
+pub type Subscribers = Vec<(u32, sys::zval, u16)>;
+
+/// The CommandSubscriber and SDAMSubscriber methods (bits of the hrtime mask).
+const METHODS: [&CStr; 12] = [
+    c"commandStarted",
+    c"commandSucceeded",
+    c"commandFailed",
+    c"serverChanged",
+    c"serverClosed",
+    c"serverHeartbeatFailed",
+    c"serverHeartbeatStarted",
+    c"serverHeartbeatSucceeded",
+    c"serverOpening",
+    c"topologyChanged",
+    c"topologyClosed",
+    c"topologyOpening",
+];
+
+/// MINIT: the clock of hrtime(true) for this PHP version.
+pub fn minit() {
+    #[cfg(all(target_vendor = "apple", php85))]
+    mongo_core::apm::set_clock(mongo_core::apm::clock_uptime_raw);
+    #[cfg(not(all(target_vendor = "apple", php85)))]
+    mongo_core::apm::set_clock(mongo_core::apm::clock_default);
+}
+
+/// Whether the method `name` (lowercase) of `ce` may be called with one more argument, an int,
+/// after the `n` arguments of its interface: a user function declaring exactly those `n`
+/// parameters, or ending in a by-value variadic whose type accepts an int (none, mixed, int,
+/// a union with int). Any other signature (a typed variadic, more optional parameters, an
+/// internal function) gets the interface's arguments only: never a TypeError, never a
+/// default parameter replaced by the timestamp.
+pub(crate) unsafe fn takes_hrtime(ce: *mut sys::zend_class_entry, name: &[u8], n: u32) -> bool {
+    const ZEND_USER_FUNCTION: u8 = 2;
+    const ZEND_ACC_VARIADIC: u32 = 1 << 14;
+    const MAY_BE_LONG: u32 = 1 << 4;
+    const TYPE_MASK: u32 = (1 << 25) - 1;
+    let Some(z) = crate::zend::hash::find(&(*ce).function_table, name) else { return false };
+    let f = (*z).value.ptr as *const sys::zend_function;
+    if f.is_null() || (*f).type_ != ZEND_USER_FUNCTION {
+        return false;
+    }
+    let c = &(*f).common;
+    if c.fn_flags & ZEND_ACC_VARIADIC == 0 {
+        return c.num_args == n;
+    }
+    if c.num_args > n || c.arg_info.is_null() {
+        return false;
+    }
+    // the variadic parameter follows the declared ones
+    let mask = (*c.arg_info.add(c.num_args as usize)).type_.type_mask;
+    let by_ref = (mask >> 25) & 3 != 0;
+    !by_ref && (mask & TYPE_MASK == 0 || mask & MAY_BE_LONG != 0)
+}
+
+/// The hrtime mask of a subscriber object (computed once, when it is registered).
+unsafe fn hrtime_mask(z: *const sys::zval) -> u16 {
+    let ce = zval::obj_ce(z);
+    let mut m = 0u16;
+    for (i, name) in METHODS.iter().enumerate() {
+        if takes_hrtime(ce, name.to_bytes().to_ascii_lowercase().as_slice(), 1) {
+            m |= 1 << i;
+        }
+    }
+    m
+}
 
 thread_local! {
     /// MONGODB_G(subscribers)
@@ -70,14 +136,14 @@ pub unsafe fn rshutdown() {
 /// phongo_apm_check_args_for_add_and_remove + add/remove
 pub unsafe fn add(list: &mut Subscribers, z: *mut sys::zval) {
     let h = (*(*z).value.obj).handle;
-    if !list.iter().any(|(x, _)| *x == h) {
-        list.push((h, zval::copy(z)));
+    if !list.iter().any(|(x, _, _)| *x == h) {
+        list.push((h, zval::copy(z), hrtime_mask(z)));
     }
 }
 
 pub unsafe fn remove(list: &mut Subscribers, z: *mut sys::zval) {
     let h = (*(*z).value.obj).handle;
-    if let Some(i) = list.iter().position(|(x, _)| *x == h) {
+    if let Some(i) = list.iter().position(|(x, _, _)| *x == h) {
         drop(list.remove(i));
     }
 }
@@ -105,7 +171,7 @@ pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(ex: Ex, 
     GLOBAL.with(|g| {
         let mut g = g.borrow_mut();
         let h = (*(*z).value.obj).handle;
-        if let Some(i) = g.iter().position(|(x, _)| *x == h) {
+        if let Some(i) = g.iter().position(|(x, _, _)| *x == h) {
             taken = Some(g.remove(i).1);
         }
     });
@@ -134,16 +200,16 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_removeSubscriber(ex: Ex, _rv
 }
 
 /// phongo_apm_get_subscribers_to_notify: global ones, then those of every Manager of the
-/// client; instances of `of` only, each once.
-unsafe fn subscribers_for(c: &ClientRef, of: *mut sys::zend_class_entry) -> Vec<sys::zval> {
+/// client; instances of `of` only, each once (with their hrtime masks).
+unsafe fn subscribers_for(c: &ClientRef, of: *mut sys::zend_class_entry) -> Vec<(sys::zval, u16)> {
     let mut seen: Vec<u32> = Vec::new();
     let mut out = Vec::new();
     let mut take = |list: &Subscribers| {
-        for (h, z) in list {
+        for (h, z, m) in list {
             // a subscriber the GC has freed (or is freeing) is never called
             if zval::is(z, sys::IS_OBJECT) && obj::is_live(z.value.obj) && obj::instanceof((*z.value.obj).ce, of) && !seen.contains(h) {
                 seen.push(*h);
-                out.push(zval::copy(z));
+                out.push((zval::copy(z), *m));
             }
         }
     };
@@ -170,7 +236,7 @@ pub unsafe fn flush(c: &ClientRef) {
     }
 }
 
-unsafe fn dispatch(c: &ClientRef, ev: Event) {
+unsafe fn dispatch(c: &ClientRef, Timed { at, event: ev }: Timed) {
     let is_command = matches!(ev, Event::CommandStarted { .. } | Event::CommandSucceeded { .. } | Event::CommandFailed { .. });
     let sub_ce = if is_command { ce(c"mongodb\\driver\\monitoring\\commandsubscriber") } else { ce(c"mongodb\\driver\\monitoring\\sdamsubscriber") };
     let subs = subscribers_for(c, sub_ce);
@@ -184,12 +250,15 @@ unsafe fn dispatch(c: &ClientRef, ev: Event) {
                 None => return,
             },
         };
-        for s in &subs {
+        let bit = METHODS.iter().position(|m| *m == method).map_or(0, |i| 1u16 << i);
+        for (s, mask) in &subs {
             if call::has_exception() {
                 break;
             }
-            let mut arg = [zval::copy(&z)];
-            drop(call::method(s.value.obj, method, &mut arg));
+            // the time the event was created, as hrtime(true) would have read it
+            let mut args = [zval::copy(&z), zval::long(at as i64)];
+            let n = if mask & bit != 0 { 2 } else { 1 };
+            drop(call::method(s.value.obj, method, &mut args[..n]));
         }
     }
     // the event and the subscriber references are released here

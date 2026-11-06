@@ -72,6 +72,7 @@ const CONST_PERSISTENT: i32 = 1;
 
 unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_result {
     crate::driver::log::minit();
+    crate::driver::apm::minit();
     sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
     crate::zend::obj::init_std();
     crate::gen::api::register_all();

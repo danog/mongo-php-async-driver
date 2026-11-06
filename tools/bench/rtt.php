@@ -2,10 +2,19 @@
 // Round-trip microbench: php -n -d extension=<so> tools/bench/rtt.php <uri> [iterations] [rounds]
 // Prints one JSON line per case: {"case": ..., "ns_per_op": <best round>, "cpu_ns_per_op": <best round>}.
 // Cases: findOne on a one-document collection, insertOne (acknowledged, w:1), ping.
+// RTT_SUBSCRIBER=1: with a CommandSubscriber that reads every event (and the hrtime argument).
 $uri = $argv[1] ?? 'mongodb://127.0.0.1:28010';
 $n = (int) ($argv[2] ?? 5000);
 $rounds = (int) ($argv[3] ?? 5);
 $m = new MongoDB\Driver\Manager($uri);
+if (getenv('RTT_SUBSCRIBER')) {
+    $m->addSubscriber(new class implements MongoDB\Driver\Monitoring\CommandSubscriber {
+        public int $last = 0;
+        public function commandStarted(MongoDB\Driver\Monitoring\CommandStartedEvent $e): void { $this->last = func_get_args()[1] ?? 0; }
+        public function commandSucceeded(MongoDB\Driver\Monitoring\CommandSucceededEvent $e): void { $this->last = func_get_args()[1] ?? 0; }
+        public function commandFailed(MongoDB\Driver\Monitoring\CommandFailedEvent $e): void {}
+    });
+}
 $ns = 'mdrop_bench.rtt';
 $m->executeCommand('mdrop_bench', new MongoDB\Driver\Command(['drop' => 'rtt']));
 $b = new MongoDB\Driver\BulkWrite;

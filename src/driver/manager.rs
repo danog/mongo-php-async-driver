@@ -44,7 +44,7 @@ unsafe extern "C" fn free(o: *mut sys::zend_object) {
 /// holding it, is a collectable cycle).
 unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
     let m = obj::data::<Manager>(o);
-    obj::get_gc_with(o, table, n, m.subscribers.iter_mut().map(|(_, z)| z as *mut sys::zval))
+    obj::get_gc_with(o, table, n, m.subscribers.iter_mut().map(|(_, z, _)| z as *mut sys::zval))
 }
 
 unsafe fn free_manager(o: *mut sys::zend_object) {

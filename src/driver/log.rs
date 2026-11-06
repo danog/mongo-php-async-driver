@@ -35,8 +35,10 @@ thread_local! {
     /// MONGODB_G(debug_fd)
     static STREAM: RefCell<Option<Stream>> = const { RefCell::new(None) };
     /// MONGODB_G(loggers): (object handle, the object), in registration order
-    static LOGGERS: RefCell<Vec<(u32, sys::zval)>> = const { RefCell::new(Vec::new()) };
-    static PENDING: RefCell<VecDeque<(Level, Vec<u8>, Vec<u8>)>> = const { RefCell::new(VecDeque::new()) };
+    /// (handle, the object, whether its log() takes the trailing hrtime argument)
+    static LOGGERS: RefCell<Vec<(u32, sys::zval, bool)>> = const { RefCell::new(Vec::new()) };
+    /// (level, domain, message, hrtime(true) when the message was produced)
+    static PENDING: RefCell<VecDeque<(Level, Vec<u8>, Vec<u8>, u64)>> = const { RefCell::new(VecDeque::new()) };
     /// PENDING is not empty (the per-operation flush is one flag test otherwise)
     static HAS_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -79,7 +81,7 @@ fn emit(level: Level, domain: &[u8], message: &[u8]) {
     PENDING.with(|p| {
         let mut p = p.borrow_mut();
         if p.len() < MAX_PENDING {
-            p.push_back((level, domain.to_vec(), message.to_vec()));
+            p.push_back((level, domain.to_vec(), message.to_vec(), mongo_core::apm::hrtime()));
             HAS_PENDING.with(|h| h.set(true));
         }
     });
@@ -130,20 +132,21 @@ pub unsafe fn flush() {
         return;
     }
     loop {
-        let Some((level, domain, message)) = PENDING.with(|p| p.borrow_mut().pop_front()) else {
+        let Some((level, domain, message, at)) = PENDING.with(|p| p.borrow_mut().pop_front()) else {
             HAS_PENDING.with(|h| h.set(false));
             return;
         };
-        let loggers: Vec<sys::zval> = LOGGERS.with(|l| l.borrow().iter().map(|(_, z)| zval::copy(z)).collect());
-        for lg in &loggers {
+        let loggers: Vec<(sys::zval, bool)> = LOGGERS.with(|l| l.borrow().iter().map(|(_, z, t)| (zval::copy(z), *t)).collect());
+        for (lg, takes_hrtime) in &loggers {
             if call::has_exception() {
                 break;
             }
             if !obj::is_live(lg.value.obj) {
                 continue;
             }
-            let mut args = [zval::long(level as i64), zval::string(&domain), zval::string(&message)];
-            drop(call::method_n(lg.value.obj, b"log", &mut args));
+            let mut args = [zval::long(level as i64), zval::string(&domain), zval::string(&message), zval::long(at as i64)];
+            let n = if *takes_hrtime { 4 } else { 3 };
+            drop(call::method_n(lg.value.obj, b"log", &mut args[..n]));
         }
         if call::has_exception() {
             PENDING.with(|p| p.borrow_mut().clear());
@@ -206,8 +209,8 @@ pub unsafe fn add(z: *mut sys::zval) {
     let h = (*(*z).value.obj).handle;
     LOGGERS.with(|l| {
         let mut l = l.borrow_mut();
-        if !l.iter().any(|(x, _)| *x == h) {
-            l.push((h, zval::copy(z)));
+        if !l.iter().any(|(x, _, _)| *x == h) {
+            l.push((h, zval::copy(z), super::apm::takes_hrtime(zval::obj_ce(z), b"log", 3)));
         }
     });
     sync();
@@ -218,7 +221,7 @@ pub unsafe fn remove(z: *mut sys::zval) {
     let h = (*(*z).value.obj).handle;
     let taken = LOGGERS.with(|l| {
         let mut l = l.borrow_mut();
-        l.iter().position(|(x, _)| *x == h).map(|i| l.remove(i).1)
+        l.iter().position(|(x, _, _)| *x == h).map(|i| l.remove(i).1)
     });
     sync();
     // the logger's destructor may run here: no registry borrow held

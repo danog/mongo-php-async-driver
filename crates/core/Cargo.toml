@@ -36,6 +36,8 @@ x509-ocsp = { version = "0.2.1", default-features = false, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
 mio = { version = "1", features = ["os-poll", "os-ext"] }
+# the clocks of PHP's hrtime(true) (already a dependency of mio)
+libc = "0.2"
 
 [dev-dependencies]
 libc = "0.2"

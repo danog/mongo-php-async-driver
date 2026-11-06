@@ -191,7 +191,7 @@ impl Client {
     }
 
     /// The APM events not yet handed to the subscribers, in the order they happened.
-    pub fn take_events(&mut self) -> Vec<crate::apm::Event> {
+    pub fn take_events(&mut self) -> Vec<crate::apm::Timed> {
         std::mem::take(&mut self.td.events.0)
     }
 

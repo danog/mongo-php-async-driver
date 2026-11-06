@@ -25,6 +25,24 @@ ported yet throw an `Error`.
   Revolt watcher drives; connections are released as soon as the server has answered, and
   waiters queue in FIFO order, so lazily-resumed fibers cannot deadlock the pool.
 
+## Monitoring timestamps
+
+APM and `LogSubscriber` callbacks run when the operation releases the client, not while it runs
+(see "APM delivery time" in `DIVERGENCES.md`). Each callback whose signature allows it receives
+one extra trailing `int`: the value `hrtime(true)` had when the event or log message was created.
+Tracing integrations can use it instead of their own `hrtime(true)` in the callback:
+
+```php
+public function commandStarted(CommandStartedEvent $event): void
+{
+    $startedAt = func_get_args()[1] ?? hrtime(true); // ext-mongodb passes no second argument
+}
+```
+
+It is passed to methods that declare exactly the interface's parameters, or end in an untyped,
+`mixed`, `int` (or union with `int`) by-value variadic; any other signature is called exactly as
+ext-mongodb calls it.
+
 ## Tests
 
 The upstream suites are carried over and run against both this extension and ext-mongodb:

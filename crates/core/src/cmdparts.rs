@@ -295,7 +295,7 @@ impl Client {
         let info = crate::apm::enabled().then(|| self.command_info(cmd, request_id));
         if let Some(info) = &info {
             let command = if crate::apm::is_sensitive(&cmd.name, &cmd.body) { vec![5, 0, 0, 0, 0] } else { command_with_payload(&cmd.body, payload) };
-            self.td.events.0.push(crate::apm::Event::CommandStarted { info: info.clone(), command });
+            self.td.events.push_now(crate::apm::Event::CommandStarted { info: info.clone(), command });
         }
         let r = self.run_command_payload(cmd.server_id, &cmd.name, &cmd.db, &cmd.body, payload, cmd.is_acknowledged);
         if cmd.is_retryable_write || cmd.is_txn_finish {
@@ -333,7 +333,7 @@ impl Client {
             let duration_us = started.elapsed().as_micros() as i64;
             let redact = crate::apm::is_sensitive(&cmd.name, &cmd.body);
             let empty = || vec![5u8, 0, 0, 0, 0];
-            self.td.events.0.push(match &result {
+            self.td.events.push_now(match &result {
                 Ok(r) => {
                     // unacknowledged writes report {ok: 1}
                     let reply = if !cmd.is_acknowledged {
