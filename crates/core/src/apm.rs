@@ -100,8 +100,29 @@ pub fn hrtime() -> u64 {
     CLOCK.get().map_or_else(clock_default, |f| f())
 }
 
+/// zend_hrtime on Windows: QueryPerformanceCounter times zend_hrtime_timer_scale (1e9 / the
+/// counter frequency, a double), computed in the same floating-point steps.
+#[cfg(windows)]
+pub fn clock_default() -> u64 {
+    use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    static SCALE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    let scale = *SCALE.get_or_init(|| {
+        let mut f = 0i64;
+        // SAFETY: a valid out-parameter
+        if unsafe { QueryPerformanceFrequency(&mut f) } != 0 || f != 0 {
+            1_000_000_000f64 / (f as u64) as f64
+        } else {
+            0.0
+        }
+    });
+    let mut t = 0i64;
+    // SAFETY: a valid out-parameter
+    unsafe { QueryPerformanceCounter(&mut t) };
+    ((t as u64) as f64 * scale) as u64
+}
+
 /// zend_hrtime on Linux and other POSIX systems: CLOCK_MONOTONIC.
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(all(unix, not(target_vendor = "apple")))]
 pub fn clock_default() -> u64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: a valid timespec out-parameter

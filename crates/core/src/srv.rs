@@ -47,8 +47,92 @@ pub fn prefixed_hostname(uri: &Uri) -> String {
     format!("_{}._tcp.{}", uri.options.str("srvservicename").unwrap_or("mongodb"), uri.srv.as_deref().unwrap_or_default())
 }
 
+/// _mongoc_get_rr_dnsapi (Windows): SRV records (hosts) or the TXT record (options) of
+/// `hostname`, through the system resolver (DnsQuery_UTF8, bypassing its cache), with
+/// libmongoc's messages. A failed TXT lookup is not an error (only a second TXT record is).
+#[cfg(windows)]
+pub fn get_rr(_cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> Result<(), Error> {
+    use std::ffi::{CStr, CString};
+    use windows_sys::Win32::NetworkManagement::Dns as d;
+    let (ty, name) = if srv { (d::DNS_TYPE_SRV, "SRV") } else { (d::DNS_TYPE_TEXT, "TXT") };
+    let fail = |m: String| if srv { Err(err(m)) } else { Ok(()) };
+    // a C string: whatever follows a NUL is not part of it
+    let c = CString::new(hostname.split('\0').next().unwrap_or_default()).unwrap_or_default();
+    let mut options = d::DNS_QUERY_BYPASS_CACHE;
+    if prefer_tcp() {
+        options |= d::DNS_QUERY_USE_TCP_ONLY;
+    }
+    /// The record list, freed when dropped.
+    struct List(*mut d::DNS_RECORDA);
+    impl Drop for List {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // SAFETY: the list DnsQuery_UTF8 returned, freed once
+                unsafe { d::DnsFree(self.0.cast(), d::DnsFreeRecordList) };
+            }
+        }
+    }
+    let mut list = List(std::ptr::null_mut());
+    // SAFETY: a NUL-terminated name; the result list is owned by `list`
+    let res = unsafe { d::DnsQuery_UTF8(c.as_ptr().cast(), ty, options, std::ptr::null_mut(), &mut list.0, std::ptr::null_mut()) };
+    if res != 0 {
+        return fail(format!("Failed to look up {name} record \"{hostname}\": {}", crate::os::error_text(res)));
+    }
+    if list.0.is_null() {
+        return fail(format!("No {name} records for \"{hostname}\""));
+    }
+    let mut matching = 0;
+    let mut seen = 0;
+    let mut p = list.0 as *const d::DNS_RECORDA;
+    while !p.is_null() {
+        // SAFETY: a record of the list, valid until it is freed
+        let r = unsafe { &*p };
+        seen += 1;
+        // as many records as a resolver answer may give (dns::parse_answers)
+        if seen > dns::MAX_RECORDS && srv {
+            return Err(err(format!("Too many records in {name} answer for \"{hostname}\": at most {} are accepted", dns::MAX_RECORDS)));
+        }
+        // records of other types may come back
+        if r.wType == ty {
+            if matching > 0 && !srv {
+                return Err(err(format!("Multiple TXT records for \"{hostname}\"")));
+            }
+            if matching == 0 || r.dwTtl < rr.min_ttl {
+                rr.min_ttl = r.dwTtl;
+            }
+            if srv {
+                // SAFETY: an SRV record's data; the target is a NUL-terminated UTF-8 string
+                let s = unsafe { r.Data.SRV };
+                let target = if s.pNameTarget.is_null() { String::new() } else { unsafe { CStr::from_ptr(s.pNameTarget.cast()) }.to_string_lossy().into_owned() };
+                let host = crate::uri::host_from_hostport(&target, s.wPort).map_err(err)?;
+                upsert(&mut rr.hosts, host);
+            } else {
+                // SAFETY: a TXT record's data: dwStringCount NUL-terminated strings
+                let t = std::ptr::addr_of!(r.Data.TXT);
+                let count = unsafe { (*t).dwStringCount } as usize;
+                let strings = unsafe { std::ptr::addr_of!((*t).pStringArray) }.cast::<*const u8>();
+                let mut txt = Vec::with_capacity(usize::from(r.wDataLength));
+                for i in 0..count {
+                    let sp = unsafe { *strings.add(i) };
+                    if !sp.is_null() {
+                        txt.extend_from_slice(unsafe { CStr::from_ptr(sp.cast()) }.to_bytes());
+                    }
+                }
+                rr.txt_record_opts = Some(String::from_utf8_lossy(&txt).into_owned());
+            }
+            matching += 1;
+        }
+        p = r.pNext;
+    }
+    if matching == 0 {
+        return fail(format!("No matching {name} records for \"{hostname}\""));
+    }
+    Ok(())
+}
+
 /// _mongoc_get_rr_search: SRV records (hosts) or the TXT record (options) of `hostname`.
 /// A failed TXT lookup is not an error (only a malformed or second TXT record is).
+#[cfg(unix)]
 pub fn get_rr(cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> Result<(), Error> {
     let (ty, name) = if srv { (dns::T_SRV, "SRV") } else { (dns::T_TXT, "TXT") };
     let m = match dns::search(cfg, hostname, ty, prefer_tcp()) {
@@ -91,6 +175,7 @@ pub fn get_rr(cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> 
     Ok(())
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 /// srv_callback: priority, weight, port, target (the record must hold all of them; libmongoc
 /// reads the port without checking the record's length).
 fn srv_record(hostname: &str, m: &[u8], (start, end): (usize, usize), rr: &mut RrData) -> Result<(), Error> {
@@ -106,6 +191,7 @@ fn srv_record(hostname: &str, m: &[u8], (start, end): (usize, usize), rr: &mut R
     Ok(())
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 /// txt_callback: the record's strings concatenated (at most 255 bytes in all, as libmongoc).
 fn txt_record(hostname: &str, data: &[u8], rr: &mut RrData) -> Result<(), Error> {
     let total = data.len();
@@ -228,5 +314,25 @@ mod tests {
         // a record too short for a port and a target
         let m = [0u8; 18];
         assert!(srv_record("h", &m, (12, 18), &mut rr).is_err());
+    }
+
+    /// The system resolver on Windows (the initial DNS seedlist spec's public test records).
+    #[cfg(windows)]
+    #[test]
+    fn windows_dnsapi() {
+        let cfg = dns::Config::default();
+        let mut rr = RrData::default();
+        get_rr(&cfg, "_mongodb._tcp.test1.test.build.10gen.cc", true, &mut rr).unwrap();
+        let mut hosts: Vec<_> = rr.hosts.iter().map(|h| h.host_and_port.clone()).collect();
+        hosts.sort();
+        assert_eq!(hosts, ["localhost.test.build.10gen.cc:27017", "localhost.test.build.10gen.cc:27018"]);
+        let mut rr = RrData::default();
+        get_rr(&cfg, "test5.test.build.10gen.cc", false, &mut rr).unwrap();
+        assert_eq!(rr.txt_record_opts.as_deref(), Some("replicaSet=repl0&authSource=thisDB"));
+        // libmongoc's message, with the system's text of the DNS status
+        let e = get_rr(&cfg, "_mongodb._tcp.nonexistent.test.build.10gen.cc", true, &mut RrData::default()).unwrap_err();
+        assert!(e.message.starts_with("Failed to look up SRV record \"_mongodb._tcp.nonexistent.test.build.10gen.cc\": (0x0000"), "{}", e.message);
+        // a failed TXT lookup is no error
+        get_rr(&cfg, "nonexistent.test.build.10gen.cc", false, &mut RrData::default()).unwrap();
     }
 }

@@ -111,7 +111,9 @@ fn certs_of(pem: &[u8]) -> Vec<CertificateDer<'static>> {
     CertificateDer::pem_slice_iter(pem).filter_map(Result::ok).collect()
 }
 
-/// The system trust store as OpenSSL's default verify paths find it.
+/// The system trust store: SSL_CERT_FILE / SSL_CERT_DIR when set, else (Unix) the bundle
+/// OpenSSL's default verify paths find, or (Windows) the current user's "root" certificate
+/// store, as libmongoc's OpenSSL setup imports it on Windows.
 fn system_roots(store: &mut RootCertStore) {
     let env_file = std::env::var("SSL_CERT_FILE").ok();
     let env_dir = std::env::var("SSL_CERT_DIR").ok();
@@ -120,13 +122,22 @@ fn system_roots(store: &mut RootCertStore) {
             add_file(store, &f);
         }
         if let Some(d) = env_dir {
-            for d in d.split(':') {
+            // OpenSSL's list separator
+            for d in d.split(if cfg!(windows) { ';' } else { ':' }) {
                 add_dir(store, d);
             }
         }
         return;
     }
-    // the bundle locations of the common distributions and of macOS (openssl-probe's list)
+    #[cfg(windows)]
+    windows_root_store(store);
+    #[cfg(not(windows))]
+    bundle_file(store);
+}
+
+/// The first bundle file of the common distributions and of macOS (openssl-probe's list).
+#[cfg(not(windows))]
+fn bundle_file(store: &mut RootCertStore) {
     const FILES: &[&str] = &[
         "/etc/ssl/certs/ca-certificates.crt",
         "/etc/pki/tls/certs/ca-bundle.crt",
@@ -144,6 +155,37 @@ fn system_roots(store: &mut RootCertStore) {
             return;
         }
     }
+}
+
+/// _mongoc_openssl_import_cert_store(L"root", CERT_SYSTEM_STORE_CURRENT_USER |
+/// CERT_STORE_READONLY_FLAG): every certificate of the store is a trust anchor. (libmongoc also
+/// imports the "CA" store, i.e. intermediate certificates, as anchors: not done here, see
+/// DIVERGENCES.md.)
+#[cfg(windows)]
+fn windows_root_store(store: &mut RootCertStore) {
+    use windows_sys::Win32::Security::Cryptography as c;
+    let name: Vec<u16> = "root\0".encode_utf16().collect();
+    // SAFETY: a NUL-terminated store name; the store is closed below
+    let h = unsafe { c::CertOpenStore(c::CERT_STORE_PROV_SYSTEM_W, c::X509_ASN_ENCODING | c::PKCS_7_ASN_ENCODING, 0, c::CERT_SYSTEM_STORE_CURRENT_USER | c::CERT_STORE_READONLY_FLAG, name.as_ptr().cast()) };
+    if h.is_null() {
+        crate::log::error(crate::log::MONGOC, || format!("Can't open CA store: {}", crate::os::error_text(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32)));
+        return;
+    }
+    let mut certs = Vec::new();
+    let mut ctx: *const c::CERT_CONTEXT = std::ptr::null();
+    loop {
+        // SAFETY: enumeration continues from the previous context (which it frees)
+        ctx = unsafe { c::CertEnumCertificatesInStore(h, ctx) };
+        if ctx.is_null() {
+            break;
+        }
+        // SAFETY: the context's encoded certificate, valid until the next call
+        let der = unsafe { std::slice::from_raw_parts((*ctx).pbCertEncoded, (*ctx).cbCertEncoded as usize) };
+        certs.push(CertificateDer::from(der.to_vec()));
+    }
+    // SAFETY: the store opened above
+    unsafe { c::CertCloseStore(h, 0) };
+    store.add_parsable_certificates(certs);
 }
 
 fn add_file(store: &mut RootCertStore, path: &str) -> usize {
@@ -330,5 +372,14 @@ mod tests {
         let e = super::provider_if(&None).unwrap_err();
         assert!(e.message.starts_with("TLS handshake failed: TLS is not available on this CPU: the TLS library needs the "), "{}", e.message);
         assert!(super::provider().is_ok(), "this CPU should be supported");
+    }
+
+    /// The default trust store on Windows: the current user's "root" store.
+    #[cfg(windows)]
+    #[test]
+    fn windows_trust_store() {
+        let mut store = rustls::RootCertStore::empty();
+        super::windows_root_store(&mut store);
+        assert!(!store.is_empty());
     }
 }

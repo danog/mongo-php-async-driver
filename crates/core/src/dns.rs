@@ -118,6 +118,12 @@ impl Config {
     }
 }
 
+#[cfg(not(unix))]
+fn hostname_domain() -> Option<String> {
+    None
+}
+
+#[cfg(unix)]
 fn hostname_domain() -> Option<String> {
     let mut buf = [0u8; 256];
     // SAFETY: the buffer is valid for its length; gethostname NUL-terminates within it or fails
