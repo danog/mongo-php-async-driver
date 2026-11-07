@@ -30,7 +30,7 @@ $sub = new class implements MongoDB\Driver\Monitoring\SDAMSubscriber {
     public function topologyOpening($e): void {}
 };
 $uri = URI;
-$m = new Manager($uri . (str_contains($uri, '?') ? '&' : '/?') . 'appname=' . $app, [], ['disableClientPersistence' => true]);
+$m = new Manager($uri . (str_contains($uri, '?') ? '&' : (str_ends_with($uri, '/') ? '?' : '/?')) . 'appname=' . $app, [], ['disableClientPersistence' => true]);
 $m->addSubscriber($sub);
 $m->executeCommand('admin', new Command(['ping' => 1]));
 $admin = create_test_manager();

@@ -17,7 +17,7 @@ require getenv('REVOLT_AUTOLOAD');
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $uri = getenv('MONGODB_URI');
-$sep = str_contains($uri, '?') ? '&' : '/?';
+$sep = str_contains($uri, '?') ? '&' : (str_ends_with($uri, '/') ? '?' : '/?');
 $ns = 'mdrop_local.fiber_concurrency';
 $m = new Manager($uri);
 $m->executeCommand('mdrop_local', new Command(['drop' => 'fiber_concurrency']));

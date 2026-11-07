@@ -16,7 +16,7 @@ require getenv('REVOLT_AUTOLOAD');
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $uri = getenv('MONGODB_URI');
-$sep = str_contains($uri, '?') ? '&' : '/?';
+$sep = str_contains($uri, '?') ? '&' : (str_ends_with($uri, '/') ? '?' : '/?');
 $sub = new class implements MongoDB\Driver\Monitoring\SDAMSubscriber {
     public int $hb = 0;
     public function serverHeartbeatStarted($e): void { $this->hb++; }
