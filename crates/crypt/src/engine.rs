@@ -148,6 +148,10 @@ pub enum KeySel {
 impl Crypt {
     pub fn new(kms_providers: &[u8], key_expiration_ms: Option<u64>) -> std::result::Result<Crypt, String> {
         let kms = KmsProviders::parse(kms_providers)?;
+        // _mongocrypt_opts_validate
+        if kms.configured.is_empty() && kms.named.is_empty() && kms.need_credentials.is_empty() {
+            return Err("no kms provider set".into());
+        }
         Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new(), oauth: Default::default(), ondemand: Default::default(), azure_imds: Default::default(), collinfo: Default::default() })
     }
 
