@@ -1,0 +1,2 @@
+# checkouts are byte-for-byte (no CRLF conversion on Windows): test fixtures are compared exactly
+* -text
