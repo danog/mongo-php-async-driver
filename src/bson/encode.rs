@@ -217,6 +217,11 @@ impl Enc {
                     throw(E::UnexpectedValue, format!("Detected unsupported PHP type for field path \"{}\": {} ({})", self.fp.as_string(), t, tn));
                 }
             }
+            // phongo_bson_append_check: libbson refuses an append that makes the document
+            // larger than INT32_MAX (its length fields would wrap)
+            if w.buf.len() >= i32::MAX as usize && !call::has_exception() {
+                throw(E::UnexpectedValue, format!("Could not append BSON data for field path \"{}\".", self.fp.as_string()));
+            }
             return;
         }
     }

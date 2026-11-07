@@ -1242,6 +1242,14 @@ impl Client {
             return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for server id: {server_id}")));
         };
         let conn_generation = conn.generation as u32;
+        // OP_MSG lengths are int32: a larger message would wrap them and the server would read
+        // the rest of the bytes as further messages. Refused before anything is sent (libbson
+        // refuses appends past INT32_MAX; strings appended directly by the driver are not
+        // bounded otherwise)
+        let len = crate::wire::HEADER_LEN + 4 + 1 + body.len() + payload.iter().map(|(id, docs)| 1 + 4 + id.len() + 1 + docs.len()).sum::<usize>();
+        if len > i32::MAX as usize {
+            return Err(Error::new(domain::CLIENT, code::CLIENT_TOO_BIG, format!("attempted to send a \"{cmd_name}\" command of {len} bytes, which exceeds the maximum message size of {} bytes", i32::MAX)));
+        }
         match handshake::run_msg(conn, body, payload, !acknowledged, socket_timeout) {
             Ok(r) => {
                 if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
