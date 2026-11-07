@@ -25,8 +25,9 @@ ported yet throw an `Error`.
   zstd through ruzstd, snappy through snap.
 - **I/O on the PHP thread, no threads:** synchronous calls make the same blocking socket calls
   as ext-mongodb. Inside a fiber, a wait registers the socket in one poll set (epoll/kqueue via
-  mio) whose fd one Revolt `onReadable` watcher drives, and suspends the fiber (Windows: not
-  yet, waits block there).
+  mio) whose fd one Revolt `onReadable` watcher drives, and suspends the fiber. On Windows
+  (no such handle for IOCP) each wait watches its sockets with Revolt `onReadable` /
+  `onWritable` directly.
 
 ## Fibers
 

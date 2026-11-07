@@ -116,9 +116,26 @@ jobs:
           CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
         run: tools/ci/run-phplib.sh "$EXT" "$CLUSTER_URI" "$PWD/phplib.xml"
 
+      # this driver's own fiber tests (the official suites have none): the event-loop backend of
+      # each OS (epoll / kqueue through mio; Windows: per-socket watchers), against revolt/event-loop
+      - name: Fiber tests (tests/local)
+        if: matrix.topology == 'server'
+        env:
+          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: |
+          revolt=$(mktemp -d)
+          (cd "$revolt" && composer require --no-interaction --no-progress -q revolt/event-loop:^1)
+          autoload=$revolt/vendor/autoload.php
+          [ "$RUNNER_OS" = Windows ] && autoload=$(cygpath -m "$autoload")
+          REVOLT_AUTOLOAD=$autoload PHPT_TESTS="$(echo tests/local/fiber-*.phpt)" \
+            tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers.xml"
+
       - name: Results
         if: always()
-        run: python3 tools/ci/junit-summary.py "Driver (PHPT)" phpt.xml "Library (PHPUnit)" phplib.xml
+        run: |
+          suites=("Driver (PHPT)" phpt.xml "Library (PHPUnit)" phplib.xml)
+          [ "${{ matrix.topology }}" = server ] && suites+=("Fibers (tests/local)" fibers.xml)
+          python3 tools/ci/junit-summary.py "${suites[@]}"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -127,6 +144,7 @@ jobs:
           path: |
             phpt.xml
             phplib.xml
+            fibers.xml
           if-no-files-found: ignore
 
   cargo-test:

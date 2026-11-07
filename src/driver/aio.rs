@@ -6,20 +6,26 @@
 //!   so only while fibers are waiting in the driver (then Revolt's {main} suspension runs the
 //!   loop and they progress); otherwise, and wherever a fiber may not switch (object
 //!   destruction, shutdown, zend_fiber_switch_blocked()), the plain blocking waits are used.
-//! - How: one process-wide mio Poll (epoll/kqueue) holds the sockets being waited for, token =
-//!   waiter slot; its fd (a dup) is a PHP socket stream watched by one Revolt onReadable
-//!   callback, referenced only while waits are pending. A wait registers its sockets, stores
-//!   `EventLoop::getSuspension()` in its slot and suspends; the callback drains mio and resumes
-//!   the ready slots. Deadlines: one unreferenced Revolt delay() for the earliest one (a sleep
-//!   is a wait without sockets).
+//! - How (Unix, backend 1): one process-wide mio Poll (epoll/kqueue) holds the sockets being
+//!   waited for, token = waiter slot; its fd (a dup) is a PHP socket stream watched by one
+//!   Revolt onReadable callback, referenced only while waits are pending. A wait registers its
+//!   sockets, stores `EventLoop::getSuspension()` in its slot and suspends; the callback drains
+//!   mio and resumes the ready slots.
+//! - How (Windows, backend 2: IOCP has no handle a PHP stream could wrap): a wait wraps each of
+//!   its sockets in a PHP socket stream (whose socket handle is reset before the stream goes,
+//!   so PHP never shuts down or closes the driver's socket) and watches it with
+//!   onReadable/onWritable; the callback resumes the watcher's slot; the wait cancels its
+//!   watchers when it ends. The loop is kept alive while waits are pending by a referenced
+//!   watcher on a UDP socket nobody writes to (backend 1's watcher, without readiness).
+//! - Deadlines: one unreferenced Revolt delay() for the earliest one (a sleep is a wait without
+//!   sockets).
 //! - The callbacks are Closures over a static internal function (zend_create_fake_closure):
 //!   nothing new is visible to Reflection.
 //! - Never across a PHP call: a borrow of the state here (PHP may re-enter).
 
 use crate::zend::{call, sys, zval};
 use std::cell::RefCell;
-#[cfg(unix)]
-use std::ffi::{c_char, c_int};
+use std::ffi::c_char;
 use std::io;
 use std::ptr::{addr_of, null_mut};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering::Relaxed};
@@ -29,8 +35,9 @@ extern "C" {
     fn zend_fiber_switch_blocked() -> bool;
     fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
     fn zend_internal_run_time_cache_reserved_size() -> usize;
-    #[cfg(unix)]
-    fn _php_stream_sock_open_from_socket(socket: c_int, persistent_id: *const c_char) -> *mut sys::php_stream;
+    fn _php_stream_sock_open_from_socket(socket: mongo_core::os::RawSock, persistent_id: *const c_char) -> *mut sys::php_stream;
+    fn zend_exception_save();
+    fn zend_exception_restore();
 }
 
 /// Object destruction and shutdown in progress: waits block.
@@ -168,6 +175,12 @@ struct Loop {
     poll: mio::Poll,
     #[cfg(unix)]
     events: mio::Events,
+    /// Windows: the Revolt watchers of the waits (watcher id, slot) and the streams wrapping their
+    /// sockets (slot, stream)
+    #[cfg(windows)]
+    watches: Vec<(sys::zval, usize)>,
+    #[cfg(windows)]
+    streams: Vec<(usize, *mut sys::php_stream)>,
     slots: Vec<Slot>,
     pending: usize,
     /// request-level PHP state (reset at request end)
@@ -181,6 +194,9 @@ struct Php {
     referenced: bool,
     /// the deadline timer: its id and due time
     timer: Option<(sys::zval, Instant)>,
+    /// Windows: the keep-alive watcher's UDP socket (PHP's stream owns it)
+    #[cfg(windows)]
+    keepalive: mongo_core::os::RawSock,
 }
 
 thread_local! {
@@ -203,6 +219,10 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
                 poll: mio::Poll::new()?,
                 #[cfg(unix)]
                 events: mio::Events::with_capacity(64),
+                #[cfg(windows)]
+                watches: Vec::new(),
+                #[cfg(windows)]
+                streams: Vec::new(),
                 slots: Vec::new(),
                 pending: 0,
                 php: None,
@@ -229,9 +249,11 @@ unsafe fn method(o: &sys::zval, name: &[u8], args: &mut [sys::zval]) -> sys::zva
 /// The Closures, created once per process (their function name is a permanent interned
 /// string: they must be built at MINIT).
 struct Closures {
-    #[cfg_attr(not(unix), allow(dead_code))]
     ready: sys::zend_internal_function,
     timer: sys::zend_internal_function,
+    /// Windows: a socket watcher's callback
+    #[cfg(windows)]
+    socket: sys::zend_internal_function,
 }
 
 static mut FUNCS: Option<&'static mut Closures> = None;
@@ -249,9 +271,12 @@ pub unsafe fn minit() {
         f.run_time_cache__ptr = cache.as_mut_ptr().cast();
         f
     };
-    FUNCS = Some(Box::leak(Box::new(Closures { ready: mk(Some(crate::zh!(on_ready))), timer: mk(Some(crate::zh!(on_timer))) })));
-    // Windows: no event-loop backend yet (every wait blocks)
-    #[cfg(unix)]
+    FUNCS = Some(Box::leak(Box::new(Closures {
+        ready: mk(Some(crate::zh!(on_ready))),
+        timer: mk(Some(crate::zh!(on_timer))),
+        #[cfg(windows)]
+        socket: mk(Some(crate::zh!(on_socket))),
+    })));
     mongo_core::aio::set_backend(Some(&BACKEND));
 }
 
@@ -266,18 +291,10 @@ unsafe fn funcs() -> &'static mut Closures {
     FUNCS.as_mut().expect("aio::minit")
 }
 
-/// The request's watcher on the mio fd (created unreferenced on first use).
-#[cfg(not(unix))]
-unsafe fn php_state() -> io::Result<()> {
-    Err(io::Error::from(io::ErrorKind::Unsupported))
-}
-
-/// The request's watcher on the mio fd (created unreferenced on first use).
+/// The PHP socket stream of the request's keep-alive watcher: a dup of the mio fd (readable
+/// when a registered socket is ready).
 #[cfg(unix)]
-unsafe fn php_state() -> io::Result<()> {
-    if with(|l| l.php.is_some())? {
-        return Ok(());
-    }
+unsafe fn keepalive_stream() -> io::Result<*mut sys::php_stream> {
     let fd = with(|l| std::os::fd::AsRawFd::as_raw_fd(&l.poll))?;
     let dup = libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0);
     if dup < 0 {
@@ -288,6 +305,36 @@ unsafe fn php_state() -> io::Result<()> {
         libc::close(dup);
         return Err(io::Error::other("cannot watch the event fd"));
     }
+    Ok(stream)
+}
+
+/// The PHP socket stream of the request's keep-alive watcher: a UDP socket bound to the
+/// loopback interface that nothing writes to (whatever arrives is drained), and its handle.
+#[cfg(windows)]
+unsafe fn keepalive_stream() -> io::Result<(*mut sys::php_stream, mongo_core::os::RawSock)> {
+    use std::os::windows::io::IntoRawSocket;
+    let udp = std::net::UdpSocket::bind("127.0.0.1:0")?;
+    udp.set_nonblocking(true)?;
+    let raw = udp.into_raw_socket() as mongo_core::os::RawSock;
+    let stream = _php_stream_sock_open_from_socket(raw, std::ptr::null());
+    if stream.is_null() {
+        use std::os::windows::io::FromRawSocket;
+        drop(std::net::UdpSocket::from_raw_socket(raw as u64));
+        return Err(io::Error::other("cannot watch the keep-alive socket"));
+    }
+    Ok((stream, raw))
+}
+
+/// The request's keep-alive watcher (created unreferenced on first use): referenced while waits
+/// are pending, so that the loop runs until they end.
+unsafe fn php_state() -> io::Result<()> {
+    if with(|l| l.php.is_some())? {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    let stream = keepalive_stream()?;
+    #[cfg(windows)]
+    let (stream, keepalive) = keepalive_stream()?;
     // php_stream_to_zval
     let mut zs = zval::undef();
     ext_php_rs::types::Zval::set_resource(&mut zs, (*stream).res);
@@ -300,7 +347,15 @@ unsafe fn php_state() -> io::Result<()> {
     }
     let mut a = [zval::copy(&id)];
     event_loop("unreference", &mut a);
-    with(|l| l.php = Some(Php { watcher: id, referenced: false, timer: None }))?;
+    with(|l| {
+        l.php = Some(Php {
+            watcher: id,
+            referenced: false,
+            timer: None,
+            #[cfg(windows)]
+            keepalive,
+        })
+    })?;
     Ok(())
 }
 
@@ -322,6 +377,15 @@ pub fn rshutdown() {
                 }
                 l.pending = 0;
                 php = l.php.take();
+                #[cfg(windows)]
+                {
+                    // streams of waits that never ended: PHP closes them with the request's
+                    // resources, never their (the driver's) sockets
+                    for (_, st) in l.streams.drain(..) {
+                        unsafe { disown(st) };
+                    }
+                    drop_later.extend(l.watches.drain(..).map(|(id, _)| id));
+                }
             }
         }
     });
@@ -401,10 +465,28 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
         Ok(t)
     })??;
     let my_gen = with(|l| l.slots[token].gen)?;
+    #[cfg(windows)]
+    let streams = match unsafe { watch(token, fds) } {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = with(|l| {
+                if l.slots[token].gen == my_gen {
+                    l.slots[token] = Slot { gen: my_gen, state: SlotState::Free, suspension: None, deadline: None };
+                    l.pending -= 1;
+                }
+            });
+            unsafe { after_wait()? };
+            return Err(e);
+        }
+    };
     if let Some(enqueue) = enqueue {
         enqueue((token as u64) | ((my_gen as u64) << 32));
     }
     let r = unsafe { suspend(token, deadline) };
+    #[cfg(windows)]
+    unsafe {
+        unwatch(token, my_gen, streams)
+    };
     let state = with(|l| {
         #[cfg(unix)]
         for p in fds.iter() {
@@ -434,6 +516,115 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
             }
         }
         _ => Ok(0),
+    }
+}
+
+/// Windows: the watchers of a wait's sockets: one PHP socket stream per socket, watched with
+/// onReadable / onWritable for its events (callback: `on_socket`). Returns the streams (each
+/// zval holds the stream's first reference).
+#[cfg(windows)]
+unsafe fn watch(token: usize, fds: &[mongo_core::os::PollFd]) -> io::Result<Vec<(sys::zval, *mut sys::php_stream)>> {
+    let mut streams: Vec<(sys::zval, *mut sys::php_stream)> = Vec::with_capacity(fds.len());
+    let fail = |streams: Vec<(sys::zval, *mut sys::php_stream)>, e: io::Error| {
+        let gen = with(|l| l.slots[token].gen).unwrap_or(0);
+        unwatch(token, gen, streams);
+        Err(e)
+    };
+    for p in fds {
+        let stream = _php_stream_sock_open_from_socket(p.fd, std::ptr::null());
+        if stream.is_null() {
+            return fail(streams, io::Error::other("cannot watch the socket"));
+        }
+        // php_stream_to_zval
+        let mut zs = zval::undef();
+        ext_php_rs::types::Zval::set_resource(&mut zs, (*stream).res);
+        (*stream).set___exposed(1);
+        let _ = with(|l| l.streams.push((token, stream)));
+        streams.push((zs, stream));
+        for (bit, method) in [(mongo_core::os::POLLIN, "onReadable"), (mongo_core::os::POLLOUT, "onWritable")] {
+            if p.events & bit == 0 {
+                continue;
+            }
+            let mut args = [zval::copy(&streams.last().unwrap().0), fake_closure(&mut funcs().socket)];
+            let id = event_loop(method, &mut args);
+            if call::has_exception() || !zval::is(&id, sys::IS_STRING) {
+                return fail(streams, mongo_core::aio::interrupted());
+            }
+            let _ = with(|l| l.watches.push((id, token)));
+        }
+    }
+    Ok(streams)
+}
+
+/// Windows: a stream no longer owns the driver's socket: its handle is reset, so freeing the
+/// stream neither shuts the socket down nor closes it (php_netstream_data_t starts with it).
+#[cfg(windows)]
+unsafe fn disown(stream: *mut sys::php_stream) {
+    let data = (*stream).abstract_ as *mut mongo_core::os::RawSock;
+    if !data.is_null() {
+        // SOCK_ERR (INVALID_SOCKET)
+        *data = !0;
+    }
+}
+
+/// Windows: the end of a wait: its watchers are cancelled, its streams disowned and released.
+/// After the request ended (`rshutdown` took the watchers and disowned the streams), the
+/// streams' references are left alone: the request's resources are gone.
+#[cfg(windows)]
+unsafe fn unwatch(token: usize, gen: u32, streams: Vec<(sys::zval, *mut sys::php_stream)>) {
+    let ids = with(|l| {
+        if l.slots.get(token).is_none_or(|s| s.gen != gen) {
+            return None;
+        }
+        let mut ids = Vec::new();
+        let mut i = 0;
+        while i < l.watches.len() {
+            if l.watches[i].1 == token {
+                ids.push(l.watches.swap_remove(i).0);
+            } else {
+                i += 1;
+            }
+        }
+        l.streams.retain(|(t, _)| *t != token);
+        Some(ids)
+    });
+    let Ok(Some(ids)) = ids else {
+        std::mem::forget(streams);
+        return;
+    };
+    saving_exception(|| {
+        for id in ids {
+            event_loop("cancel", &mut [id]);
+        }
+    });
+    for (zs, stream) in streams {
+        disown(stream);
+        drop(zs);
+    }
+}
+
+/// Windows: a socket watcher's callback (callbackId, stream): resumes the watcher's slot.
+#[cfg(windows)]
+unsafe extern "C" fn on_socket(ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
+    zval::write(rv, zval::null());
+    if call::num_args(ex) < 1 {
+        return;
+    }
+    let id = zval::deref(call::arg(ex, 0));
+    if !zval::is(id, sys::IS_STRING) {
+        return;
+    }
+    let id = zval::str_bytes(id);
+    let s = LOOP.with_borrow_mut(|l| {
+        let l = l.as_mut()?;
+        let token = l.watches.iter().find(|(w, _)| zval::str_bytes(w) == id)?.1;
+        let s = l.slots.get_mut(token).filter(|s| s.state == SlotState::Pending)?;
+        let z = s.suspension.take()?;
+        s.state = SlotState::Ready;
+        Some(z)
+    });
+    if let Some(s) = s {
+        resume_all(vec![s]);
     }
 }
 
@@ -493,9 +684,21 @@ unsafe fn after_wait() -> io::Result<()> {
         })
     })?;
     if let Some(id) = id {
-        event_loop("unreference", &mut [id]);
+        saving_exception(|| event_loop("unreference", &mut [id]));
     }
     Ok(())
+}
+
+/// Runs `f`'s PHP calls even while an exception is pending (an interrupted wait: PHP skips any
+/// call made while one is pending, and the loop's state must still be updated).
+unsafe fn saving_exception<R>(f: impl FnOnce() -> R) -> R {
+    if !call::has_exception() {
+        return f();
+    }
+    zend_exception_save();
+    let r = f();
+    zend_exception_restore();
+    r
 }
 
 /// The ready slots' suspensions are resumed (outside any borrow).
@@ -508,8 +711,17 @@ unsafe fn resume_all(list: Vec<sys::zval>) {
 /// onReadable callback: drains mio, resumes the ready waiters.
 unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
     zval::write(rv, zval::null());
-    #[cfg(not(unix))]
-    let ready = Vec::new();
+    #[cfg(windows)]
+    let ready = {
+        // the keep-alive socket: whatever arrived is drained (nothing waits on it)
+        if let Ok(Some(raw)) = with(|l| l.php.as_ref().map(|p| p.keepalive)) {
+            use std::os::windows::io::FromRawSocket;
+            let udp = std::mem::ManuallyDrop::new(std::net::UdpSocket::from_raw_socket(raw as u64));
+            let mut b = [0u8; 512];
+            while udp.recv(&mut b).is_ok() {}
+        }
+        Vec::new()
+    };
     #[cfg(unix)]
     let ready = LOOP.with_borrow_mut(|l| {
         let Some(l) = l.as_mut().filter(|l| l.pid == std::process::id()) else { return Vec::new() };
