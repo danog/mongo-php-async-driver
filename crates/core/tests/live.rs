@@ -133,8 +133,9 @@ fn client_select_and_command() {
     assert!(matches!(get(&r, b"ok"), Some(Value::Double(f)) if f == 1.0));
 }
 
-/// After fork(), the child never touches the parent's connection: it opens its own, and both
-/// processes keep working without mixed-up replies.
+/// No fork detection (as libmongoc): after fork() the child uses the connection it inherited.
+/// Using it from both processes at once is the application's problem; here the parent waits
+/// for the child, then uses the same connection again.
 #[cfg(unix)]
 #[test]
 fn client_fork() {
@@ -154,28 +155,23 @@ fn client_fork() {
     let (id, _) = c.select_server_id(OpType::Read, None, &[]).unwrap();
     c.run_command(id, "ping", "admin", &ping()).unwrap();
     let parent_fd = c.conn_fd(id).unwrap();
-    let gen0 = c.generation.get();
     let pid = unsafe { libc::fork() };
     assert!(pid >= 0);
     if pid == 0 {
-        // child: the inherited connection is left alone, a new one is used
+        // child: the inherited connection is used
         let ok = (|| {
-            assert!(!c.same_process());
             for _ in 0..20 {
-                let (id, _) = c.select_server_id(OpType::Read, None, &[]).ok()?;
                 c.run_command(id, "ping", "admin", &ping()).ok()?;
             }
-            let fd = c.conn_fd(id)?;
-            (fd != parent_fd && c.generation.get() == gen0 + 1 && c.td().server(id)?.generation(&[0; 12]) == 1).then_some(())
+            (c.conn_fd(id)? == parent_fd).then_some(())
         })();
         unsafe { libc::_exit(if ok.is_some() { 0 } else { 1 }) };
-    }
-    for _ in 0..20 {
-        c.run_command(id, "ping", "admin", &ping()).unwrap();
     }
     let mut status = 0;
     unsafe { libc::waitpid(pid, &mut status, 0) };
     assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0, "child failed: {status}");
+    for _ in 0..20 {
+        c.run_command(id, "ping", "admin", &ping()).unwrap();
+    }
     assert_eq!(c.conn_fd(id), Some(parent_fd));
-    assert_eq!(c.generation.get(), gen0);
 }

@@ -161,8 +161,6 @@ pub struct ClientSession {
     pub recovery_token: Option<Vec<u8>>,
     /// the server a sharded transaction is pinned to (0: none)
     pub pinned_server_id: u32,
-    /// the client generation at creation (fork detection)
-    pub client_generation: u32,
 }
 
 /// The lsid of an ended session (never sent: every caller checks liveness first).

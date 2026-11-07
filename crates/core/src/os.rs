@@ -10,7 +10,7 @@ pub use imp::*;
 #[cfg(unix)]
 mod imp {
     use super::*;
-    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+    use std::os::fd::{AsRawFd, FromRawFd};
 
     /// A socket handle.
     pub type RawSock = std::os::fd::RawFd;
@@ -30,11 +30,6 @@ mod imp {
     /// The socket of a stream.
     pub fn raw(s: &TcpStream) -> RawSock {
         s.as_raw_fd()
-    }
-
-    /// Drops the stream without closing its socket (it belongs to another process after fork).
-    pub fn forget(s: TcpStream) {
-        let _ = s.into_raw_fd();
     }
 
     /// One poll(2) call (`ms`: -1 waits without limit): the count of ready entries.
@@ -140,7 +135,7 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket};
+    use std::os::windows::io::{AsRawSocket, FromRawSocket};
     use windows_sys::Win32::Networking::WinSock as ws;
 
     /// A socket handle (SOCKET).
@@ -161,11 +156,6 @@ mod imp {
     /// The socket of a stream.
     pub fn raw(s: &TcpStream) -> RawSock {
         s.as_raw_socket() as RawSock
-    }
-
-    /// Drops the stream without closing its socket.
-    pub fn forget(s: TcpStream) {
-        let _ = s.into_raw_socket();
     }
 
     fn last_error() -> io::Error {

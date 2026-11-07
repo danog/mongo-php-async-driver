@@ -26,7 +26,7 @@ pub struct Session {
 
 impl Drop for Session {
     /// phongo_session_free_object: mongoc_client_session_destroy (a running transaction is
-    /// aborted; after a fork the server session is dropped without any I/O).
+    /// aborted).
     fn drop(&mut self) {
         end(self);
     }

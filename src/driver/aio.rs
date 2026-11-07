@@ -170,7 +170,6 @@ struct Slot {
 }
 
 struct Loop {
-    pid: u32,
     #[cfg(unix)]
     poll: mio::Poll,
     #[cfg(unix)]
@@ -205,16 +204,8 @@ thread_local! {
 
 fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
     LOOP.with_borrow_mut(|l| {
-        let pid = std::process::id();
-        if l.as_ref().is_some_and(|l| l.pid != pid) {
-            // after fork(): the epoll set is the parent's (kqueue is not inherited); it is
-            // never touched again (an epoll_ctl would change the parent's set), only leaked
-            let old = l.take().unwrap();
-            std::mem::forget(old);
-        }
         if l.is_none() {
             *l = Some(Loop {
-                pid,
                 #[cfg(unix)]
                 poll: mio::Poll::new()?,
                 #[cfg(unix)]
@@ -724,7 +715,7 @@ unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
     };
     #[cfg(unix)]
     let ready = LOOP.with_borrow_mut(|l| {
-        let Some(l) = l.as_mut().filter(|l| l.pid == std::process::id()) else { return Vec::new() };
+        let Some(l) = l.as_mut() else { return Vec::new() };
         let mut out = Vec::new();
         loop {
             if l.poll.poll(&mut l.events, Some(Duration::ZERO)).is_err() {

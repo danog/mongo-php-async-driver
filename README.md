@@ -46,6 +46,12 @@ by one fiber at a time: using one while another fiber's operation holds it throw
 shutdown never suspend. Details and every difference from ext-mongodb: `DIVERGENCES.md`.
 Benchmark: `tools/bench/fibers.php`.
 
+## fork()
+
+There is no fork detection (no `getpid()` per operation): a child process keeps using the
+connections, cursors and sessions it inherited. Do not use them from both processes; create a new
+`Manager` in the child (`DIVERGENCES.md`, "Use after `fork()`").
+
 ## Monitoring timestamps
 
 APM and `LogSubscriber` callbacks run when the operation releases the client, not while it runs

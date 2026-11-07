@@ -121,13 +121,9 @@ pub struct Shared {
     scan_error: RefCell<Option<Error>>,
     /// the scanner's error when the topology is invalid (mongoc_topology_scanner_valid)
     pub invalid: Option<Error>,
-    /// The process the shared state belongs to (fork detection).
-    pid: Cell<u32>,
-    /// The process that created the client: only it destroys the client with I/O.
+    /// The process that created the client: only it destroys the client with I/O
+    /// (phongo_pclient_destroy).
     created_pid: u32,
-    /// mongoc_client_t.generation: bumped by a reset (after a fork); cursors of an older
-    /// generation neither advance nor kill their server cursor.
-    pub generation: Cell<u32>,
     /// the server session pool
     pub sessions: RefCell<crate::session::Pool>,
     /// mongoc_cluster_t.operation_id
@@ -198,41 +194,6 @@ impl Shared {
         self.operation_id.set(id);
         id
     }
-
-    /// In a fork child: the fork part of mongoc_client_reset for the shared state (the
-    /// clusters abandon their own connections at their next use, Client::check_fork).
-    #[inline]
-    pub fn fork_reset(&self) {
-        self.reset_after_fork(std::process::id());
-    }
-
-    /// The fork part of mongoc_client_reset for the shared state, once per process: every
-    /// server's pool generation is bumped, the client generation advances and the server
-    /// sessions of the parent are forgotten.
-    fn reset_after_fork(&self, pid: u32) {
-        if self.pid.get() == pid {
-            return;
-        }
-        self.pid.set(pid);
-        let mut td = self.td.borrow_mut();
-        let ids: Vec<(u32, [u8; 12])> = td.servers.iter().map(|s| (s.id, s.service_id)).collect();
-        for (id, sid) in ids {
-            td.clear_connection_pool(id, &sid);
-        }
-        drop(td);
-        // the monitors' connections belong to the parent too
-        for n in self.monitor.borrow_mut().iter_mut() {
-            if let Some(c) = n.conn.take() {
-                c.abandon();
-            }
-            n.handshake = None;
-        }
-        self.scanning.set(false);
-        self.scan_waiters.borrow_mut().clear();
-        self.generation.set(self.generation.get().wrapping_add(1));
-        // server sessions in use by the parent (mongoc_client_reset clears the pool)
-        self.sessions.borrow_mut().clear();
-    }
 }
 
 /// One cluster of a client (libmongoc's single-threaded mongoc_client_t: its cluster and
@@ -241,8 +202,6 @@ impl Shared {
 pub struct Client {
     shared: Rc<Shared>,
     nodes: Vec<Node>,
-    /// The process that owns this cluster's connections (fork detection).
-    pid: u32,
     /// A scan was abandoned because its wait was interrupted (crate::aio::Interrupted).
     interrupted: bool,
     /// The error every operation of this (transient) cluster fails with before any I/O.
@@ -305,7 +264,6 @@ impl Client {
         }
         let tls = settings.tls.as_ref().map(crate::tls::client_config);
         let td = TopologyDescription::from_uri(&uri, true);
-        let pid = std::process::id();
         let shared = Shared {
             uri,
             td: RefCell::new(td),
@@ -314,9 +272,7 @@ impl Client {
             stale: Cell::new(true),
             scan_error: RefCell::new(None),
             invalid: None,
-            pid: Cell::new(pid),
-            created_pid: pid,
-            generation: Cell::new(0),
+            created_pid: std::process::id(),
             sessions: Default::default(),
             operation_id: Cell::new(0),
             request_id: Cell::new(0),
@@ -334,7 +290,7 @@ impl Client {
 
     /// Another cluster of the client whose shared state is `shared` (no connections yet).
     pub fn cluster(shared: Rc<Shared>) -> Self {
-        let mut c = Client { shared, nodes: Vec::new(), pid: std::process::id(), interrupted: false, fail: None, mode: ScanMode::Own, connect_error: None };
+        let mut c = Client { shared, nodes: Vec::new(), interrupted: false, fail: None, mode: ScanMode::Own, connect_error: None };
         c.reconcile_nodes();
         c
     }
@@ -350,33 +306,9 @@ impl Client {
         self.shared.td.borrow_mut()
     }
 
-    /// Fork safety (mongoc_client_reset + libmongoc's socket ownership): in a child process,
-    /// the inherited connections belong to the parent. They are leaked (never written to, read
-    /// from, shut down or closed), every server's pool generation is bumped and the client
-    /// generation advances, before any I/O.
-    pub fn check_fork(&mut self) {
-        let pid = std::process::id();
-        if self.pid == pid {
-            return;
-        }
-        self.pid = pid;
-        for n in &mut self.nodes {
-            if let Some(c) = n.conn.take() {
-                c.abandon();
-            }
-            n.handshake = None;
-        }
-        self.shared.reset_after_fork(pid);
-    }
-
     /// Whether this is the process that created the client (phongo_pclient_destroy).
     pub fn in_creating_process(&self) -> bool {
         self.created_pid == std::process::id()
-    }
-
-    /// Whether the client is in the process that created its connections.
-    pub fn same_process(&self) -> bool {
-        self.pid == std::process::id()
     }
 
     /// The fd of the connection to `server_id` (tests).
@@ -817,7 +749,6 @@ impl Client {
     /// waits for that scan instead. In pooled mode the scan checks the monitors
     /// (Shared::monitor), not the cluster's own connections.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
-        self.check_fork();
         if self.shared.scanning.get() && crate::aio::active() {
             return self.wait_for_scan();
         }
@@ -983,7 +914,6 @@ impl Client {
 
     fn select_server_id_inner(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
         const TIMEOUT_MSG: &str = "No suitable servers found: `serverSelectionTimeoutMS` expired";
-        self.check_fork();
         self.check_entry()?;
         if let Some(e) = &self.invalid {
             return Err(Error::new(domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE, e.message.clone()));
@@ -1068,7 +998,6 @@ impl Client {
     /// _cluster_fetch_stream_single: the connection to `server_id` (reconnecting through a
     /// blocking scan when allowed).
     pub fn stream_for_server(&mut self, server_id: u32, reconnect_ok: bool) -> Result<&mut Conn, Error> {
-        self.check_fork();
         self.check_entry()?;
         let pooled = self.shared.pooled.get();
         if pooled && !self.nodes.iter().any(|n| n.id == server_id) {
@@ -1227,7 +1156,6 @@ impl Client {
     /// `run_command` with an optional document sequence; unacknowledged commands are sent with
     /// moreToCome and yield no reply (None).
     pub fn run_command_payload(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: crate::wire::Payloads<'_>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
-        self.check_fork();
         self.stream_for_server(server_id, true)?;
         self.exchange(server_id, cmd_name, db, body, payload, acknowledged)
     }
@@ -1332,7 +1260,6 @@ impl Client {
 
     /// Drops every connection (mongoc_client_reset / after fork).
     pub fn reset(&mut self) {
-        self.check_fork();
         for n in &mut self.nodes {
             n.conn = None;
             n.handshake = None;

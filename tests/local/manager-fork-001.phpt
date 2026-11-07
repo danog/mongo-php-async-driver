@@ -1,5 +1,8 @@
 --TEST--
-Manager: a client used before fork() is reset in the child (no inherited socket is used)
+Manager: no fork detection (as ext-mongodb): a child process uses the client, connections and cursors it inherited
+--DESCRIPTION--
+Local test (DIVERGENCES "fork()": parity). Using inherited objects from both processes at once is
+the application's responsibility: here the parent waits for the child before using them again.
 --SKIPIF--
 <?php if (!function_exists('pcntl_fork')) die('skip pcntl not available'); ?>
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
@@ -14,33 +17,28 @@ $cursor = $m->executeCommand('t', new MongoDB\Driver\Command(['find' => 'fork001
 $cursor->rewind();
 $pid = pcntl_fork();
 if ($pid === 0) {
-    // the parent's cursor cannot advance after the reset
-    try {
-        $cursor->next();
-        $cursor->next();
-        echo "child: cursor advanced\n";
-    } catch (MongoDB\Driver\Exception\RuntimeException $e) {
-        echo "child: ", $e->getMessage(), "\n";
+    // the parent's cursor advances in the child (getMore on the inherited connection)
+    $xs = [$cursor->current()->x];
+    for ($cursor->next(); $cursor->valid(); $cursor->next()) {
+        $xs[] = $cursor->current()->x;
     }
-    for ($i = 0; $i < 50; $i++) {
+    echo "child: ", implode(',', $xs), "\n";
+    for ($i = 0; $i < 20; $i++) {
         $r = $m->executeCommand('admin', new MongoDB\Driver\Command(['hello' => 1]))->toArray()[0];
         if (!isset($r->isWritablePrimary)) { echo "child: wrong reply\n"; }
     }
     echo "child: ok\n";
     exit(0);
 }
-for ($i = 0; $i < 50; $i++) {
-    $r = $m->executeCommand('admin', $ping)->toArray()[0];
-    if (isset($r->isWritablePrimary)) { echo "parent: wrong reply\n"; }
-}
 pcntl_waitpid($pid, $status);
-// the parent's cursor still works on the parent's connection
-$n = 1;
-foreach ((function () use ($cursor) { $cursor->next(); while ($cursor->valid()) { yield $cursor->current(); $cursor->next(); } })() as $d) { $n++; }
-echo "parent: ", $n, " documents\n";
+for ($i = 0; $i < 20; $i++) {
+    $r = $m->executeCommand('admin', $ping)->toArray()[0];
+    if (isset($r->isWritablePrimary) || $r->ok != 1) { echo "parent: wrong reply\n"; }
+}
+echo "parent: ok\n";
 $m->executeCommand('t', new MongoDB\Driver\Command(['drop' => 'fork001']));
 ?>
 --EXPECT--
-child: Cannot advance cursor after client reset
+child: 1,2,3
 child: ok
-parent: 3 documents
+parent: ok

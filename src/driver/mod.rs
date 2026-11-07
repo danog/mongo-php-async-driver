@@ -38,9 +38,6 @@ thread_local! {
     static CLIENTS: RefCell<HashMap<Vec<u8>, ClientRef>> = RefCell::new(HashMap::new());
 }
 
-/// The client for `key` (created by `make` when absent). A client inherited across fork() is
-/// kept: it resets itself before its next I/O (Client::check_fork), as phongo resets its
-/// persistent clients once per pid.
 /// The persistent client of a client hash (phongo_find_persistent_client).
 pub fn find_persistent_client(key: &[u8]) -> Option<ClientRef> {
     CLIENTS.with(|c| c.borrow().get(key).cloned())
@@ -53,7 +50,8 @@ pub fn store_persistent_client(key: Vec<u8>, c: ClientRef) {
 
 /// MSHUTDOWN (phongo_pclient_destroy_all at GSHUTDOWN): the persistent clients are destroyed.
 /// One created by this process ends its pooled server sessions first (mongoc_client_destroy);
-/// connections inherited across fork() are forgotten, never closed or written to.
+/// one created by another process (inherited across fork()) is left alone, as phongo leaks it
+/// so as not to shut down sockets its parent may still use.
 pub fn destroy_persistent_clients() {
     aio::blocking(destroy_persistent_clients_now)
 }
@@ -61,8 +59,11 @@ pub fn destroy_persistent_clients() {
 fn destroy_persistent_clients_now() {
     let clients = CLIENTS.with(|c| std::mem::take(&mut *c.borrow_mut()));
     for (_, c) in clients {
+        if c.try_checkout().is_some_and(|cl| !cl.in_creating_process()) {
+            std::mem::forget(c);
+            continue;
+        }
         if let Ok(mut cl) = c.try_checkout().ok_or(()) {
-            cl.check_fork();
             cl.end_pooled_sessions();
             // no subscribers are left to notify
             cl.clear_events();

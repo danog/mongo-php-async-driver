@@ -910,7 +910,6 @@ impl Client {
     }
 
     pub fn start_session_with(&mut self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>) -> Result<ClientSession, Error> {
-        // the fork check: session_start's (shared state), select_server_id's (connections)
         if let Some(r) = self.shared().session_start(causal_consistency, snapshot, default_txn, true) {
             return r;
         }
@@ -941,7 +940,6 @@ impl crate::client::Shared {
     /// mongoc_client_start_session without I/O: None when session support is unknown yet and
     /// `may_select` (the caller selects a server first, then calls again with false).
     pub fn session_start(&self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>, may_select: bool) -> Option<Result<ClientSession, Error>> {
-        self.fork_reset();
         {
             let td = self.td.borrow();
             if td.ty != TopologyType::LoadBalanced && td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
@@ -969,7 +967,6 @@ impl crate::client::Shared {
             causal_consistency,
             snapshot,
             default_txn: d,
-            client_generation: self.generation.get(),
             ..Default::default()
         }))
     }
@@ -977,12 +974,7 @@ impl crate::client::Shared {
     /// mongoc_client_session_destroy without I/O: false when a running transaction must be
     /// aborted first (the caller uses a cluster: Client::end_session).
     pub fn session_end(&self, cs: &mut ClientSession) -> bool {
-        self.fork_reset();
         if cs.server_session.is_none() {
-            return true;
-        }
-        if cs.client_generation != self.generation.get() {
-            cs.server_session = None;
             return true;
         }
         if cs.in_txn() {
@@ -997,22 +989,16 @@ impl crate::client::Shared {
 
 impl Client {
     /// mongoc_client_session_destroy: a running transaction is aborted, the server session
-    /// goes back to the pool (unless the client was reset since: it belongs to the parent
-    /// process then, and is dropped without any I/O).
+    /// goes back to the pool.
     pub fn end_session(&mut self, cs: &mut ClientSession) {
-        self.check_fork();
         if cs.server_session.is_none() {
             return;
         }
-        if cs.client_generation == self.generation.get() {
-            if cs.in_txn() {
-                let _ = self.abort_transaction(cs);
-            }
-            if let Some(ss) = cs.server_session.take() {
-                self.push_server_session(ss);
-            }
-        } else {
-            cs.server_session = None;
+        if cs.in_txn() {
+            let _ = self.abort_transaction(cs);
+        }
+        if let Some(ss) = cs.server_session.take() {
+            self.push_server_session(ss);
         }
     }
 
@@ -1178,10 +1164,10 @@ impl Client {
 
 impl Client {
     /// _mongoc_client_end_sessions (mongoc_client_destroy): endSessions for the pooled
-    /// server sessions, in batches of 10000, on a primaryPreferred server. Never after a
-    /// fork: those sessions belong to the parent.
+    /// server sessions, in batches of 10000, on a primaryPreferred server; only by the process
+    /// that created the client (phongo_pclient_destroy).
     pub fn end_pooled_sessions(&mut self) {
-        if !self.in_creating_process() || !self.same_process() {
+        if !self.in_creating_process() {
             return;
         }
         let rp = crate::topology::ReadPrefs { mode: ReadMode::PrimaryPreferred, ..Default::default() };

@@ -177,23 +177,6 @@ pub fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, NetError> {
 }
 
 impl Conn {
-    /// Drops the connection without touching its socket (after a fork the descriptor belongs to
-    /// the parent: it is never written to, read, shut down or closed). Only the memory is freed.
-    pub fn abandon(self) {
-        let Conn { stream, addr, rbuf, .. } = self;
-        drop((addr, rbuf));
-        // the TLS state is freed without sending anything (no close_notify)
-        let stream = match stream {
-            Stream::Plain(s) => s,
-            Stream::Tls(t) => {
-                let t = *t;
-                drop(t.conn);
-                t.sock
-            }
-        };
-        crate::os::forget(stream);
-    }
-
     /// Connects to the first address of `host:port` that accepts within `timeout` each
     /// (connectTimeoutMS; None = the OS default).
     pub fn connect(host: &str, port: u16, timeout: Option<Duration>) -> Result<Conn, NetError> {

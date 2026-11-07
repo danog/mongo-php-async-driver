@@ -5,9 +5,18 @@
 # "expected" and do not fail the run; a listed test that starts passing is reported so the entry
 # can be removed.
 
-# Connections inherited across fork() are never reused: a pre-fork cursor throws in the child
-upstream/driver/tests/cursor/bug1274-002.phpt
-upstream/driver/tests/cursor/bug1274-005.phpt
+# No fork detection (user decision): an inherited Cursor/Session destroyed in an exiting child
+# kills the parent's server cursor / aborts its transaction (phongo resets the client per pid)
+upstream/driver/tests/cursor/bug1274-001.phpt
+upstream/driver/tests/cursor/bug1274-003.phpt
+upstream/driver/tests/cursor/bug1274-004.phpt
+upstream/driver/tests/cursor/bug1274-006.phpt
+upstream/driver/tests/session/bug1274-001.phpt
+upstream/driver/tests/session/bug1274-002.phpt
+upstream/driver/tests/session/bug1274-003.phpt
+upstream/driver/tests/session/bug1274-004.phpt
+upstream/driver/tests/session/bug1274-005.phpt
+upstream/driver/tests/session/bug1274-006.phpt
 
 # Automatic encryption with query analysis (mongocryptd / crypt_shared) is not implemented: the
 # Manager constructor refuses it (the library's CSFLE spec and prose tests use it throughout)

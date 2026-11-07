@@ -57,8 +57,6 @@ pub struct Cursor {
     /// documents returned so far (mongoc_cursor_t.count)
     count: i64,
     error: Option<(Error, Option<Vec<u8>>)>,
-    /// the client generation at creation (mongoc_cursor_t.client_generation)
-    client_generation: u32,
     /// find: the filter and the options appended to the find command
     find: Option<(Vec<u8>, Vec<u8>)>,
     pub read_prefs: Option<(mongo_core::uri::ReadMode, Vec<u8>)>,
@@ -99,7 +97,6 @@ impl Default for Cursor {
             opts: CursorOpts::default(),
             count: 0,
             error: None,
-            client_generation: 0,
             find: None,
             read_prefs: None,
             read_concern: Vec::new(),
@@ -119,13 +116,10 @@ impl Default for Cursor {
 impl Drop for Cursor {
     fn drop(&mut self) {
         unsafe { self.free_current() };
-        // mongoc_cursor_destroy: kill a live server cursor, unless the client was reset (fork)
-        // since: the cursor belongs to the parent process then
+        // mongoc_cursor_destroy: kill a live server cursor
         if let Some(c) = self.client.take() {
-            c.shared().fork_reset();
-            if self.id != 0 && c.shared().generation.get() == self.client_generation {
+            if self.id != 0 {
                 if let Some(mut cl) = c.try_checkout() {
-                    cl.check_fork();
                     let mut w = Writer::with_capacity(64);
                     w.utf8(b"killCursors", self.coll.as_bytes());
                     let a = w.begin(4, b"cursors");
@@ -221,7 +215,6 @@ impl Cursor {
     /// (the reply is wrapped as a one-document batch by the caller otherwise).
     pub fn from_reply(reply: Vec<u8>, client: ClientRef, server_id: u32, db: &str) -> Cursor {
         let mut c = Cursor::default();
-        c.client_generation = client.shared().generation.get();
         c.client = Some(client);
         c.server_id = server_id;
         c.db = db.to_owned();
@@ -235,7 +228,6 @@ impl Cursor {
     /// _mongoc_cursor_find_new: an unprimed find cursor.
     pub fn for_find(client: ClientRef, server_id: u32, db: &str, coll: &str, filter: Vec<u8>, find_opts: Vec<u8>) -> Cursor {
         let mut c = Cursor::default();
-        c.client_generation = client.shared().generation.get();
         c.client = Some(client);
         c.server_id = server_id;
         c.db = db.to_owned();
@@ -470,16 +462,6 @@ impl Cursor {
     /// mongoc_cursor_next: the next document (current_doc), false at the end or on error.
     fn next_doc(&mut self) -> bool {
         self.current_doc = None;
-        // mongoc_cursor_next: a cursor of a client reset since (fork) cannot advance
-        if let Some(c) = &self.client {
-            let shared = c.shared();
-            shared.fork_reset();
-            if shared.generation.get() != self.client_generation {
-                let e = Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot advance cursor after client reset");
-                self.error = Some((e, None));
-                return false;
-            }
-        }
         if self.error.is_some() {
             return false;
         }

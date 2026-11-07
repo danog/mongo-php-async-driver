@@ -30,16 +30,39 @@ pub fn now_secs() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-/// `bson_oid_init(oid, NULL)`. The random part is re-drawn after fork (pid change).
+/// Bumped in every child process (a pthread_atfork child handler, registered at the first
+/// ObjectId): the random part is re-drawn there, so parent and child never generate the same
+/// ids. No per-call system call.
+static FORK_EPOCH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[cfg(unix)]
+fn fork_epoch() -> u32 {
+    extern "C" fn child() {
+        FORK_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: registers a handler that only touches an atomic
+    ONCE.call_once(|| unsafe {
+        libc::pthread_atfork(None, None, Some(child));
+    });
+    FORK_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(not(unix))]
+fn fork_epoch() -> u32 {
+    FORK_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `bson_oid_init(oid, NULL)`. The random part is re-drawn after fork (see FORK_EPOCH).
 pub fn generate() -> [u8; 12] {
-    let pid = std::process::id();
+    let epoch = fork_epoch();
     let (rand, seq) = CTX.with(|c| {
         let (p, rand, seq) = match c.get() {
-            Some(s) if s.0 == pid => s,
+            Some(s) if s.0 == epoch => s,
             _ => {
                 let r = random_bytes(8);
                 let seq = u32::from_le_bytes([r[5], r[6], r[7], 0]) & !0xf0000f;
-                (pid, [r[0], r[1], r[2], r[3], r[4]], seq)
+                (epoch, [r[0], r[1], r[2], r[3], r[4]], seq)
             }
         };
         let seq = seq.wrapping_add(1);
@@ -86,4 +109,31 @@ pub fn from_hex(s: &[u8]) -> Option<[u8; 12]> {
         o[i] = (nib(s[2 * i])? << 4) | nib(s[2 * i + 1])?;
     }
     Some(o)
+}
+
+#[cfg(test)]
+mod tests {
+    /// A child process draws a new random part: parent and child never share ObjectIds.
+    #[cfg(unix)]
+    #[test]
+    fn fork_redraws_the_random_part() {
+        let parent = super::generate();
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0);
+        if pid == 0 {
+            let child = super::generate();
+            unsafe {
+                libc::write(fds[1], child.as_ptr().cast(), 12);
+                libc::_exit(0);
+            }
+        }
+        let mut child = [0u8; 12];
+        assert_eq!(unsafe { libc::read(fds[0], child.as_mut_ptr().cast(), 12) }, 12);
+        unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) };
+        assert_ne!(parent[4..9], child[4..9]);
+        // the parent keeps its own
+        assert_eq!(super::generate()[4..9], parent[4..9]);
+    }
 }
