@@ -23,6 +23,8 @@ mongo-crypt = { path = "crates/crypt", default-features = false }
 # module plumbing and the Zend Engine bindings; only its wrapper.c is compiled (no C libraries)
 ext-php-rs = { version = "=0.16.4", default-features = false, features = ["runtime"] }
 libc = "0.2"
+
+[target.'cfg(unix)'.dependencies]
 # the readiness poll behind fiber suspension (epoll/kqueue)
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 

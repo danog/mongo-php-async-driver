@@ -32,6 +32,29 @@ pub fn info_row(k: &CStr, v: &str) {
     unsafe { php_info_print_table_row(2, k.as_ptr(), v.as_ptr()) };
 }
 
+/// The `zif_handler` of an `extern "C"` handler `$f`. PHP calls internal function handlers with
+/// ZEND_FASTCALL, i.e. __vectorcall on Windows: there a vectorcall shim calls `$f`; elsewhere the
+/// handler is `$f` itself.
+#[cfg(windows)]
+#[macro_export]
+macro_rules! zh {
+    ($f:path) => {{
+        unsafe extern "vectorcall" fn shim(ex: *mut $crate::zend::sys::zend_execute_data, rv: *mut $crate::zend::sys::zval) {
+            unsafe { $f(ex, rv) }
+        }
+        shim
+    }};
+}
+
+/// See the Windows definition.
+#[cfg(not(windows))]
+#[macro_export]
+macro_rules! zh {
+    ($f:path) => {
+        $f
+    };
+}
+
 /// Static engine tables (arrays of structs holding raw pointers): only read by PHP, on its thread.
 #[repr(transparent)]
 pub struct Static<T>(pub T);

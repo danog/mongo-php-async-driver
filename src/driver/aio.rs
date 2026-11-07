@@ -18,6 +18,7 @@
 
 use crate::zend::{call, sys, zval};
 use std::cell::RefCell;
+#[cfg(unix)]
 use std::ffi::{c_char, c_int};
 use std::io;
 use std::ptr::{addr_of, null_mut};
@@ -28,6 +29,7 @@ extern "C" {
     fn zend_fiber_switch_blocked() -> bool;
     fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
     fn zend_internal_run_time_cache_reserved_size() -> usize;
+    #[cfg(unix)]
     fn _php_stream_sock_open_from_socket(socket: c_int, persistent_id: *const c_char) -> *mut sys::php_stream;
 }
 
@@ -162,7 +164,9 @@ struct Slot {
 
 struct Loop {
     pid: u32,
+    #[cfg(unix)]
     poll: mio::Poll,
+    #[cfg(unix)]
     events: mio::Events,
     slots: Vec<Slot>,
     pending: usize,
@@ -193,7 +197,16 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
             std::mem::forget(old);
         }
         if l.is_none() {
-            *l = Some(Loop { pid, poll: mio::Poll::new()?, events: mio::Events::with_capacity(64), slots: Vec::new(), pending: 0, php: None });
+            *l = Some(Loop {
+                pid,
+                #[cfg(unix)]
+                poll: mio::Poll::new()?,
+                #[cfg(unix)]
+                events: mio::Events::with_capacity(64),
+                slots: Vec::new(),
+                pending: 0,
+                php: None,
+            });
         }
         Ok(f(l.as_mut().unwrap()))
     })
@@ -216,6 +229,7 @@ unsafe fn method(o: &sys::zval, name: &[u8], args: &mut [sys::zval]) -> sys::zva
 /// The Closures, created once per process (their function name is a permanent interned
 /// string: they must be built at MINIT).
 struct Closures {
+    #[cfg_attr(not(unix), allow(dead_code))]
     ready: sys::zend_internal_function,
     timer: sys::zend_internal_function,
 }
@@ -224,18 +238,20 @@ static mut FUNCS: Option<&'static mut Closures> = None;
 
 /// MINIT: the internal functions behind the callbacks; installs the backend.
 pub unsafe fn minit() {
-    let mk = |h: unsafe extern "C" fn(*mut sys::zend_execute_data, *mut sys::zval)| {
+    let mk = |h: sys::zif_handler| {
         let mut f = std::mem::zeroed::<sys::zend_internal_function>();
         f.type_ = 1; // ZEND_INTERNAL_FUNCTION
         f.fn_flags = sys::ZEND_ACC_PUBLIC;
         f.function_name = crate::zend::class::interned(c"{closure}");
-        f.handler = Some(h);
+        f.handler = h;
         // the run-time cache an internal function declared at run time gets (observers use it)
         let cache = Box::leak(vec![0u8; zend_internal_run_time_cache_reserved_size().max(8)].into_boxed_slice());
         f.run_time_cache__ptr = cache.as_mut_ptr().cast();
         f
     };
-    FUNCS = Some(Box::leak(Box::new(Closures { ready: mk(on_ready), timer: mk(on_timer) })));
+    FUNCS = Some(Box::leak(Box::new(Closures { ready: mk(Some(crate::zh!(on_ready))), timer: mk(Some(crate::zh!(on_timer))) })));
+    // Windows: no event-loop backend yet (every wait blocks)
+    #[cfg(unix)]
     mongo_core::aio::set_backend(Some(&BACKEND));
 }
 
@@ -251,6 +267,13 @@ unsafe fn funcs() -> &'static mut Closures {
 }
 
 /// The request's watcher on the mio fd (created unreferenced on first use).
+#[cfg(not(unix))]
+unsafe fn php_state() -> io::Result<()> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+/// The request's watcher on the mio fd (created unreferenced on first use).
+#[cfg(unix)]
 unsafe fn php_state() -> io::Result<()> {
     if with(|l| l.php.is_some())? {
         return Ok(());
@@ -314,7 +337,7 @@ fn exit_pending() -> bool {
     unsafe { call::has_exception() }
 }
 
-fn poll(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<usize> {
+fn poll(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>) -> io::Result<usize> {
     wait(fds, deadline, None)
 }
 
@@ -336,7 +359,7 @@ fn unpark(id: u64) {
 }
 
 /// The wait of a poll (sockets), a sleep (none) or a park (none; `enqueue` gets its id).
-fn wait(fds: &mut [libc::pollfd], deadline: Option<Instant>, enqueue: Option<&mut dyn FnMut(u64)>) -> io::Result<usize> {
+fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: Option<&mut dyn FnMut(u64)>) -> io::Result<usize> {
     if exit_pending() {
         return Err(mongo_core::aio::interrupted());
     }
@@ -350,6 +373,7 @@ fn wait(fds: &mut [libc::pollfd], deadline: Option<Instant>, enqueue: Option<&mu
                 l.slots.len() - 1
             }
         };
+        #[cfg(unix)]
         for p in fds.iter() {
             let mut i = None;
             if p.events & libc::POLLIN != 0 {
@@ -382,6 +406,7 @@ fn wait(fds: &mut [libc::pollfd], deadline: Option<Instant>, enqueue: Option<&mu
     }
     let r = unsafe { suspend(token, deadline) };
     let state = with(|l| {
+        #[cfg(unix)]
         for p in fds.iter() {
             let _ = l.poll.registry().deregister(&mut mio::unix::SourceFd(&p.fd));
         }
@@ -483,6 +508,9 @@ unsafe fn resume_all(list: Vec<sys::zval>) {
 /// onReadable callback: drains mio, resumes the ready waiters.
 unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
     zval::write(rv, zval::null());
+    #[cfg(not(unix))]
+    let ready = Vec::new();
+    #[cfg(unix)]
     let ready = LOOP.with_borrow_mut(|l| {
         let Some(l) = l.as_mut().filter(|l| l.pid == std::process::id()) else { return Vec::new() };
         let mut out = Vec::new();

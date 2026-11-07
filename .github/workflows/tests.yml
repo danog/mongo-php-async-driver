@@ -70,7 +70,11 @@ jobs:
           ini-values: zend.assertions=1
           coverage: none
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # Windows: ext-php-rs uses the vectorcall ABI of PHP's ZEND_FASTCALL functions, which
+          # only nightly Rust has (a fixed nightly, so that builds are reproducible)
+          toolchain: ${{ startsWith(matrix.os, 'windows') && 'nightly-2026-09-02' || 'stable' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -86,16 +90,21 @@ jobs:
 
       - name: Build the extension
         run: |
-          export PHP=$(command -v php)
+          if [ "$RUNNER_OS" = Windows ]; then
+            # php.exe as a Windows path (build.rs and ext-php-rs run it; there is no php-config)
+            export PHP=$(cygpath -w "$(command -v php.exe)")
+          else
+            export PHP=$(command -v php)
+          fi
           if command -v php-config >/dev/null; then export PHP_CONFIG=$(command -v php-config); fi
           cargo build --release --locked
           case "$RUNNER_OS" in
-            Linux)   ext=target/release/libmongodb.so ;;
-            macOS)   ext=target/release/libmongodb.dylib ;;
-            Windows) ext=target/release/mongodb.dll ;;
+            Linux)   ext=$PWD/target/release/libmongodb.so ;;
+            macOS)   ext=$PWD/target/release/libmongodb.dylib ;;
+            Windows) ext=$(cygpath -m "$PWD/target/release/mongodb.dll") ;;
           esac
-          echo "EXT=$PWD/$ext" >> "$GITHUB_ENV"
-          php -n -d "extension=$PWD/$ext" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
+          echo "EXT=$ext" >> "$GITHUB_ENV"
+          php -n -d "extension=$ext" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
 
       - name: Official driver tests (PHPT)
         env:

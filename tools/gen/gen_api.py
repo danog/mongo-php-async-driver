@@ -398,7 +398,7 @@ for tname in sorted(tables):
         a = ai(a)
         flg = ' | '.join('sys::' + f for f in fl.split('|')) if fl != '0' else '0'
         out.append('    sys::zend_function_entry { fname: %s.as_ptr(), handler: %s, arg_info: %s.0.as_ptr(), num_args: %d, flags: %s, frameless_function_infos: null(), doc_comment: null() },'
-                   % (fname, 'Some(h::%s)' % hnd if hnd else 'None', a, len(arginfos[a]) - 1, flg))
+                   % (fname, 'Some(crate::zh!(h::%s))' % hnd if hnd else 'None', a, len(arginfos[a]) - 1, flg))
     out.append('    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },')
     out.append(']);')
 

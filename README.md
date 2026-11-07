@@ -25,7 +25,8 @@ ported yet throw an `Error`.
   zstd through ruzstd, snappy through snap.
 - **I/O on the PHP thread, no threads:** synchronous calls make the same blocking socket calls
   as ext-mongodb. Inside a fiber, a wait registers the socket in one poll set (epoll/kqueue via
-  mio) whose fd one Revolt `onReadable` watcher drives, and suspends the fiber.
+  mio) whose fd one Revolt `onReadable` watcher drives, and suspends the fiber (Windows: not
+  yet, waits block there).
 
 ## Fibers
 
@@ -105,7 +106,15 @@ PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
 # target/release/libmongodb.so: load it with extension=/path/to/libmongodb.so instead of ext-mongodb
 ```
 
-PHP 8.4 and 8.5, NTS builds, on Linux and other Unix systems.
+PHP 8.4 and 8.5, NTS builds, on Linux, macOS and other Unix systems (x86-64, arm64) and on
+Windows (x86-64). On Windows there is no php-config: set `PHP` to php.exe (ext-php-rs downloads
+the matching PHP development pack), and use a nightly Rust (ext-php-rs needs the vectorcall
+calling convention of PHP's functions there, which only nightly Rust has):
+
+```bash
+PHP='C:\tools\php\php.exe' cargo +nightly build --release
+# target\release\mongodb.dll
+```
 
 The previous reads-only client (`danog\Mongo\Client`), which used ext-mongodb's BSON codec, is in
 `legacy/zm2` and is being turned into the new engine.

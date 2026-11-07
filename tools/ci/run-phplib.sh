@@ -4,6 +4,8 @@
 set -euo pipefail
 ext=$1; uri=$2; junit=$3
 php=${PHP:-php}
+# paths as PHP sees them (Windows: C:/... instead of the shell's /c/...)
+win() { if [ "${OS:-}" = Windows_NT ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 cd upstream/library
 # composer runs without the extension: its version constraint is the official extension's
 COMPOSER_ROOT_VERSION=dev-ci composer install --no-interaction --no-progress --ignore-platform-req=ext-mongodb
@@ -18,6 +20,6 @@ fi
 ini=$(mktemp -d)
 printf 'extension="%s"\n' "$ext" > "$ini/zz-mongodb.ini"
 sep=:; [ "${OS:-}" = Windows_NT ] && sep=';'
-export PHP_INI_SCAN_DIR="$sep$ini"
+export PHP_INI_SCAN_DIR="$sep$(win "$ini")"
 $php -r 'exit(extension_loaded("mongodb") ? 0 : 1);' || { echo "the extension did not load from $ini" >&2; exit 1; }
-$php -d date.timezone=UTC -d memory_limit=-1 vendor/bin/phpunit --log-junit "$junit" ${PHPUNIT_ARGS:-} || true
+$php -d date.timezone=UTC -d memory_limit=-1 vendor/bin/phpunit --log-junit "$(win "$junit")" ${PHPUNIT_ARGS:-} || true

@@ -6,14 +6,16 @@
 set -euo pipefail
 ext=$1; uri=$2; junit=$3
 php=${PHP:-php}
+# paths as PHP sees them (Windows: C:/... instead of the shell's /c/...)
+win() { if [ "${OS:-}" = Windows_NT ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 ver=$($php -n -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')
 rt=$(mktemp -d)/run-tests.php
 curl -fsSL --retry 3 "https://raw.githubusercontent.com/php/php-src/PHP-$ver/run-tests.php" -o "$rt"
-export MONGODB_URI=$uri NO_INTERACTION=1 REPORT_EXIT_STATUS=0 TEST_PHP_EXECUTABLE=$(command -v "$php") TEST_PHP_JUNIT=$junit
+export MONGODB_URI=$uri NO_INTERACTION=1 REPORT_EXIT_STATUS=0 TEST_PHP_EXECUTABLE=$($php -n -r 'echo PHP_BINARY;') TEST_PHP_JUNIT=$(win "$junit")
 # -n: only this extension is loaded (no ext-mongodb from the runner's php.ini). An empty
 # extension_dir: run-tests.php otherwise dl()s every extension it finds there in one process to
 # list them, and the runner's set of PECL extensions crashes PHP that way even without this one
 # (no upstream test declares --EXTENSIONS--)
-noext=$(mktemp -d)
-$php "$rt" -n -d "extension=$ext" -d "extension_dir=$noext" -d date.timezone=UTC -j1 -q --no-color --set-timeout 300 \
+noext=$(win "$(mktemp -d)")
+$php "$(win "$rt")" -n -d "extension=$ext" -d "extension_dir=$noext" -d date.timezone=UTC -j1 -q --no-color --set-timeout 300 \
   --show-diff -g FAIL,BORK,LEAK,WARN ${PHPT_TESTS:-upstream/driver/tests} || true
