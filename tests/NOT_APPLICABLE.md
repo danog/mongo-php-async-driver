@@ -33,6 +33,7 @@ without message, a missing key in ClientEncryption::deleteKey()); they are track
 |---|---|
 | libmongoc TRACE lines in `mongodb.debug` output (function entry/exit, hex dumps of wire messages) | not reproduced: they name libmongoc's C functions, and the dumps hold credentials (see `DIVERGENCES.md`). The level/domain/message lines of the ported code paths are emulated, and every upstream test reading `mongodb.debug` or using `LogSubscriber` matches them with `%A`; none needs a TRACE line |
 | phpinfo() rows `libmongoc SSL library`, `libmongoc crypto library`, `libmongocrypt crypto library` | report `rustls` / `RustCrypto` instead of `OpenSSL` / `libcrypto` (no test checks them) |
+| `manager/manager-ctor-ssl-003` | skips: it requires the libmongoc SSL library to be OpenSSL by name, and this build reports rustls. Its body (a `ca_dir` driver option implicitly enables TLS, so a ping to a non-TLS server fails with `ConnectionException`) passes here, checked by hand on the standalone and auth topologies |
 
 ### Expected to fail until their phase lands
 
