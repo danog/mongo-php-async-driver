@@ -144,6 +144,16 @@ pub struct Shared {
     pub auto_crypt: RefCell<Option<Box<dyn crate::autocrypt::AutoCrypt>>>,
     /// The fiber (crate::aio::current) whose hook holds `auto_crypt`.
     crypt_holder: Cell<Option<usize>>,
+    /// Pooled mode (libmongoc's mongoc_client_pool_t): set for good once two clusters run
+    /// operations at once (fibers). Scans then use `monitor`, and a cluster connects only to the
+    /// server an operation selected (Client::connect_pooled).
+    pooled: Cell<bool>,
+    /// The scanner nodes of pooled mode (libmongoc's server monitors, with their own
+    /// connections), taken out by the cluster running a scan.
+    monitor: RefCell<Vec<Node>>,
+    /// A scan is running in some cluster; others wait for it (`scan_waiters`, park ids).
+    scanning: Cell<bool>,
+    scan_waiters: RefCell<Vec<u64>>,
 }
 
 impl Shared {
@@ -210,6 +220,15 @@ impl Shared {
             td.clear_connection_pool(id, &sid);
         }
         drop(td);
+        // the monitors' connections belong to the parent too
+        for n in self.monitor.borrow_mut().iter_mut() {
+            if let Some(c) = n.conn.take() {
+                c.abandon();
+            }
+            n.handshake = None;
+        }
+        self.scanning.set(false);
+        self.scan_waiters.borrow_mut().clear();
         self.generation.set(self.generation.get().wrapping_add(1));
         // server sessions in use by the parent (mongoc_client_reset clears the pool)
         self.sessions.borrow_mut().clear();
@@ -228,6 +247,21 @@ pub struct Client {
     interrupted: bool,
     /// The error every operation of this (transient) cluster fails with before any I/O.
     fail: Option<Error>,
+    /// What the running scan is for (the scan callbacks differ).
+    mode: ScanMode,
+    /// The error of a failed Client::connect_pooled.
+    connect_error: Option<Error>,
+}
+
+/// What `run_scan`'s checks are for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScanMode {
+    /// a scan of the cluster's own nodes (libmongoc's single-threaded scanner)
+    Own,
+    /// a scan of the pooled monitors (Shared::monitor): no authentication in the handshake
+    Monitor,
+    /// pooled mode's connection to one server (_cluster_add_node): no heartbeat events
+    Connect,
 }
 
 impl std::ops::Deref for Client {
@@ -290,13 +324,17 @@ impl Client {
             srv: Cell::new(None),
             auto_crypt: RefCell::new(None),
             crypt_holder: Cell::new(None),
+            pooled: Cell::new(false),
+            monitor: RefCell::new(Vec::new()),
+            scanning: Cell::new(false),
+            scan_waiters: RefCell::new(Vec::new()),
         };
         Ok(Client::cluster(Rc::new(shared)))
     }
 
     /// Another cluster of the client whose shared state is `shared` (no connections yet).
     pub fn cluster(shared: Rc<Shared>) -> Self {
-        let mut c = Client { shared, nodes: Vec::new(), pid: std::process::id(), interrupted: false, fail: None };
+        let mut c = Client { shared, nodes: Vec::new(), pid: std::process::id(), interrupted: false, fail: None, mode: ScanMode::Own, connect_error: None };
         c.reconcile_nodes();
         c
     }
@@ -382,6 +420,9 @@ impl Client {
 
     /// _mongoc_topology_scanner_monitor_heartbeat_started (node setup)
     fn heartbeat_started(&mut self, id: u32) {
+        if self.mode == ScanMode::Connect {
+            return;
+        }
         if let Some(n) = self.nodes.iter().find(|n| n.id == id) {
             let addr = n.addr.clone();
             self.td().events.push(|| crate::apm::Event::HeartbeatStarted { addr });
@@ -438,8 +479,10 @@ impl Client {
         // a new connection: new authentication state; single-threaded libmongoc negotiates the
         // mechanism in a node's first handshake and starts a speculative authentication in each
         // one (in the first check of the node only, when it has several addresses)
-        let negotiate = self.nodes[i].mechs.is_none();
-        let speculative = crate::auth::speculative_start(&self.uri);
+        // (pooled monitors do not authenticate: _server_monitor_setup_connection)
+        let monitor = self.mode == ScanMode::Monitor;
+        let negotiate = !monitor && self.nodes[i].mechs.is_none();
+        let speculative = if monitor { None } else { crate::auth::speculative_start(&self.uri) };
         let with_spec = handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, speculative.as_ref().map(|s| &s.0[..]));
         let plain = if speculative.is_some() { handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, None) } else { Vec::new() };
         self.nodes[i].auth = NodeAuth { has_auth: false, speculative: Vec::new(), scram: speculative.and_then(|s| s.1) };
@@ -497,6 +540,17 @@ impl Client {
     /// The setup of a check failed (mongoc_topology_scanner_node_setup's failure path and
     /// _mongoc_topology_scanner_setup_err_cb): HeartbeatFailed with the error as it is.
     fn setup_failed(&mut self, id: u32, e: Error, t0: std::time::Instant) {
+        if self.mode == ScanMode::Connect {
+            // _handle_network_error_connecting: only a name-resolution error invalidates the
+            // server and clears its pool (not in load-balanced mode)
+            if e.code == code::STREAM_NAME_RESOLUTION && self.td().ty != TopologyType::LoadBalanced {
+                let mut td = self.td();
+                td.invalidate_server(id, &e);
+                td.clear_connection_pool(id, &crate::sdam::ZERO_OID);
+            }
+            self.connect_error = Some(e);
+            return;
+        }
         let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
         n.last_error = Some(e.clone());
         let addr = n.addr.clone();
@@ -659,6 +713,9 @@ impl Client {
         n.last_used = monotonic_usec();
         n.last_failed = -1;
         let addr = n.addr.clone();
+        if self.mode == ScanMode::Connect {
+            return self.connected_pooled(ni, conn, &reply, speculative_reply, rtt);
+        }
         self.td().events.push(|| crate::apm::Event::HeartbeatSucceeded { addr, duration_us, reply: reply.clone() });
         let n = &mut self.nodes[ni];
         if fresh {
@@ -693,6 +750,12 @@ impl Client {
         let now = monotonic_usec();
         self.nodes[ni].last_used = now;
         let siblings = run.probes.iter().filter(|q| q.node == id && !q.done).count();
+        if self.mode == ScanMode::Connect && siblings == 0 {
+            // pooled connection errors leave the topology alone (_cluster_add_node)
+            let raw = error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, default_msg));
+            self.connect_error = Some(Error::new(domain::CLIENT, code::STREAM_CONNECT, format!("{} calling hello on '{}'", raw.message, self.nodes[ni].addr)));
+            return;
+        }
         if self.nodes[ni].conn.is_some() || siblings > 0 {
             let back = crate::scan::HAPPY_EYEBALLS_DELAY;
             for q in run.probes.iter_mut().filter(|q| q.node == id && !q.done) {
@@ -750,8 +813,58 @@ impl Client {
     /// addresses discovered during the scan join it (libmongoc has no such bound: hello replies
     /// that keep inventing hosts would make its scan endless). The others are checked by later
     /// scans.
+    ///
+    /// One scan runs at a time: a cluster needing one while another cluster's scan runs (fibers)
+    /// waits for that scan instead. In pooled mode the scan checks the monitors
+    /// (Shared::monitor), not the cluster's own connections.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
         self.check_fork();
+        if self.shared.scanning.get() && crate::aio::active() {
+            return self.wait_for_scan();
+        }
+        self.shared.scanning.set(true);
+        if self.shared.pooled.get() {
+            let mut own = std::mem::take(&mut *self.shared.monitor.borrow_mut());
+            std::mem::swap(&mut self.nodes, &mut own);
+            self.mode = ScanMode::Monitor;
+            self.scan_nodes(obey_cooldown);
+            self.mode = ScanMode::Own;
+            std::mem::swap(&mut self.nodes, &mut own);
+            *self.shared.monitor.borrow_mut() = own;
+            self.reconcile_nodes();
+        } else {
+            self.scan_nodes(obey_cooldown);
+        }
+        self.shared.scanning.set(false);
+        let waiters = std::mem::take(&mut *self.shared.scan_waiters.borrow_mut());
+        for id in waiters {
+            crate::aio::unpark(id);
+        }
+    }
+
+    /// Waits for the scan another cluster runs (at most serverSelectionTimeoutMS); an
+    /// interrupted wait abandons the operation as an interrupted scan does.
+    fn wait_for_scan(&mut self) {
+        let shared = self.shared.clone();
+        let deadline = std::time::Instant::now() + Duration::from_millis(shared.settings.server_selection_timeout_ms.max(0) as u64);
+        let mut my_id = None;
+        let r = crate::aio::park(
+            &mut |id| {
+                my_id = Some(id);
+                shared.scan_waiters.borrow_mut().push(id);
+            },
+            Some(deadline),
+        );
+        if let Some(id) = my_id {
+            shared.scan_waiters.borrow_mut().retain(|w| *w != id);
+        }
+        if r.is_err() {
+            self.interrupted = true;
+        }
+    }
+
+    /// The scan itself (scan_once).
+    fn scan_nodes(&mut self, obey_cooldown: bool) {
         // mongoc_topology_should_rescan_srv / mongoc_topology_rescan_srv: before the scan
         if let Some(mut p) = self.srv.get() {
             let (ty, heartbeat) = { let td = self.td(); (td.ty, td.heartbeat_msec) };
@@ -799,6 +912,10 @@ impl Client {
     /// A failed check disconnects and invalidates the server: false, the caller selects once
     /// more. False also when the server has no connection (as libmongoc).
     pub fn check_interval(&mut self, server_id: u32) -> bool {
+        // pooled: the monitors check the servers
+        if self.shared.pooled.get() {
+            return true;
+        }
         let Some(n) = self.nodes.iter().find(|n| n.id == server_id) else { return false };
         let Some(conn) = n.conn.as_ref() else { return false };
         let now = monotonic_usec();
@@ -954,13 +1071,26 @@ impl Client {
     pub fn stream_for_server(&mut self, server_id: u32, reconnect_ok: bool) -> Result<&mut Conn, Error> {
         self.check_fork();
         self.check_entry()?;
+        let pooled = self.shared.pooled.get();
+        if pooled && !self.nodes.iter().any(|n| n.id == server_id) {
+            // servers the monitors found since this cluster last looked
+            self.reconcile_nodes();
+        }
         let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else {
             return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Could not find server with id: {server_id}")));
         };
+        if pooled && self.nodes[i].conn.is_some() && self.stale_generation(i) {
+            // _cluster_fetch_stream_pooled: the pool was cleared since the connection was made
+            self.disconnect_node(server_id);
+        }
         if self.nodes[i].conn.is_none() {
             let addr = self.nodes[i].addr.clone();
             if !reconnect_ok {
                 return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {addr}")));
+            }
+            if pooled {
+                self.connect_pooled(server_id)?;
+                return self.stream_for_server(server_id, false);
             }
             self.scan_once(true);
             self.take_interrupted()?;
@@ -991,6 +1121,64 @@ impl Client {
             return Err(Error::new(domain::CLIENT, code::CLIENT_INVALID_LOAD_BALANCER, "Driver attempted to initialize in load balancing mode, but the server does not support this mode."));
         }
         n.conn.as_mut().ok_or_else(|| Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {}", n.addr)))
+    }
+
+    /// Whether node `i`'s connection predates a clear of its server's pool (or the server left
+    /// the topology).
+    fn stale_generation(&self, i: usize) -> bool {
+        let n = &self.nodes[i];
+        let (Some(conn), Some(h)) = (n.conn.as_ref(), n.handshake.as_ref()) else { return false };
+        let td = self.shared.td.borrow();
+        match td.server(n.id) {
+            Some(s) => (conn.generation as u32) < s.generation(&h.service_id),
+            None => true,
+        }
+    }
+
+    /// _cluster_add_node (pooled mode): a new connection to `server_id` only, with its
+    /// handshake (no heartbeat events; the handshake updates the topology).
+    fn connect_pooled(&mut self, server_id: u32) -> Result<(), Error> {
+        self.mode = ScanMode::Connect;
+        self.connect_error = None;
+        // nothing joins this check: discovered servers are the monitors' business
+        let mut run = ScanRun { probes: Vec::new(), seen: Default::default(), retried: Default::default(), discovered: MAX_DISCOVERED_PER_SCAN };
+        self.node_setup(server_id, &mut run);
+        self.run_scan(&mut run);
+        self.mode = ScanMode::Own;
+        self.take_interrupted()?;
+        match self.connect_error.take() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    /// The success of connect_pooled's check: the node gets the connection and its handshake
+    /// description; _mongoc_topology_update_from_handshake.
+    fn connected_pooled(&mut self, ni: usize, mut conn: Conn, reply: &[u8], speculative: Vec<u8>, rtt: i64) {
+        let n = &mut self.nodes[ni];
+        let id = n.id;
+        if n.mechs.is_none() && self.shared.settings.hello.sasl_user.is_some() {
+            n.mechs = Some(crate::auth::parse_sasl_mechs(reply));
+        }
+        n.auth.speculative = speculative;
+        let sd = ServerDescription::from_hello(&n.addr, reply, rtt);
+        conn.set_max_message_size(sd.max_msg_size);
+        conn.compressor = handshake::negotiated(&sd, &self.shared.settings.hello);
+        let addr = n.addr.clone();
+        let mut td = self.shared.td.borrow_mut();
+        if td.ty != TopologyType::LoadBalanced {
+            td.handle_hello(id, Some(reply), rtt, None);
+            if td.server(id).is_none() {
+                drop(td);
+                self.connect_error = Some(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("\"{addr}\" removed from topology")));
+                return;
+            }
+        }
+        conn.generation = td.server(id).map_or(0, |s| s.generation(&sd.service_id)) as u64;
+        drop(td);
+        let n = &mut self.nodes[ni];
+        n.handshake = Some(sd);
+        n.conn = Some(conn);
     }
 
     /// The authentication part of _cluster_fetch_stream_single: completes the handshake's
@@ -1275,6 +1463,11 @@ impl ClientPool {
     #[cold]
     fn checkout_slow(&self) -> Lease<'_> {
         if self.total.get() < self.max || !crate::aio::active() {
+            // a second cluster at once: pooled mode from now on (fibers only; a synchronous
+            // re-entrant operation keeps single-threaded semantics)
+            if crate::aio::active() {
+                self.shared.pooled.set(true);
+            }
             self.total.set(self.total.get() + 1);
             return self.lease(Box::new(Client::cluster(self.shared.clone())), false);
         }

@@ -63,10 +63,8 @@ fn reported_hello(s: &Server, sd: &ServerDescription) -> Option<Vec<u8>> {
         return Some(sd.hello.clone());
     }
     let c = s.client.as_ref()?;
-    let Ok(mut cl) = c.try_checkout().ok_or(()) else {
-        unsafe { throw(E::Runtime, "Failed to get handshake server description: the client is in use") };
-        return None;
-    };
+    // load-balanced: one cluster; a fiber waits for it as any operation does
+    let mut cl = c.checkout();
     // mongoc_client_get_handshake_description: connects first if needed
     let r = cl.stream_for_server(s.server_id, true).map(|_| ());
     match (r, cl.handshake_description(s.server_id)) {

@@ -37,7 +37,8 @@ is loaded, calls in `{main}` wait through the loop as well (`{main}` is suspende
 runs other fibers, timers and watchers until the I/O is ready); before that, `{main}` calls block
 as with ext-mongodb. Concurrent operations of one
 Manager each use their own connections, at most `maxPoolSize` (default 100) at once; a fiber
-finding them all in use waits at most `serverSelectionTimeoutMS`. A `Cursor` or `Session` is used
+finding them all in use waits at most `serverSelectionTimeoutMS`. They connect only to the server
+they selected, and server scans are shared: one runs at a time, other fibers wait for it. A `Cursor` or `Session` is used
 by one fiber at a time: using one while another fiber's operation holds it throws a
 `LogicException`. Object destructors, the GC and
 shutdown never suspend. Details and every difference from ext-mongodb: `DIVERGENCES.md`.
