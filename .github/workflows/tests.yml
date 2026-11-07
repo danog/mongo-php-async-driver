@@ -101,7 +101,7 @@ jobs:
           case "$RUNNER_OS" in
             Linux)   ext=$PWD/target/release/libmongodb.so ;;
             macOS)   ext=$PWD/target/release/libmongodb.dylib ;;
-            Windows) ext=$(cygpath -m "$PWD/target/release/mongodb.dll") ;;
+            Windows) ext=$(cygpath -ml "$PWD/target/release/mongodb.dll") ;;
           esac
           echo "EXT=$ext" >> "$GITHUB_ENV"
           php -n -d "extension=$ext" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
@@ -126,7 +126,7 @@ jobs:
           revolt=$(mktemp -d)
           (cd "$revolt" && composer require --no-interaction --no-progress -q revolt/event-loop:^1)
           autoload=$revolt/vendor/autoload.php
-          [ "$RUNNER_OS" = Windows ] && autoload=$(cygpath -m "$autoload")
+          [ "$RUNNER_OS" = Windows ] && autoload=$(cygpath -ml "$autoload")
           REVOLT_AUTOLOAD=$autoload PHPT_TESTS="$(echo tests/local/fiber-*.phpt)" \
             tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers.xml"
 

@@ -6,8 +6,9 @@
 set -euo pipefail
 ext=$1; uri=$2; junit=$3
 php=${PHP:-php}
-# paths as PHP sees them (Windows: C:/... instead of the shell's /c/...)
-win() { if [ "${OS:-}" = Windows_NT ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+# paths as PHP sees them (Windows: C:/... instead of the shell's /c/..., in the long form: a "~" of
+# an 8.3 short name breaks unquoted INI values)
+win() { if [ "${OS:-}" = Windows_NT ]; then cygpath -ml "$1"; else printf '%s' "$1"; fi; }
 ver=$($php -n -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')
 rt=$(mktemp -d)/run-tests.php
 curl -fsSL --retry 3 "https://raw.githubusercontent.com/php/php-src/PHP-$ver/run-tests.php" -o "$rt"
