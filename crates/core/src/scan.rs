@@ -78,7 +78,7 @@ impl Probe {
     pub fn with_stream(node: u32, mut conn: Conn, msg: Vec<u8>, timeout: Option<Duration>, fresh: bool, tls: TlsSetup) -> Probe {
         let now = Instant::now();
         let name = conn.addr.clone();
-        let mut p = Probe { node, addr: None, fresh, conn: None, state: State::Send, events: libc::POLLOUT, start: now, delay_until: now, timeout, msg, sent: 0, tls: None, name, error: None, done: false };
+        let mut p = Probe { node, addr: None, fresh, conn: None, state: State::Send, events: crate::os::POLLOUT, start: now, delay_until: now, timeout, msg, sent: 0, tls: None, name, error: None, done: false };
         if let Err(e) = conn.set_nonblocking() {
             p.fail(NetError::Io(std::io::Error::other(e.to_string())), "Failed to write rpc bytes.");
             return p;
@@ -94,7 +94,7 @@ impl Probe {
     /// A check that connects to `addr` once `delay` has passed.
     pub fn connect(node: u32, name: &str, addr: SocketAddr, delay: Duration, msg: Vec<u8>, timeout: Option<Duration>, tls: TlsSetup) -> Probe {
         let now = Instant::now();
-        Probe { node, addr: Some(addr), fresh: true, conn: None, state: State::PendingConnect, events: libc::POLLOUT, start: now, delay_until: now + delay, timeout, msg, sent: 0, tls, name: name.to_owned(), error: None, done: false }
+        Probe { node, addr: Some(addr), fresh: true, conn: None, state: State::PendingConnect, events: crate::os::POLLOUT, start: now, delay_until: now + delay, timeout, msg, sent: 0, tls, name: name.to_owned(), error: None, done: false }
     }
 
     fn fail(&mut self, _e: NetError, msg: &str) {
@@ -111,7 +111,7 @@ impl Probe {
             Ok(c) => {
                 self.conn = Some(c);
                 self.state = State::Setup;
-                self.events = libc::POLLOUT;
+                self.events = crate::os::POLLOUT;
             }
             Err(e) => {
                 self.error = Some(e);
@@ -134,7 +134,7 @@ impl Probe {
                 self.conn = Some(c);
                 self.start = Instant::now();
                 self.state = State::Send;
-                self.events = libc::POLLOUT;
+                self.events = crate::os::POLLOUT;
                 if self.tls.is_some() {
                     self.begin_tls();
                     if self.state == State::Error {
@@ -147,8 +147,7 @@ impl Probe {
         }
     }
 
-    #[cfg(unix)]
-    pub fn fd(&self) -> Option<std::os::fd::RawFd> {
+    pub fn fd(&self) -> Option<crate::os::RawSock> {
         self.conn.as_ref().map(Conn::raw_fd)
     }
 
@@ -191,11 +190,11 @@ impl Probe {
             State::Setup => match conn.try_handshake() {
                 Ok(None) => {
                     self.state = State::Send;
-                    self.events = libc::POLLOUT;
+                    self.events = crate::os::POLLOUT;
                     Step::Progress
                 }
                 Ok(Some(i)) => {
-                    self.events = if i == Interest::Read { libc::POLLIN } else { libc::POLLOUT };
+                    self.events = if i == Interest::Read { crate::os::POLLIN } else { crate::os::POLLOUT };
                     Step::Progress
                 }
                 Err(e) => {
@@ -207,7 +206,7 @@ impl Probe {
                 Ok(true) => {
                     conn.begin_recv();
                     self.state = State::Recv;
-                    self.events = libc::POLLIN;
+                    self.events = crate::os::POLLIN;
                     self.start = Instant::now();
                     Step::Progress
                 }

@@ -17,7 +17,7 @@ pub struct Backend {
     pub active: fn() -> bool,
     /// poll(2) semantics over `fds` (revents filled, the count of ready ones; 0: the deadline
     /// passed), suspending the caller meanwhile.
-    pub poll: fn(&mut [libc::pollfd], Option<Instant>) -> io::Result<usize>,
+    pub poll: fn(&mut [crate::os::PollFd], Option<Instant>) -> io::Result<usize>,
     /// Sleeps, suspending the caller meanwhile.
     pub sleep: fn(Duration) -> io::Result<()>,
     /// Before an operation's first I/O: an error message when the call would have to suspend
@@ -145,8 +145,7 @@ pub fn is_interrupted(e: &io::Error) -> bool {
 
 /// poll(2) over `fds` until one is ready or `deadline` passes (None: no limit): suspends when
 /// [`active`], else blocks.
-#[cfg(unix)]
-pub fn poll(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<usize> {
+pub fn poll(fds: &mut [crate::os::PollFd], deadline: Option<Instant>) -> io::Result<usize> {
     match backend() {
         Some(b) if active() => (b.poll)(fds, deadline),
         _ => crate::net::poll_fds(fds, deadline),
@@ -154,13 +153,12 @@ pub fn poll(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<u
 }
 
 /// Waits until `fd` is ready for `interest`: false when `deadline` passed first.
-#[cfg(unix)]
-pub fn wait_fd(fd: std::os::fd::RawFd, interest: Interest, deadline: Option<Instant>) -> io::Result<bool> {
+pub fn wait_fd(fd: crate::os::RawSock, interest: Interest, deadline: Option<Instant>) -> io::Result<bool> {
     let events = match interest {
-        Interest::Read => libc::POLLIN,
-        Interest::Write => libc::POLLOUT,
+        Interest::Read => crate::os::POLLIN,
+        Interest::Write => crate::os::POLLOUT,
     };
-    let mut p = [libc::pollfd { fd, events, revents: 0 }];
+    let mut p = [crate::os::pollfd(fd, events)];
     Ok(poll(&mut p, deadline)? > 0)
 }
 
@@ -179,18 +177,15 @@ pub fn sleep(d: Duration) -> io::Result<()> {
 /// blocking `Read`/`Write` semantics for code written against a blocking stream (rustls's
 /// StreamOwned, the HTTP client), each read or write bounded by `timeout` as SO_RCVTIMEO /
 /// SO_SNDTIMEO would (a timeout is reported as ErrorKind::TimedOut).
-#[cfg(unix)]
 pub struct WaitStream {
     pub sock: std::net::TcpStream,
     pub timeout: Option<Duration>,
 }
 
-#[cfg(unix)]
 impl WaitStream {
     fn wait(&self, interest: Interest) -> io::Result<()> {
-        use std::os::fd::AsRawFd;
         let deadline = self.timeout.map(|t| Instant::now() + t);
-        if wait_fd(self.sock.as_raw_fd(), interest, deadline)? {
+        if wait_fd(crate::os::raw(&self.sock), interest, deadline)? {
             Ok(())
         } else {
             Err(io::ErrorKind::TimedOut.into())
@@ -198,7 +193,6 @@ impl WaitStream {
     }
 }
 
-#[cfg(unix)]
 impl io::Read for WaitStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
@@ -210,7 +204,6 @@ impl io::Read for WaitStream {
     }
 }
 
-#[cfg(unix)]
 impl io::Write for WaitStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         loop {
@@ -227,26 +220,10 @@ impl io::Write for WaitStream {
 
 /// connect(2) to `sa` bounded by `timeout`, waiting through [`wait_fd`]: the connected,
 /// non-blocking socket (TcpStream::connect_timeout's errors: TimedOut, the socket error).
-#[cfg(unix)]
 pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<std::net::TcpStream> {
-    use std::os::fd::{AsRawFd, FromRawFd};
-    let family = if sa.is_ipv4() { libc::AF_INET } else { libc::AF_INET6 };
-    // SAFETY: plain socket creation; the descriptor is owned by the TcpStream right away
-    let fd = unsafe { libc::socket(family, libc::SOCK_STREAM, 0) };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let s = unsafe { std::net::TcpStream::from_raw_fd(fd) };
-    crate::net::socket_defaults(fd);
-    s.set_nonblocking(true)?;
-    let (st, len) = crate::net::sockaddr(sa);
-    // SAFETY: a sockaddr of the given length
-    if unsafe { libc::connect(fd, (&st as *const libc::sockaddr_storage).cast(), len) } < 0 {
-        let e = io::Error::last_os_error();
-        if e.raw_os_error() != Some(libc::EINPROGRESS) {
-            return Err(e);
-        }
-        if !wait_fd(s.as_raw_fd(), Interest::Write, Some(Instant::now() + timeout))? {
+    let (s, r) = crate::os::connect_start(sa)?;
+    if !r? {
+        if !wait_fd(crate::os::raw(&s), Interest::Write, Some(Instant::now() + timeout))? {
             return Err(io::ErrorKind::TimedOut.into());
         }
         if let Some(e) = s.take_error()? {
@@ -258,13 +235,11 @@ pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<std::
 
 /// A client socket of the control-plane connections (KMS, HTTP): a blocking TcpStream as
 /// before, or a [`WaitStream`] when the call may suspend (decided at connect).
-#[cfg(unix)]
 pub enum Socket {
     Plain(std::net::TcpStream),
     Wait(WaitStream),
 }
 
-#[cfg(unix)]
 impl Socket {
     /// TcpStream::connect_timeout, or [`connect`] when [`active`].
     pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<Socket> {
@@ -286,7 +261,6 @@ impl Socket {
     }
 }
 
-#[cfg(unix)]
 impl io::Read for Socket {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
@@ -296,7 +270,6 @@ impl io::Read for Socket {
     }
 }
 
-#[cfg(unix)]
 impl io::Write for Socket {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {

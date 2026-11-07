@@ -191,13 +191,7 @@ impl Conn {
                 t.sock
             }
         };
-        #[cfg(unix)]
-        {
-            use std::os::fd::IntoRawFd;
-            let _ = stream.into_raw_fd();
-        }
-        #[cfg(not(unix))]
-        std::mem::forget(stream);
+        crate::os::forget(stream);
     }
 
     /// Connects to the first address of `host:port` that accepts within `timeout` each
@@ -230,6 +224,13 @@ impl Conn {
             }
         }
         Err(NetError::Connect(last.unwrap()))
+    }
+
+    /// UNIX domain sockets on Windows: refused, as libmongoc does there
+    /// (mongoc_topology_scanner_node_connect_unix, mongoc_client_connect_unix).
+    #[cfg(windows)]
+    pub fn connect_unix(_path: &str) -> Result<Conn, NetError> {
+        Err(NetError::Unix(crate::error::code::STREAM_CONNECT, "UNIX domain sockets not supported on win32.".into()))
     }
 
     /// Connects to the UNIX domain socket at `path` (mongoc_topology_scanner_node_connect_unix:
@@ -304,22 +305,10 @@ impl Conn {
     /// zero timeout, as the topology scanner's TCP initiator does): the connect's own result is
     /// ignored, poll(2) reports completion or failure (an immediate ECONNREFUSED, as macOS gives
     /// on loopback, shows as POLLHUP). `addr` is the server address as the topology names it.
-    #[cfg(unix)]
     pub fn connect_nonblocking(sa: std::net::SocketAddr, addr: &str) -> io::Result<Conn> {
-        use std::os::fd::FromRawFd;
-        let family = if sa.is_ipv4() { libc::AF_INET } else { libc::AF_INET6 };
-        // SAFETY: plain socket creation; the descriptor is owned by the TcpStream right away
-        let fd = unsafe { libc::socket(family, libc::SOCK_STREAM, 0) };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let stream = unsafe { TcpStream::from_raw_fd(fd) };
-        socket_defaults(fd);
-        stream.set_nonblocking(true)?;
+        // the connect's own result is deliberately ignored (see above)
+        let (stream, _) = crate::os::connect_start(&sa)?;
         stream.set_nodelay(true)?;
-        let (storage, len) = sockaddr(&sa);
-        // SAFETY: a sockaddr of the given length; the result is deliberately ignored
-        let _ = unsafe { libc::connect(fd, (&storage as *const libc::sockaddr_storage).cast(), len) };
         Ok(Conn {
             stream: Stream::Plain(stream),
             addr: addr.to_owned(),
@@ -392,24 +381,14 @@ impl Conn {
     }
 
     /// mongoc_socket_check_closed: the peer closed the connection (readable without data, or a
-    /// socket error). One poll(2), plus a MSG_PEEK recv when readable.
-    #[cfg(unix)]
+    /// socket error).
     pub fn check_closed(&self) -> bool {
-        let fd = self.raw_fd();
-        let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd; a zero timeout
-        if unsafe { libc::poll(&mut p, 1, 0) } <= 0 || p.revents == 0 {
-            return false;
-        }
-        let mut b = 0u8;
-        // SAFETY: a one-byte buffer we own; MSG_PEEK leaves the data in the socket
-        let r = unsafe { libc::recv(fd, (&mut b as *mut u8).cast(), 1, libc::MSG_PEEK | libc::MSG_DONTWAIT) };
-        r < 1
+        crate::os::check_closed(self.stream.tcp())
     }
 
-    #[cfg(unix)]
-    pub fn raw_fd(&self) -> std::os::fd::RawFd {
-        std::os::fd::AsRawFd::as_raw_fd(self.stream.tcp())
+    /// The connection's socket.
+    pub fn raw_fd(&self) -> crate::os::RawSock {
+        crate::os::raw(self.stream.tcp())
     }
 
     fn set_blocking(&mut self) -> Result<(), NetError> {
@@ -432,7 +411,6 @@ impl Conn {
     /// Sends `msg`, blocking up to `timeout` (None or zero: no limit) per write. When the call
     /// may suspend (crate::aio::active), the socket is non-blocking and every wait suspends.
     pub fn send(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<(), NetError> {
-        #[cfg(unix)]
         if crate::aio::active() {
             return self.send_waiting(msg, timeout.filter(|t| !t.is_zero()));
         }
@@ -448,7 +426,6 @@ impl Conn {
     /// Receives one message, blocking up to `timeout` (None or zero: no limit) per read (when
     /// the call may suspend: suspending, see `send`).
     pub fn recv(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
-        #[cfg(unix)]
         if crate::aio::active() {
             return self.recv_waiting(timeout.filter(|t| !t.is_zero()));
         }
@@ -465,7 +442,6 @@ impl Conn {
 
     /// Waits until the socket is ready for `interest`, up to `timeout` (the per-call socket
     /// timeout of the blocking mode): NetError::Timeout when it passes.
-    #[cfg(unix)]
     fn wait(&self, interest: Interest, timeout: Option<Duration>) -> Result<(), NetError> {
         match crate::aio::wait_fd(self.raw_fd(), interest, timeout.map(|t| Instant::now() + t)) {
             Ok(true) => Ok(()),
@@ -475,7 +451,6 @@ impl Conn {
     }
 
     /// `send` in non-blocking mode, waiting through crate::aio.
-    #[cfg(unix)]
     fn send_waiting(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<(), NetError> {
         self.set_nonblocking()?;
         let mut off = 0;
@@ -502,7 +477,6 @@ impl Conn {
     }
 
     /// `recv` in non-blocking mode, waiting through crate::aio.
-    #[cfg(unix)]
     fn recv_waiting(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
         self.set_nonblocking()?;
         self.rbuf.clear();
@@ -680,76 +654,21 @@ impl Reactor for MioReactor {
     }
 }
 
-/// What std sets on its own sockets: close-on-exec, and (Apple) no SIGPIPE on writes to a
-/// closed peer.
-#[cfg(unix)]
-pub(crate) fn socket_defaults(fd: libc::c_int) {
-    // SAFETY: fcntl/setsockopt on a descriptor the caller owns
-    unsafe {
-        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        #[cfg(target_vendor = "apple")]
-        {
-            let one: libc::c_int = 1;
-            libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_NOSIGPIPE, (&one as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t);
-        }
-    }
-}
-
-/// The C socket address of `sa`.
-#[cfg(unix)]
-pub(crate) fn sockaddr(sa: &std::net::SocketAddr) -> (libc::sockaddr_storage, libc::socklen_t) {
-    // SAFETY: an all-zero sockaddr_storage is valid; the casts write within its size
-    let mut st: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-    let len = match sa {
-        std::net::SocketAddr::V4(a) => {
-            let p = unsafe { &mut *(&mut st as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in>() };
-            p.sin_family = libc::AF_INET as libc::sa_family_t;
-            p.sin_port = a.port().to_be();
-            p.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) };
-            #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
-            {
-                p.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
-            }
-            std::mem::size_of::<libc::sockaddr_in>()
-        }
-        std::net::SocketAddr::V6(a) => {
-            let p = unsafe { &mut *(&mut st as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in6>() };
-            p.sin6_family = libc::AF_INET6 as libc::sa_family_t;
-            p.sin6_port = a.port().to_be();
-            p.sin6_addr = libc::in6_addr { s6_addr: a.ip().octets() };
-            p.sin6_flowinfo = a.flowinfo();
-            p.sin6_scope_id = a.scope_id();
-            #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
-            {
-                p.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
-            }
-            std::mem::size_of::<libc::sockaddr_in6>()
-        }
-    };
-    (st, len as libc::socklen_t)
-}
-
 /// poll(2) over `fds` until one is ready or `deadline` passes (None: no limit); EINTR is
 /// retried. The wait of a scan (libmongoc's _mongoc_stream_poll_internal); the timeout is rounded
 /// up to whole milliseconds so that an unexpired deadline never spins.
-#[cfg(unix)]
-pub fn poll_fds(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<usize> {
+pub fn poll_fds(fds: &mut [crate::os::PollFd], deadline: Option<Instant>) -> io::Result<usize> {
     loop {
-        let ms: libc::c_int = match deadline {
+        let ms: i32 = match deadline {
             None => -1,
             Some(d) => {
                 let left = d.saturating_duration_since(Instant::now());
-                left.as_micros().div_ceil(1000).min(libc::c_int::MAX as u128) as libc::c_int
+                left.as_micros().div_ceil(1000).min(i32::MAX as u128) as i32
             }
         };
-        // SAFETY: a valid, exclusively borrowed pollfd array of the given length
-        let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, ms) };
-        if n >= 0 {
-            return Ok(n as usize);
-        }
-        let e = io::Error::last_os_error();
-        if e.kind() != io::ErrorKind::Interrupted {
-            return Err(e);
+        match crate::os::poll(fds, ms) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            r => return r,
         }
     }
 }
@@ -786,6 +705,16 @@ mod tests {
         (Conn::connect("127.0.0.1", port, Some(Duration::from_secs(5))).unwrap(), h)
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn unix_domain_sockets_are_refused() {
+        match Conn::connect_unix("/tmp/mongodb-27017.sock") {
+            Err(NetError::Unix(code, m)) => assert_eq!((code, m.as_str()), (crate::error::code::STREAM_CONNECT, "UNIX domain sockets not supported on win32.")),
+            _ => panic!("connected"),
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn unix_domain_sockets() {
         use std::os::unix::net::UnixListener;

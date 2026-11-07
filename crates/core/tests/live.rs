@@ -4,6 +4,7 @@
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bson::writer::Writer;
 use mongo_core::handshake::{self, HelloOpts, Metadata};
+#[cfg(unix)]
 use mongo_core::net::{Interest, Reactor};
 use mongo_core::sdam::ServerType;
 use mongo_core::wire::{self, MsgBuilder};

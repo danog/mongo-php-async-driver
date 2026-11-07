@@ -937,6 +937,7 @@ dependencies = [
  "sha2 0.11.1",
  "snap",
  "unicode-normalization",
+ "windows-sys 0.61.2",
  "x509-cert",
  "x509-ocsp",
 ]

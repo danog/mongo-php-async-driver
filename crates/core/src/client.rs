@@ -380,8 +380,7 @@ impl Client {
     }
 
     /// The fd of the connection to `server_id` (tests).
-    #[cfg(unix)]
-    pub fn conn_fd(&self, server_id: u32) -> Option<std::os::fd::RawFd> {
+    pub fn conn_fd(&self, server_id: u32) -> Option<crate::os::RawSock> {
         self.nodes.iter().find(|n| n.id == server_id).and_then(|n| n.conn.as_ref()).map(Conn::raw_fd)
     }
 
@@ -571,7 +570,7 @@ impl Client {
         for p in &mut run.probes {
             p.start = start;
         }
-        let mut fds: Vec<libc::pollfd> = Vec::new();
+        let mut fds: Vec<crate::os::PollFd> = Vec::new();
         let mut polled: Vec<usize> = Vec::new();
         while !run.probes.is_empty() {
             fds.clear();
@@ -593,7 +592,7 @@ impl Client {
                 let p = &run.probes[i];
                 if !p.done {
                     if let Some(fd) = p.fd() {
-                        fds.push(libc::pollfd { fd, events: p.events, revents: 0 });
+                        fds.push(crate::os::pollfd(fd, p.events));
                         polled.push(i);
                         if let Some(d) = p.deadline() {
                             soonest(&mut timer, d);
@@ -635,17 +634,17 @@ impl Client {
                 }
                 // a hang-up with data still to read (macOS reports a peer's close so, Linux
                 // does not) is read first: the reply, or the TLS alert, says more
-                if rev & libc::POLLERR != 0 || (rev & libc::POLLHUP != 0 && rev & libc::POLLIN == 0) {
+                if rev & crate::os::POLLERR != 0 || (rev & crate::os::POLLHUP != 0 && rev & crate::os::POLLIN == 0) {
                     // during the TLS handshake the handshake's own error is reported ("TLS
                     // handshake failed: ...", DIVERGENCES "TLS server checks that fail")
                     if run.probes[i].state == State::Setup {
                         if let crate::scan::Step::Progress = run.probes[i].step() {
-                            run.probes[i].poll_error(rev & libc::POLLHUP != 0);
+                            run.probes[i].poll_error(rev & crate::os::POLLHUP != 0);
                         }
                         self.probe_failed(run, i, "connection error");
                         continue;
                     }
-                    run.probes[i].poll_error(rev & libc::POLLHUP != 0);
+                    run.probes[i].poll_error(rev & crate::os::POLLHUP != 0);
                 }
                 if rev & run.probes[i].events != 0 || run.probes[i].state == State::Error {
                     self.run_probe(run, i);
