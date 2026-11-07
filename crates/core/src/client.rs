@@ -1241,7 +1241,7 @@ impl Client {
         let Some(conn) = self.nodes.iter_mut().find(|n| n.id == server_id).and_then(|n| n.conn.as_mut()) else {
             return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for server id: {server_id}")));
         };
-        let generation = conn.generation as u32;
+        let conn_generation = conn.generation as u32;
         match handshake::run_msg(conn, body, payload, !acknowledged, socket_timeout) {
             Ok(r) => {
                 if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
@@ -1267,6 +1267,14 @@ impl Client {
                     Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, detail)
                 } else {
                     Error::new(domain::STREAM, code::STREAM_SOCKET, format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"))
+                };
+                // the connection's pool generation: pooled, the one it was made with; single-
+                // threaded, the server's current one (_cluster_fetch_stream_single copies it)
+                let generation = if self.shared.pooled.get() {
+                    conn_generation
+                } else {
+                    let sid = self.handshake_description(server_id).map_or(crate::sdam::ZERO_OID, |h| h.service_id);
+                    self.td().server(server_id).map_or(0, |s| s.generation(&sid))
                 };
                 self.handle_network_error(server_id, generation, &err, matches!(e, NetError::Timeout));
                 Err(err)
