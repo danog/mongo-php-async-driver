@@ -66,6 +66,15 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
 
 pub unsafe fn init_MongoDB_Driver_ClientEncryption(c: *mut sys::zend_class_entry) {
     CE = c;
+    // added after 2.5.6 (PHPC-2795): the String algorithm and its query types
+    for (name, value) in [
+        (c"ALGORITHM_STRING", c"String"),
+        (c"QUERY_TYPE_PREFIX", c"prefix"),
+        (c"QUERY_TYPE_SUFFIX", c"suffix"),
+        (c"QUERY_TYPE_SUBSTRING", c"substring"),
+    ] {
+        crate::zend::class::const_str(c, name, value, sys::ZEND_ACC_PUBLIC);
+    }
     (*c).__bindgen_anon_2.create_object = Some(create);
     let h = obj::handlers::<ClientEncryption>(addr_of_mut!(H_CLIENTENCRYPTION));
     h.get_debug_info = Some(get_debug_info);

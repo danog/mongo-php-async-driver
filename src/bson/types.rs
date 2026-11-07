@@ -1863,8 +1863,13 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___construct(ex: Ex, _rv: *
         sys::IS_OBJECT => {
             let o = (*z).value.obj;
             if obj::instanceof((*o).ce, sys::php_date_get_interface_ce()) {
+                // PHPC-2802: a subclass whose constructor skipped the parent's has no time value
                 let t = (*date_obj(o)).time;
-                me.set((*t).sse * 1000 + (*t).us / 1000);
+                if t.is_null() {
+                    throw(E::InvalidArgument, format!("The {} object has not been correctly initialized by its constructor", cname((*o).ce)));
+                    return;
+                }
+                me.set((*t).sse.wrapping_mul(1000).wrapping_add((*t).us / 1000));
             } else if obj::instanceof((*o).ce, ce().int64) {
                 me.set(obj::data::<Int64>(o).v);
             } else {
@@ -1899,7 +1904,11 @@ unsafe fn to_php_date(ex: Ex, rv: *mut sys::zval, c: *mut sys::zend_class_entry)
         usec = 1_000_000 - usec;
     }
     let s = format!("@{}", sec);
-    sys::php_date_initialize(d, s.as_ptr() as *const _, s.len(), null_mut(), null_mut(), 0);
+    if !sys::php_date_initialize(d, s.as_ptr() as *const _, s.len(), null_mut(), null_mut(), 0) || (*d).time.is_null() {
+        zval::release(rv);
+        throw(E::Runtime, format!("Could not initialize {} object from {}", cname(c), cname(ce().utcdatetime)));
+        return;
+    }
     (*(*d).time).us = usec;
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime_toDateTime(ex: Ex, rv: *mut sys::zval) {

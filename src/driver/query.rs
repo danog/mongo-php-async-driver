@@ -138,7 +138,13 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
     if let Some(v) = hash::sym_find(o, b"hint") {
         let v = zval::deref(v);
         if zval::is(v, sys::IS_STRING) {
-            w.utf8(b"hint", zval::str_bytes(v));
+            let hint = zval::str_bytes(v);
+            if hint.len() > i32::MAX as usize {
+                throw(E::InvalidArgument, format!("Expected \"hint\" option to be <= {} bytes, {} given", i32::MAX, hint.len()));
+                done(q, w);
+                return;
+            }
+            w.utf8(b"hint", hint);
         } else if zval::is(v, sys::IS_OBJECT) || zval::is(v, sys::IS_ARRAY) {
             if !doc_opt(&mut w, "hint", v) {
                 done(q, w);

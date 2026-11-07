@@ -219,7 +219,12 @@ unsafe fn opt_hint(o: Option<*mut sys::HashTable>) -> Result<Option<Vec<u8>>, ()
     let v = zval::deref(v);
     let mut w = Writer::with_capacity(64);
     if zval::is(v, sys::IS_STRING) {
-        w.utf8(b"hint", zval::str_bytes(v));
+        let hint = zval::str_bytes(v);
+        if hint.len() > i32::MAX as usize {
+            throw(E::InvalidArgument, format!("Expected \"hint\" option to be <= {} bytes, {} given", i32::MAX, hint.len()));
+            return Err(());
+        }
+        w.utf8(b"hint", hint);
     } else if zval::is(v, sys::IS_OBJECT) || zval::is(v, sys::IS_ARRAY) {
         opt_document(&mut w, o, "hint", encode::NONE)?;
     } else {
