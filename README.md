@@ -43,6 +43,19 @@ It is passed to methods that declare exactly the interface's parameters, or end 
 `mixed`, `int` (or union with `int`) by-value variadic; any other signature is called exactly as
 ext-mongodb calls it.
 
+## Client-side encryption
+
+`ClientEncryption` and `autoEncryption` (with `bypassAutoEncryption` or `bypassQueryAnalysis`) are a
+pure-Rust port of libmongocrypt 1.21: every KMS provider (local, AWS, Azure, GCP, KMIP, on-demand
+credentials), CSFLE, and Queryable Encryption (equality, range including Decimal128, string
+search). Automatic encryption through query analysis (mongocryptd or crypt_shared, MongoDB
+Enterprise) is not included. Differences from ext-mongodb are listed in DIVERGENCES.md.
+
+Trust model (as in ext-mongodb): a data key document names its KMS endpoint, and the configured
+credentials for that provider (an AWS request signature, an Azure or GCP access token) are sent to
+that endpoint. Whoever can write to the key vault collection can therefore direct those requests to a
+host of their choosing; protect the key vault collection as you would the keys themselves.
+
 ## Tests
 
 The upstream suites are carried over and run against both this extension and ext-mongodb:
