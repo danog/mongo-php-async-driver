@@ -38,6 +38,7 @@ extern "C" {
     fn _php_stream_sock_open_from_socket(socket: mongo_core::os::RawSock, persistent_id: *const c_char) -> *mut sys::php_stream;
     fn zend_exception_save();
     fn zend_exception_restore();
+    fn zend_call_known_function(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable);
 }
 
 /// Object destruction and shutdown in progress: waits block.
@@ -70,6 +71,9 @@ fn revolt() -> bool {
             let name = unsafe { zval::string(b"Revolt\\EventLoop") };
             let ce = unsafe { sys::zend_lookup_class_ex(name.value.str_, null_mut(), 0) };
             let ok = !ce.is_null() && !unsafe { call::has_exception() };
+            if ok {
+                found_revolt(ce);
+            }
             REVOLT.store(if ok { 1 } else { 2 }, Relaxed);
             ok
         }
@@ -104,6 +108,7 @@ fn revolt_loaded() -> bool {
         mongo_core::aio::NO_LOOP_AT.store(count, Relaxed);
         return false;
     }
+    found_revolt(ce);
     REVOLT.store(1, Relaxed);
     mongo_core::aio::NO_LOOP_AT.store(u32::MAX, Relaxed);
     true
@@ -225,16 +230,93 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
 
 // ------------------------------------------------------------------ PHP calls
 
+/// The functions of the Revolt calls, resolved once per request (a class cannot change within
+/// one): Revolt\EventLoop's static methods, and the methods of the class of the suspensions.
+#[derive(Default)]
+struct Fns {
+    event_loop: Option<std::ptr::NonNull<sys::zend_class_entry>>,
+    statics: Vec<(&'static str, *mut sys::zend_function)>,
+    suspension: Option<std::ptr::NonNull<sys::zend_class_entry>>,
+    methods: Vec<(&'static [u8], *mut sys::zend_function)>,
+}
+
+thread_local! {
+    static FNS: RefCell<Fns> = RefCell::new(Fns::default());
+}
+
+/// Revolt\EventLoop was found: its class, for the calls of this request.
+fn found_revolt(ce: *mut sys::zend_class_entry) {
+    FNS.with_borrow_mut(|f| {
+        if f.event_loop.map(|p| p.as_ptr()) != Some(ce) {
+            *f = Fns { event_loop: std::ptr::NonNull::new(ce), ..Fns::default() };
+        }
+    });
+}
+
+/// The public method `name` (lower case) of `ce`, static or not as `want_static` says; null when
+/// there is none such (the call then goes by name, as PHP resolves it).
+unsafe fn find_method(ce: *mut sys::zend_class_entry, name: &[u8], want_static: bool) -> *mut sys::zend_function {
+    let z = sys::zend_hash_str_find(&(*ce).function_table, name.as_ptr().cast(), name.len());
+    if z.is_null() {
+        return null_mut();
+    }
+    let f = (*z).value.ptr as *mut sys::zend_function;
+    let flags = (*f).common.fn_flags;
+    if flags & sys::ZEND_ACC_PUBLIC == 0 || (flags & sys::ZEND_ACC_STATIC != 0) != want_static || flags & sys::ZEND_ACC_ABSTRACT != 0 {
+        return null_mut();
+    }
+    f
+}
+
 /// Revolt\EventLoop::<method>(args...)
-unsafe fn event_loop(method: &str, args: &mut [sys::zval]) -> sys::zval {
+unsafe fn event_loop(method: &'static str, args: &mut [sys::zval]) -> sys::zval {
     let mut rv = zval::undef();
-    let mut func = zval::string(format!("Revolt\\EventLoop::{method}").as_bytes());
-    sys::_call_user_function_impl(null_mut(), &mut func, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut());
+    let known = FNS.with_borrow_mut(|f| {
+        let ce = f.event_loop?.as_ptr();
+        let func = match f.statics.iter().find(|(m, _)| *m == method) {
+            Some(&(_, func)) => func,
+            None => {
+                let func = find_method(ce, method.to_ascii_lowercase().as_bytes(), true);
+                f.statics.push((method, func));
+                func
+            }
+        };
+        (!func.is_null()).then_some((func, ce))
+    });
+    match known {
+        Some((func, ce)) => zend_call_known_function(func, null_mut(), ce, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut()),
+        None => {
+            let mut func = zval::string(format!("Revolt\\EventLoop::{method}").as_bytes());
+            sys::_call_user_function_impl(null_mut(), &mut func, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut());
+        }
+    }
     rv
 }
 
-unsafe fn method(o: &sys::zval, name: &[u8], args: &mut [sys::zval]) -> sys::zval {
-    call::method_n(o.value.obj, name, args)
+/// `$o-><name>(args...)` (`name` in lower case).
+unsafe fn method(o: &sys::zval, name: &'static [u8], args: &mut [sys::zval]) -> sys::zval {
+    let obj = o.value.obj;
+    let ce = (*obj).ce;
+    let func = FNS.with_borrow_mut(|f| {
+        if f.suspension.map(|p| p.as_ptr()) != Some(ce) {
+            f.suspension = std::ptr::NonNull::new(ce);
+            f.methods.clear();
+        }
+        match f.methods.iter().find(|(m, _)| *m == name) {
+            Some(&(_, func)) => func,
+            None => {
+                let func = find_method(ce, name, false);
+                f.methods.push((name, func));
+                func
+            }
+        }
+    });
+    if func.is_null() {
+        return call::method_n(obj, name, args);
+    }
+    let mut rv = zval::undef();
+    zend_call_known_function(func, obj, ce, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut());
+    rv
 }
 
 /// The Closures, created once per process (their function name is a permanent interned
@@ -383,6 +465,7 @@ pub fn rshutdown() {
     drop(drop_later);
     drop(php);
     REVOLT.store(0, Relaxed);
+    FNS.with_borrow_mut(|f| *f = Fns::default());
     mongo_core::aio::NO_LOOP_AT.store(u32::MAX, Relaxed);
 }
 
