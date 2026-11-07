@@ -7,6 +7,11 @@ import xml.etree.ElementTree as ET
 
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "expected-failures.txt")) as f:
     entries = [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+# "<RUNNER_OS>: <entry>" applies on that runner OS only (Linux, macOS, Windows)
+runner_os = os.environ.get("RUNNER_OS", "")
+entries = [e.split(": ", 1)[1] if e.split(": ", 1)[0] in ("Linux", "macOS", "Windows") else e
+           for e in entries
+           if e.split(": ", 1)[0] not in ("Linux", "macOS", "Windows") or e.split(": ", 1)[0] == runner_os]
 expected = {e for e in entries if not e.startswith("message: ")}
 messages = [e[len("message: "):] for e in entries if e.startswith("message: ")]
 
