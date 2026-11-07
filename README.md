@@ -1,9 +1,10 @@
 # mongo-php-async-driver
 
 A pure-Rust, drop-in replacement for the PHP `mongodb` extension (ext-mongodb), with one
-addition: inside a PHP Fiber, network waits suspend the fiber through the
-[Revolt](https://revolt.run) event loop instead of blocking. In `{main}` it blocks, as
-ext-mongodb does (unless fibers are waiting in the driver: then `{main}` runs the loop meanwhile).
+addition: network waits give control to the [Revolt](https://revolt.run) event loop instead of
+blocking. Inside a PHP Fiber they suspend the fiber; in `{main}`, when `Revolt\EventLoop` is
+loaded, they suspend `{main}` (the loop runs meanwhile). Without Revolt loaded, a `{main}` call
+blocks exactly as ext-mongodb does.
 
 **Status: work in progress, not usable yet.** The extension loads as `mongodb`, reports
 ext-mongodb 2.5.6's version, INI settings and phpinfo(), and registers ext-mongodb 2.5.6's whole
@@ -31,7 +32,10 @@ ported yet throw an `Error`.
 Automatic, no option: any driver call made inside a `Fiber` suspends that fiber while it waits
 for the network, so other fibers run. It needs `revolt/event-loop` (`composer require
 revolt/event-loop`; the class is looked up by name, the extension has no dependency on it):
-without it, a call inside a fiber throws a `RuntimeException`. Concurrent operations of one
+without it, a call inside a fiber throws a `RuntimeException`. Once the class `Revolt\EventLoop`
+is loaded, calls in `{main}` wait through the loop as well (`{main}` is suspended and the loop
+runs other fibers, timers and watchers until the I/O is ready); before that, `{main}` calls block
+as with ext-mongodb. Concurrent operations of one
 Manager each use their own connections, at most `maxPoolSize` (default 100) at once; a fiber
 finding them all in use waits at most `serverSelectionTimeoutMS`. A `Cursor` or `Session` is used
 by one fiber at a time: using one while another fiber's operation holds it throws a

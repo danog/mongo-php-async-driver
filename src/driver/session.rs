@@ -36,13 +36,11 @@ impl Drop for Session {
 fn end(s: &mut Session) {
     let Some(cs) = s.cs.take() else { return };
     let Some(c) = s.client.as_ref() else { return };
-    // never re-entered from a running operation of the same client: if it is busy, the
-    // server session is dropped (not pooled)
-    let Ok(mut cl) = c.try_checkout().ok_or(()) else { return };
+    // never re-entered from a running operation of the same client: a running transaction is
+    // aborted only on an idle cluster, else the server session is dropped (not pooled)
     let Ok(mut b) = cs.try_borrow_mut() else { return };
-    cl.end_session(&mut b);
+    c.end_session_idle(&mut b);
     drop(b);
-    drop(cl);
     unsafe { super::apm::flush(c) };
 }
 

@@ -33,9 +33,8 @@ extern "C" {
 
 /// Object destruction and shutdown in progress: waits block.
 static FORBID: AtomicU32 = AtomicU32::new(0);
-/// Waits of fibers pending (a {main} call suspends only then).
-static FIBER_WAITS: AtomicU32 = AtomicU32::new(0);
-/// revolt/event-loop in this request: 0 not looked up, 1 present, 2 missing.
+/// revolt/event-loop in this request: 0 not looked up, 1 present, 2 missing (autoloading it in
+/// a fiber failed).
 static REVOLT: AtomicU8 = AtomicU8::new(0);
 
 pub static BACKEND: mongo_core::aio::Backend = mongo_core::aio::Backend { active, poll, sleep, require, park, unpark, current };
@@ -68,14 +67,55 @@ fn revolt() -> bool {
     }
 }
 
-fn active() -> bool {
-    if FORBID.load(Relaxed) > 0 {
+/// The class-table size (the counter of mongo_core::aio's synchronous fast path).
+fn class_count() -> u32 {
+    unsafe { (*(*addr_of!(sys::executor_globals)).class_table).nNumOfElements }
+}
+
+/// Whether Revolt\EventLoop is loaded (declared; {main} never autoloads it). A miss is
+/// remembered until a class is added.
+fn revolt_loaded() -> bool {
+    if REVOLT.load(Relaxed) == 1 {
+        return true;
+    }
+    let count = class_count();
+    if count == mongo_core::aio::NO_LOOP_AT.load(Relaxed) {
         return false;
     }
-    if !in_fiber() {
-        return FIBER_WAITS.load(Relaxed) > 0 && !shutting_down() && revolt();
+    // EG(active_fiber) and the class-table size of the (single, NTS) PHP thread, for
+    // mongo_core::aio's synchronous fast path (EG(class_table) is set per request: published
+    // here, in a request, never at MINIT)
+    unsafe {
+        let eg = addr_of!(sys::executor_globals);
+        mongo_core::aio::set_sync_words(addr_of!((*eg).active_fiber).cast(), addr_of!((*(*eg).class_table).nNumOfElements));
     }
-    !unsafe { zend_fiber_switch_blocked() } && !shutting_down() && revolt()
+    let name = unsafe { zval::string(b"Revolt\\EventLoop") };
+    let ce = unsafe { sys::zend_lookup_class_ex(name.value.str_, null_mut(), ZEND_FETCH_CLASS_NO_AUTOLOAD) };
+    if ce.is_null() {
+        mongo_core::aio::NO_LOOP_AT.store(count, Relaxed);
+        return false;
+    }
+    REVOLT.store(1, Relaxed);
+    mongo_core::aio::NO_LOOP_AT.store(u32::MAX, Relaxed);
+    true
+}
+
+/// ZEND_FETCH_CLASS_NO_AUTOLOAD
+const ZEND_FETCH_CLASS_NO_AUTOLOAD: u32 = 0x80;
+
+/// Whether this call's waits suspend: inside a fiber (Revolt autoloaded if needed: a fiber
+/// without it fails in `require`), and in {main} whenever Revolt is loaded (its {main}
+/// suspension runs the loop meanwhile); never where PHP forbids fiber switches, in object
+/// destruction or at shutdown.
+fn active() -> bool {
+    if FORBID.load(Relaxed) > 0 || shutting_down() || unsafe { zend_fiber_switch_blocked() } {
+        return false;
+    }
+    if in_fiber() {
+        revolt()
+    } else {
+        revolt_loaded()
+    }
 }
 
 fn current() -> usize {
@@ -264,8 +304,8 @@ pub fn rshutdown() {
     });
     drop(drop_later);
     drop(php);
-    FIBER_WAITS.store(0, Relaxed);
     REVOLT.store(0, Relaxed);
+    mongo_core::aio::NO_LOOP_AT.store(u32::MAX, Relaxed);
 }
 
 // ------------------------------------------------------------------ waits
@@ -301,7 +341,6 @@ fn wait(fds: &mut [libc::pollfd], deadline: Option<Instant>, enqueue: Option<&mu
         return Err(mongo_core::aio::interrupted());
     }
     unsafe { php_state()? };
-    let fiber = in_fiber();
     // a slot, and the sockets registered under its token
     let token = with(|l| -> io::Result<usize> {
         let t = match l.slots.iter().position(|s| s.state == SlotState::Free) {
@@ -341,13 +380,7 @@ fn wait(fds: &mut [libc::pollfd], deadline: Option<Instant>, enqueue: Option<&mu
     if let Some(enqueue) = enqueue {
         enqueue((token as u64) | ((my_gen as u64) << 32));
     }
-    if fiber {
-        FIBER_WAITS.fetch_add(1, Relaxed);
-    }
     let r = unsafe { suspend(token, deadline) };
-    if fiber {
-        FIBER_WAITS.fetch_sub(1, Relaxed);
-    }
     let state = with(|l| {
         for p in fds.iter() {
             let _ = l.poll.registry().deregister(&mut mio::unix::SourceFd(&p.fd));

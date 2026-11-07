@@ -112,14 +112,20 @@ impl Client {
     /// mongoc_cmd_parts_assemble (OP_MSG): the command for `server_id`. A transaction's state
     /// advances here (_mongoc_client_session_append_txn).
     pub fn assemble(&mut self, mut parts: Parts, server_id: u32, must_use_primary: bool) -> Result<Cmd, Error> {
-        let sd = self.stream_description(server_id);
-        let Some(sd) = sd else {
-            return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Could not find server with id: {server_id}")));
-        };
-        if sd.ty == ServerType::Unknown {
-            let m = sd.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
-            return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Cannot assemble command for invalidated server: {m}")));
+        // the fields used below (no copy of the whole description on this per-command path)
+        struct Sd {
+            ty: ServerType,
+            max_wire_version: i32,
         }
+        let sd = self.with_stream_description(server_id, |d| match d.ty {
+            ServerType::Unknown => Err(d.error.as_ref().map(|e| e.message.clone()).unwrap_or_default()),
+            ty => Ok(Sd { ty, max_wire_version: d.max_wire_version }),
+        });
+        let sd = match sd {
+            None => return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Could not find server with id: {server_id}"))),
+            Some(Err(m)) => return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Cannot assemble command for invalidated server: {m}"))),
+            Some(Ok(sd)) => sd,
+        };
         validate_db_name(parts.db)?;
         let Some(name) = command_name(parts.body) else {
             return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Empty command document"));
@@ -253,19 +259,6 @@ impl Client {
         td.session_timeout_minutes != crate::sdam::NO_SESSIONS || td.ty == TopologyType::LoadBalanced
     }
 
-    /// Pops a server session for an implicit session.
-    pub fn pop_server_session(&mut self) -> ServerSession {
-        let now = crate::sdam::monotonic_usec();
-        let t = self.td().session_timeout_minutes;
-        self.sessions.borrow_mut().pop(t, now)
-    }
-
-    /// Returns a server session to the pool.
-    pub fn push_server_session(&mut self, s: ServerSession) {
-        let now = crate::sdam::monotonic_usec();
-        let t = self.td().session_timeout_minutes;
-        self.sessions.borrow_mut().push(s, t, now);
-    }
 
     /// Runs an assembled command (with an optional document sequence) and releases its
     /// implicit session: the reply, or the error with the reply (empty for network errors).
@@ -917,19 +910,49 @@ impl Client {
     }
 
     pub fn start_session_with(&mut self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>) -> Result<ClientSession, Error> {
-        self.check_fork();
-        let lb = self.td().ty == TopologyType::LoadBalanced;
-        if !lb && self.td().session_timeout_minutes == crate::sdam::NO_SESSIONS {
-            let has_data = self.td().has_data_node();
-            if !has_data {
-                self.select_server_id(OpType::Read, None, &[])?;
-            }
-            if self.td().session_timeout_minutes == crate::sdam::NO_SESSIONS {
-                return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Server does not support sessions"));
+        // the fork check: session_start's (shared state), select_server_id's (connections)
+        if let Some(r) = self.shared().session_start(causal_consistency, snapshot, default_txn, true) {
+            return r;
+        }
+        // session support unknown yet: a server selection learns it
+        self.select_server_id(OpType::Read, None, &[])?;
+        self.shared().session_start(causal_consistency, snapshot, default_txn, false).expect("decided without selection")
+    }
+}
+
+impl crate::client::Shared {
+    /// Pops a server session for an implicit session.
+    pub fn pop_server_session(&self) -> ServerSession {
+        let now = crate::sdam::monotonic_usec();
+        let t = self.td.borrow().session_timeout_minutes;
+        self.sessions.borrow_mut().pop(t, now)
+    }
+
+    /// Returns a server session to the pool (dropped if the pool is borrowed: never re-entered
+    /// from a running operation).
+    pub fn push_server_session(&self, s: ServerSession) {
+        let now = crate::sdam::monotonic_usec();
+        let t = self.td.borrow().session_timeout_minutes;
+        if let Ok(mut p) = self.sessions.try_borrow_mut() {
+            p.push(s, t, now);
+        }
+    }
+
+    /// mongoc_client_start_session without I/O: None when session support is unknown yet and
+    /// `may_select` (the caller selects a server first, then calls again with false).
+    pub fn session_start(&self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>, may_select: bool) -> Option<Result<ClientSession, Error>> {
+        self.fork_reset();
+        {
+            let td = self.td.borrow();
+            if td.ty != TopologyType::LoadBalanced && td.session_timeout_minutes == crate::sdam::NO_SESSIONS {
+                if may_select && !td.has_data_node() {
+                    return None;
+                }
+                return Some(Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Server does not support sessions")));
             }
         }
         if causal_consistency && snapshot {
-            return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Only one of causal consistency and snapshot can be enabled."));
+            return Some(Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_FAILURE, "Only one of causal consistency and snapshot can be enabled.")));
         }
         let ss = self.pop_server_session();
         let mut d = crate::session::TxnOpts {
@@ -941,16 +964,38 @@ impl Client {
         if let Some(o) = default_txn {
             d.set(o);
         }
-        Ok(ClientSession {
+        Some(Ok(ClientSession {
             server_session: Some(ss),
             causal_consistency,
             snapshot,
             default_txn: d,
             client_generation: self.generation.get(),
             ..Default::default()
-        })
+        }))
     }
 
+    /// mongoc_client_session_destroy without I/O: false when a running transaction must be
+    /// aborted first (the caller uses a cluster: Client::end_session).
+    pub fn session_end(&self, cs: &mut ClientSession) -> bool {
+        self.fork_reset();
+        if cs.server_session.is_none() {
+            return true;
+        }
+        if cs.client_generation != self.generation.get() {
+            cs.server_session = None;
+            return true;
+        }
+        if cs.in_txn() {
+            return false;
+        }
+        if let Some(ss) = cs.server_session.take() {
+            self.push_server_session(ss);
+        }
+        true
+    }
+}
+
+impl Client {
     /// mongoc_client_session_destroy: a running transaction is aborted, the server session
     /// goes back to the pool (unless the client was reset since: it belongs to the parent
     /// process then, and is dropped without any I/O).

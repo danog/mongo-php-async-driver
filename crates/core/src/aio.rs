@@ -6,7 +6,7 @@
 //! path when it is false.
 
 use std::io;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::net::Interest;
@@ -33,6 +33,35 @@ pub struct Backend {
 
 static BACKEND: AtomicPtr<Backend> = AtomicPtr::new(std::ptr::null_mut());
 
+/// The address of a pointer that is null while no fiber runs (the extension's
+/// &EG(active_fiber)); null: unknown (every call asks the backend).
+static FIBER: AtomicPtr<*const ()> = AtomicPtr::new(std::ptr::null_mut());
+
+/// The address of a counter that changes whenever the event loop may have become available
+/// (the extension's class-table size: Revolt\EventLoop can only appear with a new class).
+static CLASSES: AtomicPtr<u32> = AtomicPtr::new(std::ptr::null_mut());
+
+/// The counter's value when the backend last found no event loop in {main} (u32::MAX: not
+/// known, or an event loop is there). Maintained by the backend.
+pub static NO_LOOP_AT: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// Sets the words [`quiet`] reads.
+pub fn set_sync_words(fiber: *const *const (), classes: *const u32) {
+    FIBER.store(fiber as *mut *const (), Ordering::Release);
+    CLASSES.store(classes as *mut u32, Ordering::Release);
+}
+
+/// The synchronous fast path: a {main} call while no event loop is loaded (and none can have
+/// appeared since the backend last looked), so no wait may suspend. A few loads, inlined, so
+/// synchronous use does not call into the backend per send/receive.
+#[inline(always)]
+fn quiet() -> bool {
+    let f = FIBER.load(Ordering::Relaxed);
+    let c = CLASSES.load(Ordering::Relaxed);
+    // SAFETY: the extension's executor-globals words, valid for the process lifetime
+    !f.is_null() && !c.is_null() && unsafe { std::ptr::read_volatile(f) }.is_null() && unsafe { std::ptr::read_volatile(c) } == NO_LOOP_AT.load(Ordering::Relaxed)
+}
+
 /// Installs (or removes, with None) the backend.
 pub fn set_backend(b: Option<&'static Backend>) {
     BACKEND.store(b.map_or(std::ptr::null_mut(), |b| b as *const Backend as *mut Backend), Ordering::Release);
@@ -48,12 +77,21 @@ fn backend() -> Option<&'static Backend> {
 /// Whether the current call's waits suspend (else they block).
 #[inline]
 pub fn active() -> bool {
-    backend().is_some_and(|b| (b.active)())
+    !quiet() && backend().is_some_and(|b| (b.active)())
 }
 
 /// Before an operation's first I/O (server selection, getting a connection): fails when the
 /// call runs where waits would have to suspend but no event loop is available.
+#[inline]
 pub fn require() -> Result<(), crate::error::Error> {
+    if quiet() {
+        return Ok(());
+    }
+    require_slow()
+}
+
+#[cold]
+fn require_slow() -> Result<(), crate::error::Error> {
     match backend() {
         Some(b) => (b.require)().map_err(|m| crate::error::Error::new(crate::error::domain::CLIENT, crate::error::code::CLIENT_NO_EVENT_LOOP, m)),
         None => Ok(()),
@@ -110,7 +148,7 @@ pub fn is_interrupted(e: &io::Error) -> bool {
 #[cfg(unix)]
 pub fn poll(fds: &mut [libc::pollfd], deadline: Option<Instant>) -> io::Result<usize> {
     match backend() {
-        Some(b) if (b.active)() => (b.poll)(fds, deadline),
+        Some(b) if active() => (b.poll)(fds, deadline),
         _ => crate::net::poll_fds(fds, deadline),
     }
 }
@@ -129,7 +167,7 @@ pub fn wait_fd(fd: std::os::fd::RawFd, interest: Interest, deadline: Option<Inst
 /// Sleeps for `d`: suspends when [`active`], else blocks (thread::sleep).
 pub fn sleep(d: Duration) -> io::Result<()> {
     match backend() {
-        Some(b) if (b.active)() => (b.sleep)(d),
+        Some(b) if active() => (b.sleep)(d),
         _ => {
             std::thread::sleep(d);
             Ok(())

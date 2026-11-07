@@ -6,6 +6,12 @@
 $uri = $argv[1] ?? 'mongodb://127.0.0.1:28010';
 $n = (int) ($argv[2] ?? 5000);
 $rounds = (int) ($argv[3] ?? 5);
+// RTT_REVOLT=<composer autoload.php with revolt/event-loop>: Revolt loaded (an idle loop), so
+// every {main} call waits through it
+if (getenv('RTT_REVOLT')) {
+    require getenv('RTT_REVOLT');
+    class_exists(Revolt\EventLoop::class);
+}
 $m = new MongoDB\Driver\Manager($uri);
 if (getenv('RTT_SUBSCRIBER')) {
     $m->addSubscriber(new class implements MongoDB\Driver\Monitoring\CommandSubscriber {

@@ -650,7 +650,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     let Some(bson) = cmd.bson.clone() else { return };
     let (batch_size, max_await) = (cmd.batch_size, cmd.max_await_time_ms);
     // phongo_create_implicit_session (ignoring errors)
-    let mut implicit = if zsession.is_none() && !unack { client.checkout().start_session(true, false).ok() } else { None };
+    let mut implicit = if zsession.is_none() && !unack { client.start_session(true, false).ok() } else { None };
     // _mongoc_client_command_with_opts
     let mode_read = matches!(ty, CmdType::Read | CmdType::ReadWrite);
     let mode_write = matches!(ty, CmdType::Write | CmdType::ReadWrite);
@@ -735,7 +735,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
         Ok(r) => r,
         Err(f) => {
             if let Some(mut s) = implicit.take() {
-                client.checkout().end_session(&mut s);
+                client.end_session(&mut s);
             }
             super::throw_error(&f.error, (!f.reply.is_empty()).then_some(&f.reply[..]));
             return;
@@ -744,7 +744,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     if mode_write {
         if let Some(e) = write_concern_error(&reply) {
             if let Some(mut s) = implicit.take() {
-                client.checkout().end_session(&mut s);
+                client.end_session(&mut s);
             }
             super::throw_error(&e, Some(&reply));
             return;
@@ -935,7 +935,12 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
         throw(E::InvalidArgument, "Only one of \"causalConsistency\" and \"snapshot\" can be enabled");
         return;
     }
-    let r = c.checkout().start_session_with(cc, snap, txn.as_ref());
+    // an exception from the option conversions (an error handler that throws on the warning):
+    // no I/O with it pending (a wait would refuse to suspend and replace it)
+    if call::has_exception() {
+        return;
+    }
+    let r = c.start_session_with(cc, snap, txn.as_ref());
     super::apm::flush(&c);
     match r {
         Ok(cs) => {

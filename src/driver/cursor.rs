@@ -122,9 +122,10 @@ impl Drop for Cursor {
         // mongoc_cursor_destroy: kill a live server cursor, unless the client was reset (fork)
         // since: the cursor belongs to the parent process then
         if let Some(c) = self.client.take() {
-            if let Ok(mut cl) = c.try_checkout().ok_or(()) {
-                cl.check_fork();
-                if self.id != 0 && cl.generation.get() == self.client_generation {
+            c.shared().fork_reset();
+            if self.id != 0 && c.shared().generation.get() == self.client_generation {
+                if let Some(mut cl) = c.try_checkout() {
+                    cl.check_fork();
                     let mut w = Writer::with_capacity(64);
                     w.utf8(b"killCursors", self.coll.as_bytes());
                     let a = w.begin(4, b"cursors");
@@ -147,9 +148,9 @@ impl Drop for Cursor {
                         }
                     }
                 }
-                if let Some(mut s) = self.implicit.take() {
-                    cl.end_session(&mut s);
-                }
+            }
+            if let Some(mut s) = self.implicit.take() {
+                c.end_session_idle(&mut s);
             }
             unsafe { super::apm::flush(&c) };
         }
@@ -350,6 +351,7 @@ impl Cursor {
 
     /// Whether advancing would send a command (find or getMore) while the cursor's Session is
     /// held by another fiber's operation.
+    #[inline]
     fn session_in_use(&mut self) -> bool {
         let sends = self.error.is_none() && (self.state == State::Unprimed || (self.state == State::InBatch && self.batch.is_empty() && self.id != 0));
         sends && self.session_rc().is_some_and(|r| r.try_borrow_mut().is_err())
@@ -424,7 +426,7 @@ impl Cursor {
     fn release_implicit_if_exhausted(&mut self, c: &ClientRef) {
         if self.id == 0 {
             if let Some(mut s) = self.implicit.take() {
-                c.checkout().end_session(&mut s);
+                c.end_session(&mut s);
             }
         }
     }
@@ -470,13 +472,12 @@ impl Cursor {
         self.current_doc = None;
         // mongoc_cursor_next: a cursor of a client reset since (fork) cannot advance
         if let Some(c) = &self.client {
-            if let Ok(mut cl) = c.try_checkout().ok_or(()) {
-                cl.check_fork();
-                if cl.generation.get() != self.client_generation {
-                    let e = Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot advance cursor after client reset");
-                    self.error = Some((e, None));
-                    return false;
-                }
+            let shared = c.shared();
+            shared.fork_reset();
+            if shared.generation.get() != self.client_generation {
+                let e = Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot advance cursor after client reset");
+                self.error = Some((e, None));
+                return false;
             }
         }
         if self.error.is_some() {

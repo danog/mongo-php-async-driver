@@ -189,6 +189,13 @@ impl Shared {
         id
     }
 
+    /// In a fork child: the fork part of mongoc_client_reset for the shared state (the
+    /// clusters abandon their own connections at their next use, Client::check_fork).
+    #[inline]
+    pub fn fork_reset(&self) {
+        self.reset_after_fork(std::process::id());
+    }
+
     /// The fork part of mongoc_client_reset for the shared state, once per process: every
     /// server's pool generation is bumped, the client generation advances and the server
     /// sessions of the parent are forgotten.
@@ -1199,7 +1206,8 @@ pub fn detect_nongenuine_hosts(uri: &Uri) {
 /// waits for one, at most serverSelectionTimeoutMS.
 pub struct ClientPool {
     shared: Rc<Shared>,
-    idle: RefCell<Vec<Client>>,
+    /// boxed: a checkout moves a pointer
+    idle: RefCell<Vec<Box<Client>>>,
     /// clusters checked out
     leased: Cell<usize>,
     /// clusters created (idle + leased, transient ones excluded)
@@ -1207,13 +1215,13 @@ pub struct ClientPool {
     max: usize,
     /// fibers waiting for a cluster (park ids, FIFO) and the clusters handed to them
     waiters: RefCell<std::collections::VecDeque<u64>>,
-    handed: RefCell<Vec<(u64, Client)>>,
+    handed: RefCell<Vec<(u64, Box<Client>)>>,
 }
 
 /// A cluster checked out of a pool, returned when dropped.
 pub struct Lease<'a> {
     pool: &'a ClientPool,
-    client: std::mem::ManuallyDrop<Client>,
+    client: std::mem::ManuallyDrop<Box<Client>>,
     /// not one of the pool's clusters (its operation fails at once, see Client::fail)
     transient: bool,
 }
@@ -1231,7 +1239,7 @@ impl ClientPool {
                 _ => DEFAULT_MAX_POOL_SIZE,
             }
         };
-        ClientPool { shared: client.shared.clone(), idle: RefCell::new(vec![client]), leased: Cell::new(0), total: Cell::new(1), max, waiters: Default::default(), handed: Default::default() }
+        ClientPool { shared: client.shared.clone(), idle: RefCell::new(vec![Box::new(client)]), leased: Cell::new(0), total: Cell::new(1), max, waiters: Default::default(), handed: Default::default() }
     }
 
     /// The shared state (no connection is used through it).
@@ -1247,7 +1255,7 @@ impl ClientPool {
     }
 
     #[inline]
-    fn lease(&self, c: Client, transient: bool) -> Lease<'_> {
+    fn lease(&self, c: Box<Client>, transient: bool) -> Lease<'_> {
         self.leased.set(self.leased.get() + 1);
         Lease { pool: self, client: std::mem::ManuallyDrop::new(c), transient }
     }
@@ -1268,7 +1276,7 @@ impl ClientPool {
     fn checkout_slow(&self) -> Lease<'_> {
         if self.total.get() < self.max || !crate::aio::active() {
             self.total.set(self.total.get() + 1);
-            return self.lease(Client::cluster(self.shared.clone()), false);
+            return self.lease(Box::new(Client::cluster(self.shared.clone())), false);
         }
         let deadline = std::time::Instant::now() + Duration::from_millis(self.shared.settings.server_selection_timeout_ms.max(0) as u64);
         let mut my_id = None;
@@ -1292,7 +1300,7 @@ impl ClientPool {
                 if let Some(c) = handed {
                     self.checkin(c);
                 }
-                let mut t = Client::cluster(self.shared.clone());
+                let mut t = Box::new(Client::cluster(self.shared.clone()));
                 t.fail = Some(match r {
                     Err(_) => interrupted_error(),
                     Ok(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Timed out while checking out a connection from connection pool"),
@@ -1303,7 +1311,7 @@ impl ClientPool {
     }
 
     /// Returns a cluster: to the first waiting fiber, else to the idle ones.
-    fn checkin(&self, c: Client) {
+    fn checkin(&self, c: Box<Client>) {
         let next = self.waiters.borrow_mut().pop_front();
         match next {
             Some(id) => {
@@ -1311,6 +1319,37 @@ impl ClientPool {
                 crate::aio::unpark(id);
             }
             None => self.idle.borrow_mut().push(c),
+        }
+    }
+
+    /// mongoc_client_start_session: a cluster is used only to learn session support.
+    pub fn start_session(&self, causal_consistency: bool, snapshot: bool) -> Result<crate::session::ClientSession, Error> {
+        self.start_session_with(causal_consistency, snapshot, None)
+    }
+
+    /// `start_session` with default transaction options.
+    pub fn start_session_with(&self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>) -> Result<crate::session::ClientSession, Error> {
+        match self.shared.session_start(causal_consistency, snapshot, default_txn, true) {
+            Some(r) => r,
+            None => self.checkout().start_session_with(causal_consistency, snapshot, default_txn),
+        }
+    }
+
+    /// mongoc_client_session_destroy: a cluster is used only to abort a running transaction.
+    pub fn end_session(&self, cs: &mut crate::session::ClientSession) {
+        if !self.shared.session_end(cs) {
+            self.checkout().end_session(cs);
+        }
+    }
+
+    /// `end_session` from object destruction: a running transaction is aborted only on an
+    /// idle cluster (else the server session is dropped, not pooled).
+    pub fn end_session_idle(&self, cs: &mut crate::session::ClientSession) {
+        if !self.shared.session_end(cs) {
+            match self.try_checkout() {
+                Some(mut cl) => cl.end_session(cs),
+                None => cs.server_session = None,
+            }
         }
     }
 

@@ -156,6 +156,11 @@ unsafe fn update_prop(o: *mut sys::zend_object, name: &[u8], v: *mut sys::zval) 
 
 /// phongo_throw_exception_from_bson_error_t_and_reply
 pub unsafe fn throw_error(e: &Error, reply: Option<&[u8]>) {
+    // a wait interrupted by a pending PHP exception (thrown into the fiber, by an error handler,
+    // or the fiber's destruction): that exception propagates, not one of ours over it
+    if call::has_exception() && e.domain == domain::STREAM && e.message == mongo_core::aio::Interrupted.to_string() {
+        return;
+    }
     let ex;
     if let Some(r) = reply.filter(|_| (e.domain == domain::SERVER && e.code != 50) || e.domain == domain::WRITE_CONCERN) {
         ex = throw_code(lookup(c"mongodb\\driver\\exception\\commandexception"), &e.message, e.php_code());

@@ -550,7 +550,13 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
         return fail(result, invalid_arg("The write concern is invalid."));
     }
     let acked = wc.is_acknowledged();
-    let Some(sd) = client.stream_description(server_id) else {
+    struct Sd {
+        max_wire_version: i32,
+        max_bson_obj_size: i32,
+        max_msg_size: i32,
+        max_write_batch_size: i32,
+    }
+    let Some(sd) = client.with_stream_description(server_id, |d| Sd { max_wire_version: d.max_wire_version, max_bson_obj_size: d.max_bson_obj_size, max_msg_size: d.max_msg_size, max_write_batch_size: d.max_write_batch_size }) else {
         return fail(result, invalid_arg(format!("Could not find server with id: {server_id}")));
     };
     if command.flags.has_collation && !acked {
