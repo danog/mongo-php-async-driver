@@ -6,12 +6,16 @@ import os, sys
 import xml.etree.ElementTree as ET
 
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "expected-failures.txt")) as f:
-    expected = {l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")}
+    entries = [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+expected = {e for e in entries if not e.startswith("message: ")}
+messages = [e[len("message: "):] for e in entries if e.startswith("message: ")]
 
 
-def is_expected(name):
+def is_expected(name, text=None):
     # PHPT names are "<path> (<title>)"; PHPUnit data sets are "<Class::method> with data set ..."
-    return any(name == e or name.startswith(e + " ") for e in expected)
+    if any(name == e or name.startswith(e + " ") for e in expected):
+        return True
+    return text is not None and any(m in text for m in messages)
 
 
 failed_total = 0
@@ -30,10 +34,12 @@ for label, path in zip(sys.argv[1::2], sys.argv[2::2]):
         for c in tc:
             if c.tag in ("failure", "error"):
                 status = "fail" if c.tag == "failure" else "error"
-                if is_expected(name):
+                if is_expected(name, (c.get("message") or "") + "\n" + (c.text or "")):
                     status = "expected"
                     break
-                msg = (c.get("message") or (c.text or "")).strip().splitlines()
+                # PHPUnit's text starts with the test's name: show the first line after it
+                msg = [l.strip() for l in (c.get("message") or (c.text or "")).splitlines()
+                       if l.strip() and not l.strip().startswith(name)]
                 failures.append((status, name, msg[0][:200] if msg else ""))
                 break
             if c.tag == "skipped":

@@ -54,8 +54,8 @@ jobs:
 
       - name: Start MongoDB
         id: mongodb
-        # MongoDB's own test tooling, as used by the official driver's CI
-        uses: mongodb-labs/drivers-evergreen-tools@f33b31d5ce6c444c698dba95077c1c088776a870 # v1.3.0
+        # MongoDB's own test tooling, at the commit the latest official library pins (its submodule)
+        uses: ./upstream/library/tests/drivers-evergreen-tools
         with:
           version: ${{ matrix.mongodb }}
           topology: ${{ matrix.topology }}
@@ -64,6 +64,10 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           tools: composer
+          # this build is loaded explicitly; the official extension must stay off
+          extensions: :mongodb
+          # as in the official library's CI (its examples tests set assertions at run time)
+          ini-values: zend.assertions=1
           coverage: none
 
       - uses: dtolnay/rust-toolchain@stable

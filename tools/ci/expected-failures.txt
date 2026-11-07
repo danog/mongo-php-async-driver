@@ -1,13 +1,16 @@
 # Upstream tests that fail by design: each one is a documented divergence (DIVERGENCES.md).
-# One test per line: a PHPT path, or a PHPUnit Class::method (data sets included). They are
-# reported as "expected" and do not fail the run; one that starts passing is listed so the
-# entry can be removed.
+# One test per line: a PHPT path, or a PHPUnit Class::method (data sets included); or
+# "message: <text>" for every test whose failure contains that text. They are reported as
+# "expected" and do not fail the run; a listed test that starts passing is reported so the entry
+# can be removed.
 
 # Connections inherited across fork() are never reused: a pre-fork cursor throws in the child
 upstream/driver/tests/cursor/bug1274-002.phpt
 upstream/driver/tests/cursor/bug1274-005.phpt
 
-# Automatic encryption with query analysis (mongocryptd / crypt_shared) is not implemented
+# Automatic encryption with query analysis (mongocryptd / crypt_shared) is not implemented: the
+# Manager constructor refuses it (the library's CSFLE spec and prose tests use it throughout)
+message: Cannot enable automatic field-level encryption: automatic encryption (query analysis through mongocryptd or crypt_shared) is not supported by this build yet.
 upstream/driver/tests/cursor/bug1529-001.phpt
 upstream/driver/tests/manager/manager-ctor-auto_encryption-001.phpt
 upstream/driver/tests/manager/manager-ctor-auto_encryption-error-004.phpt
