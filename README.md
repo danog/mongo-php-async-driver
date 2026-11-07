@@ -89,6 +89,13 @@ cannot run here or are expected to fail, with the reason.
 `DIVERGENCES.md` lists every behaviour that differs from ext-mongodb 2.5.6 (safety wins over
 parity), with the test that pins each one.
 
+CI (`.github/workflows/tests.yml`) runs on Linux, macOS and Windows, on every push and daily,
+against the official suites at their latest commits rather than the copies above: the default
+branches of mongodb/mongo-php-driver (PHPT) and mongodb/mongo-php-library (PHPUnit) are cloned
+fresh each run (the commits are listed in the job summary), on standalone, replica-set and
+sharded servers. Upstream tests that fail by design are listed in `tools/ci/expected-failures.txt`,
+each tied to a `DIVERGENCES.md` row; any other failure fails the run.
+
 ## Build
 
 ```bash

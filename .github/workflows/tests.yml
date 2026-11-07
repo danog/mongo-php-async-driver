@@ -1,0 +1,136 @@
+name: Tests
+
+# Every run tests this extension against the official test suites at their latest commits: the
+# default branch of mongodb/mongo-php-driver (PHPT) and of mongodb/mongo-php-library (PHPUnit) are
+# cloned fresh (tools/ci/clone-upstream.sh; the commits are listed in each job's summary). The
+# schedule re-runs them daily, so upstream changes show up even without a push here.
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: "${{ matrix.os }} / PHP ${{ matrix.php }} / MongoDB ${{ matrix.mongodb }} ${{ matrix.topology }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: every topology
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server }
+          - { os: ubuntu-24.04, php: "8.5", mongodb: "8.0", topology: server }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: sharded_cluster }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: latest, topology: replica_set }
+          # macOS
+          - { os: macos-15, php: "8.4", mongodb: "8.0", topology: server }
+          - { os: macos-15, php: "8.4", mongodb: "8.0", topology: replica_set }
+          # Windows
+          - { os: windows-2022, php: "8.4", mongodb: "8.0", topology: server }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone the official test suites (latest commits)
+        run: tools/ci/clone-upstream.sh upstream
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Start MongoDB
+        id: mongodb
+        # MongoDB's own test tooling, as used by the official driver's CI
+        uses: mongodb-labs/drivers-evergreen-tools@f33b31d5ce6c444c698dba95077c1c088776a870 # v1.3.0
+        with:
+          version: ${{ matrix.mongodb }}
+          topology: ${{ matrix.topology }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer
+          coverage: none
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: php-${{ matrix.php }}
+
+      - name: libclang (for the Zend Engine bindings)
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   sudo apt-get install -y -qq libclang-dev ;;
+            macOS)   echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV" ;;
+            Windows) echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Build the extension
+        run: |
+          export PHP=$(command -v php)
+          if command -v php-config >/dev/null; then export PHP_CONFIG=$(command -v php-config); fi
+          cargo build --release --locked
+          case "$RUNNER_OS" in
+            Linux)   ext=target/release/libmongodb.so ;;
+            macOS)   ext=target/release/libmongodb.dylib ;;
+            Windows) ext=target/release/mongodb.dll ;;
+          esac
+          echo "EXT=$PWD/$ext" >> "$GITHUB_ENV"
+          php -n -d "extension=$PWD/$ext" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
+
+      - name: Official driver tests (PHPT)
+        env:
+          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/phpt.xml"
+
+      - name: Official library tests (PHPUnit)
+        env:
+          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: tools/ci/run-phplib.sh "$EXT" "$CLUSTER_URI" "$PWD/phplib.xml"
+
+      - name: Results
+        if: always()
+        run: python3 tools/ci/junit-summary.py "Driver (PHPT)" phpt.xml "Library (PHPUnit)" phplib.xml
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.mongodb }}-${{ matrix.topology }}
+          path: |
+            phpt.xml
+            phplib.xml
+          if-no-files-found: ignore
+
+  cargo-test:
+    name: "cargo test (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # the crates without the PHP bindings: pure Rust, no server needed for the unit tests
+      - run: cargo test --locked -p mongo-crypt
+      - run: cargo test --locked -p mongo-crypt --no-default-features
+      - run: cargo test --locked -p mongo-core --lib
