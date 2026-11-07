@@ -31,3 +31,9 @@ MongoDB\Tests\ClientTest::testConstructorEmptyKmsProvider
 # Timing: the backoff sleeps overshoot by ~1 s in total on the macOS runners (this driver and
 # ext-mongodb 2.5.6 take the same time locally: 2.36 s with backoff vs 2.3 +- 0.5 expected)
 macOS: MongoDB\Tests\SpecTests\TransactionsConvenientApi\Prose4_RetryBackoffIsEnforcedTest::testBackoffIsEnforced
+
+# PHP on Windows reports blksize -1 in fstat() for every stream (no st_blksize there): the same
+# with ext-mongodb (DIVERGENCES "Reviewed": fstat() of GridFS streams on Windows)
+Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testReadableStreamStat
+Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamStatBeforeSaving
+Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamStatAfterSaving

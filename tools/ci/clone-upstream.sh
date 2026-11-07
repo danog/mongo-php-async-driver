@@ -7,7 +7,8 @@ mkdir -p "$dir"
 clone() { # url dest [extra git args]
   local url=$1 dest=$2; shift 2
   rm -rf "$dest"
-  git clone --quiet --depth 1 "$@" "$url" "$dest"
+  # no CRLF conversion (Windows): tests compare source text with expected output byte for byte
+  git -c core.autocrlf=false clone --quiet --depth 1 "$@" "$url" "$dest"
   local head branch
   head=$(git -C "$dest" rev-parse HEAD)
   branch=$(git -C "$dest" rev-parse --abbrev-ref HEAD)
