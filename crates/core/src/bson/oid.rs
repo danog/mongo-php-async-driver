@@ -30,32 +30,9 @@ pub fn now_secs() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-/// Bumped in every child process (a pthread_atfork child handler, registered at the first
-/// ObjectId): the random part is re-drawn there, so parent and child never generate the same
-/// ids. No per-call system call.
-static FORK_EPOCH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-#[cfg(unix)]
-fn fork_epoch() -> u32 {
-    extern "C" fn child() {
-        FORK_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    }
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    // SAFETY: registers a handler that only touches an atomic
-    ONCE.call_once(|| unsafe {
-        libc::pthread_atfork(None, None, Some(child));
-    });
-    FORK_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-#[cfg(not(unix))]
-fn fork_epoch() -> u32 {
-    FORK_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// `bson_oid_init(oid, NULL)`. The random part is re-drawn after fork (see FORK_EPOCH).
+/// `bson_oid_init(oid, NULL)`. The random part is re-drawn after fork (crate::os::fork_epoch).
 pub fn generate() -> [u8; 12] {
-    let epoch = fork_epoch();
+    let epoch = crate::os::fork_epoch();
     let (rand, seq) = CTX.with(|c| {
         let (p, rand, seq) = match c.get() {
             Some(s) if s.0 == epoch => s,

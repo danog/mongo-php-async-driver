@@ -48,9 +48,11 @@ Benchmark: `tools/bench/fibers.php`.
 
 ## fork()
 
-There is no fork detection (no `getpid()` per operation): a child process keeps using the
-connections, cursors and sessions it inherited. Do not use them from both processes; create a new
-`Manager` in the child (`DIVERGENCES.md`, "Use after `fork()`").
+There is no fork detection per operation (no `getpid()` per operation): a child process keeps
+using the connections, cursors and sessions it inherited. Do not use them from both processes;
+create a new `Manager` in the child (`DIVERGENCES.md`, "Use after `fork()`"). As with ext-mongodb,
+a live cursor or session destroyed in a child (for example when the child exits) leaves the
+parent's server cursor and transaction alone.
 
 ## Monitoring timestamps
 

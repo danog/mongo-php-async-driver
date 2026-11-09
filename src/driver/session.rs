@@ -22,12 +22,24 @@ pub struct Session {
     pub txn_rp: ReadPreference,
     /// the Manager it came from (phongo_session_t.manager); released last
     pub manager: super::ManagerRef,
+    /// phongo_session_t.created_by_pid
+    created_in: mongo_core::os::CreatedIn,
 }
 
 impl Drop for Session {
     /// phongo_session_free_object: mongoc_client_session_destroy (a running transaction is
-    /// aborted).
+    /// aborted). A live session destroyed in another process than the one that created it (a
+    /// fork child) sends nothing (no abortTransaction) and its server session is dropped, not
+    /// pooled: it belongs to the parent (phongo resets the client then).
     fn drop(&mut self) {
+        if self.cs.is_some() && !self.created_in.is_current() {
+            if let Some(cs) = self.cs.take() {
+                if let Ok(mut b) = cs.try_borrow_mut() {
+                    b.server_session = None;
+                }
+            }
+            return;
+        }
         end(self);
     }
 }
@@ -67,7 +79,7 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
 
 /// phongo_session_init
 pub unsafe fn new_session(client: ClientRef, cs: ClientSession, default_rp: ReadPreference, manager: *mut sys::zend_object) -> sys::zval {
-    let s = Session { cs: Some(Rc::new(RefCell::new(cs))), client: Some(client), txn_rp: default_rp.clone(), default_rp, manager: super::ManagerRef::new(manager) };
+    let s = Session { cs: Some(Rc::new(RefCell::new(cs))), client: Some(client), txn_rp: default_rp.clone(), default_rp, manager: super::ManagerRef::new(manager), created_in: Default::default() };
     zval::obj(obj::alloc(CE, s, addr_of_mut!(H_SESSION)))
 }
 

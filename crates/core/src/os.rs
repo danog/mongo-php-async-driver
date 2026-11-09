@@ -7,6 +7,49 @@ use std::net::{SocketAddr, TcpStream};
 
 pub use imp::*;
 
+/// Bumped in every child process by a pthread_atfork child handler (registered at the first
+/// call): it changes exactly when the process is a fork child of the one that read it before,
+/// without a system call per read. Windows has no fork().
+static FORK_EPOCH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The current fork epoch (FORK_EPOCH). A process created without running the fork handlers
+/// (a raw clone/vfork-like system call) keeps its parent's.
+#[cfg(unix)]
+pub fn fork_epoch() -> u32 {
+    extern "C" fn child() {
+        FORK_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: registers a handler that only touches an atomic
+    ONCE.call_once(|| unsafe {
+        libc::pthread_atfork(None, None, Some(child));
+    });
+    FORK_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(not(unix))]
+pub fn fork_epoch() -> u32 {
+    FORK_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The process an object was created in (phongo's created_by_pid), as a fork epoch: the
+/// default is the current process.
+#[derive(Clone, Copy, Debug)]
+pub struct CreatedIn(u32);
+
+impl Default for CreatedIn {
+    fn default() -> Self {
+        CreatedIn(fork_epoch())
+    }
+}
+
+impl CreatedIn {
+    /// Whether this is still the process the object was created in.
+    pub fn is_current(self) -> bool {
+        self.0 == fork_epoch()
+    }
+}
+
 #[cfg(unix)]
 mod imp {
     use super::*;

@@ -65,6 +65,8 @@ pub struct Cursor {
     pub session: sys::zval,
     /// libmongoc's implicit session of a find cursor
     implicit: Option<ClientSession>,
+    /// phongo_cursor_t.created_by_pid
+    created_in: mongo_core::os::CreatedIn,
     /// the selection read preference (a retried find selects with it)
     pub retry_prefs: Option<mongo_core::topology::ReadPrefs>,
     /// phongo's database/collection/query/command/readPreference (debug info)
@@ -97,6 +99,7 @@ impl Default for Cursor {
             opts: CursorOpts::default(),
             count: 0,
             error: None,
+            created_in: Default::default(),
             find: None,
             read_prefs: None,
             read_concern: Vec::new(),
@@ -116,9 +119,16 @@ impl Default for Cursor {
 impl Drop for Cursor {
     fn drop(&mut self) {
         unsafe { self.free_current() };
-        // mongoc_cursor_destroy: kill a live server cursor
+        // mongoc_cursor_destroy: kill a live server cursor. One destroyed in another process
+        // than the one that created it (a fork child) sends nothing and does not pool its
+        // implicit server session: they belong to the parent (phongo_cursor_free_object resets
+        // the client then).
         if let Some(c) = self.client.take() {
-            if self.id != 0 {
+            if !self.created_in.is_current() {
+                if let Some(s) = self.implicit.as_mut() {
+                    s.server_session = None;
+                }
+            } else if self.id != 0 {
                 if let Some(mut cl) = c.try_checkout() {
                     let mut w = Writer::with_capacity(64);
                     w.utf8(b"killCursors", self.coll.as_bytes());
