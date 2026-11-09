@@ -115,8 +115,10 @@ PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
 # target/release/libmongodb.so: load it with extension=/path/to/libmongodb.so instead of ext-mongodb
 ```
 
-PHP 8.4 and 8.5, NTS builds, on Linux, macOS and other Unix systems (x86-64, arm64) and on
-Windows (x86-64). On Windows there is no php-config: set `PHP` to php.exe (ext-php-rs downloads
+PHP 8.4 and 8.5, NTS builds only, on Linux, macOS and other Unix systems (x86-64, arm64) and on
+Windows (x86-64). Thread-safe (ZTS) PHP builds are not supported (e.g. FrankenPHP, the Windows
+"TS" builds, PHP with ext-parallel): `build.rs` refuses them (`DIVERGENCES.md`, "Supported
+builds"). On Windows there is no php-config: set `PHP` to php.exe (ext-php-rs downloads
 the matching PHP development pack), and use a nightly Rust (ext-php-rs needs the vectorcall
 calling convention of PHP's functions there, which only nightly Rust has):
 
