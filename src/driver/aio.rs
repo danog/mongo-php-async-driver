@@ -35,9 +35,27 @@ extern "C" {
     fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
     fn zend_internal_run_time_cache_reserved_size() -> usize;
     fn _php_stream_sock_open_from_socket(socket: mongo_core::os::RawSock, persistent_id: *const c_char) -> *mut sys::php_stream;
+}
+
+#[cfg(not(php86))]
+extern "C" {
     fn zend_exception_save();
     fn zend_exception_restore();
     fn zend_call_known_function(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable);
+}
+
+// PHP 8.6: zend_call_known_function is an inline wrapper of zend_call_known_function_ex (with
+// consumed_args 0), and zend_exception_save/restore (EG(prev_exception)) are gone
+#[cfg(php86)]
+extern "C" {
+    fn zend_call_known_function_ex(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable, consumed_args: u32);
+    fn zend_exception_set_previous(exception: *mut sys::zend_object, add_previous: *mut sys::zend_object);
+}
+
+#[cfg(php86)]
+#[inline]
+unsafe fn zend_call_known_function(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable) {
+    zend_call_known_function_ex(func, object, called_scope, retval, param_count, params, named_params, 0)
 }
 
 thread_local! {
@@ -803,10 +821,28 @@ unsafe fn saving_exception<R>(f: impl FnOnce() -> R) -> R {
     if !call::has_exception() {
         return f();
     }
-    zend_exception_save();
-    let r = f();
-    zend_exception_restore();
-    r
+    #[cfg(not(php86))]
+    {
+        zend_exception_save();
+        let r = f();
+        zend_exception_restore();
+        r
+    }
+    // what zend_exception_save/restore did, without EG(prev_exception): the pending exception
+    // is set aside while `f` runs, then restored (chained as the previous one of any new one)
+    #[cfg(php86)]
+    {
+        let eg = crate::zend::eg();
+        let saved = (*eg).exception;
+        (*eg).exception = null_mut();
+        let r = f();
+        if (*eg).exception.is_null() {
+            (*eg).exception = saved;
+        } else {
+            zend_exception_set_previous((*eg).exception, saved);
+        }
+        r
+    }
 }
 
 /// The ready slots' suspensions are resumed (outside any borrow).
