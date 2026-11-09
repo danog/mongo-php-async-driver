@@ -76,7 +76,7 @@ extra trailing `int`: the value `hrtime(true)` had when the event or message was
 ```php
 public function commandStarted(CommandStartedEvent $event): void
 {
-    $startedAt = func_get_args()[1] ?? hrtime(true); // ext-mongodb passes no second argument
+    $startedAt = func_get_args()[1] ?? hrtime(true); // The original C ext-mongodb passes no second argument
 }
 ```
 
