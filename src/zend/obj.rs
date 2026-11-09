@@ -112,7 +112,7 @@ pub unsafe fn init_std() {
 /// A handler table for `Obj<T>` based on phongo's std handlers (offset and free_obj set).
 pub unsafe fn handlers<T>(h: *mut sys::zend_object_handlers) -> &'static mut sys::zend_object_handlers {
     *h = *addr_of_mut!(STD);
-    (*h).offset = offset::<T>() as i32;
+    (*h).offset = offset::<T>() as _;
     (*h).free_obj = Some(free::<T>);
     &mut *h
 }

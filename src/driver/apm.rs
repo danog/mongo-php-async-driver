@@ -34,11 +34,14 @@ const METHODS: [&CStr; 12] = [
     c"topologyOpening",
 ];
 
-/// MINIT: the clock of hrtime(true) for this PHP version.
+/// MINIT: the clock of hrtime(true) for this PHP version (zend_hrtime.h): macOS from 8.5 on
+/// CLOCK_UPTIME_RAW; Linux/POSIX from 8.6 on CLOCK_MONOTONIC_RAW when available.
 pub fn minit() {
     #[cfg(all(target_vendor = "apple", php85))]
     mongo_core::apm::set_clock(mongo_core::apm::clock_uptime_raw);
-    #[cfg(not(all(target_vendor = "apple", php85)))]
+    #[cfg(all(unix, not(target_vendor = "apple"), php86))]
+    mongo_core::apm::set_clock(mongo_core::apm::clock_posix_raw);
+    #[cfg(not(any(all(target_vendor = "apple", php85), all(unix, not(target_vendor = "apple"), php86))))]
     mongo_core::apm::set_clock(mongo_core::apm::clock_default);
 }
 

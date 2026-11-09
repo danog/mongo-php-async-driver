@@ -133,6 +133,29 @@ pub fn clock_default() -> u64 {
     }
 }
 
+/// zend_hrtime of PHP 8.6 on Linux and other POSIX systems: CLOCK_MONOTONIC_RAW when it works
+/// (checked once, as zend_startup_hrtime does), else CLOCK_MONOTONIC.
+#[cfg(all(unix, not(target_vendor = "apple")))]
+pub fn clock_posix_raw() -> u64 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    const RAW: Option<libc::clockid_t> = Some(libc::CLOCK_MONOTONIC_RAW);
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    const RAW: Option<libc::clockid_t> = None;
+    static ID: std::sync::OnceLock<libc::clockid_t> = std::sync::OnceLock::new();
+    let id = *ID.get_or_init(|| {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: a valid timespec out-parameter
+        match RAW {
+            Some(raw) if unsafe { libc::clock_gettime(raw, &mut ts) } == 0 => raw,
+            _ => libc::CLOCK_MONOTONIC,
+        }
+    });
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a valid timespec out-parameter
+    unsafe { libc::clock_gettime(id, &mut ts) };
+    (ts.tv_sec as u64).wrapping_mul(1_000_000_000).wrapping_add(ts.tv_nsec as u64)
+}
+
 /// zend_hrtime of PHP 8.4 on macOS: mach_absolute_time() scaled by the timebase.
 #[cfg(target_vendor = "apple")]
 #[allow(deprecated)] // libc's mach bindings point to the mach2 crate; they are correct
