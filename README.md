@@ -121,9 +121,6 @@ replica-set and sharded servers. Upstream tests that fail by design are listed i
 `tools/ci/expected-failures.txt` with the reason (a DIVERGENCES.md entry, or a failure
 ext-mongodb has too). Any other failure fails the run.
 
-The previous client (`danog\Mongo\Client`, built on ext-mongodb's BSON codec) is kept in
-`legacy/zm2`.
-
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The exception is the Unicode folding
