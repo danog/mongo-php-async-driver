@@ -7,7 +7,7 @@ use std::ptr::{null, null_mut};
 
 static arginfo_MongoDB_Driver_Monitoring_addSubscriber: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"subscriber".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\Subscriber".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"subscriber".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\Subscriber".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_MongoDB_Driver_Monitoring_mongoc_log: Static<[sys::zend_internal_arg_info; 4]> = Static([
     sys::zend_internal_arg_info { name: 3usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
@@ -27,7 +27,7 @@ static arginfo_class_MongoDB_BSON_Binary___construct: Static<[sys::zend_internal
     sys::zend_internal_arg_info { name: c"type".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: c"MongoDB\\BSON\\Binary::TYPE_GENERIC".as_ptr() },
 ]);
 static arginfo_class_MongoDB_BSON_Binary___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Binary___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -35,9 +35,9 @@ static arginfo_class_MongoDB_BSON_Binary___unserialize: Static<[sys::zend_intern
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Binary_fromVector: Static<[sys::zend_internal_arg_info; 3]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"vector".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"vectorType".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\VectorType".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"vectorType".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\VectorType".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Binary_getData: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
@@ -46,7 +46,7 @@ static arginfo_class_MongoDB_BSON_Binary_getType: Static<[sys::zend_internal_arg
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Binary_getVectorType: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\VectorType".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\VectorType".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Binary_jsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 1022 }, default_value: null() },
@@ -61,7 +61,7 @@ static arginfo_class_MongoDB_BSON_DBPointer___serialize: Static<[sys::zend_inter
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_DBPointer___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\DBPointer".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\DBPointer".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_DBPointer___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -85,7 +85,7 @@ static arginfo_class_MongoDB_BSON_Decimal128___serialize: Static<[sys::zend_inte
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Decimal128___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Decimal128".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Decimal128".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Decimal128___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -105,7 +105,7 @@ static arginfo_class_MongoDB_BSON_Document___serialize: Static<[sys::zend_intern
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -113,15 +113,15 @@ static arginfo_class_MongoDB_BSON_Document___unserialize: Static<[sys::zend_inte
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document_fromBSON: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"bson".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document_fromJSON: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"json".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document_fromPHP: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"value".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 384 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document_get: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -129,7 +129,7 @@ static arginfo_class_MongoDB_BSON_Document_get: Static<[sys::zend_internal_arg_i
     sys::zend_internal_arg_info { name: c"key".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document_getIterator: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Iterator".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Iterator".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Document_has: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
@@ -167,7 +167,7 @@ static arginfo_class_MongoDB_BSON_Int64___serialize: Static<[sys::zend_internal_
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Int64___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Int64___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -210,7 +210,7 @@ static arginfo_class_MongoDB_BSON_Javascript___serialize: Static<[sys::zend_inte
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Javascript___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Javascript".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Javascript".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Javascript___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -230,7 +230,7 @@ static arginfo_class_MongoDB_BSON_MaxKey___serialize: Static<[sys::zend_internal
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_MaxKey___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\MaxKey".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\MaxKey".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_MaxKey___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -244,7 +244,7 @@ static arginfo_class_MongoDB_BSON_MinKey___serialize: Static<[sys::zend_internal
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_MinKey___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\MinKey".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\MinKey".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_MinKey___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -268,7 +268,7 @@ static arginfo_class_MongoDB_BSON_ObjectId___serialize: Static<[sys::zend_intern
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_ObjectId___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_ObjectId___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -291,7 +291,7 @@ static arginfo_class_MongoDB_BSON_PackedArray___serialize: Static<[sys::zend_int
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -299,11 +299,11 @@ static arginfo_class_MongoDB_BSON_PackedArray___unserialize: Static<[sys::zend_i
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray_fromJSON: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"json".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray_fromPHP: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"value".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray_get: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -311,7 +311,7 @@ static arginfo_class_MongoDB_BSON_PackedArray_get: Static<[sys::zend_internal_ar
     sys::zend_internal_arg_info { name: c"index".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray_getIterator: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Iterator".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Iterator".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_PackedArray_has: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
@@ -342,7 +342,7 @@ static arginfo_class_MongoDB_BSON_PackedArray_toPHP: Static<[sys::zend_internal_
     sys::zend_internal_arg_info { name: c"typeMap".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_BSON_Persistable_bsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass|MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388736 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass|MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_RegexInterface_getPattern: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
@@ -356,7 +356,7 @@ static arginfo_class_MongoDB_BSON_Regex___serialize: Static<[sys::zend_internal_
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Regex___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Regex".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Regex".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Regex___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -370,7 +370,7 @@ static arginfo_class_MongoDB_BSON_Regex_jsonSerialize: Static<[sys::zend_interna
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 1022 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Serializable_bsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass|MongoDB\\BSON\\Document|MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: 8388736 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass|MongoDB\\BSON\\Document|MongoDB\\BSON\\PackedArray".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Symbol___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -379,7 +379,7 @@ static arginfo_class_MongoDB_BSON_Symbol___serialize: Static<[sys::zend_internal
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Symbol___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Symbol".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Symbol".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Symbol___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -407,7 +407,7 @@ static arginfo_class_MongoDB_BSON_Timestamp___serialize: Static<[sys::zend_inter
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Timestamp___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Timestamp".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Timestamp".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Timestamp___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -427,20 +427,20 @@ static arginfo_class_MongoDB_BSON_UTCDateTimeInterface___toString: Static<[sys::
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTimeInterface_toDateTime: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTime".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTime".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTimeInterface_toDateTimeImmutable: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTimeImmutable".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTimeImmutable".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTime___construct: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"milliseconds".as_ptr(), type_: sys::zend_type { ptr: c"DateTimeInterface|MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: 8388626 }, default_value: c"null".as_ptr() },
+    sys::zend_internal_arg_info { name: c"milliseconds".as_ptr(), type_: sys::zend_type { ptr: c"DateTimeInterface|MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 18 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTime___serialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTime___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\UTCDateTime".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\UTCDateTime".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTime___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -454,10 +454,10 @@ static arginfo_class_MongoDB_BSON_UTCDateTime_jsonSerialize: Static<[sys::zend_i
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 1022 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTime_toDateTime: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTime".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTime".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_UTCDateTime_toDateTimeImmutable: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTimeImmutable".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"DateTimeImmutable".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Undefined___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -466,7 +466,7 @@ static arginfo_class_MongoDB_BSON_Undefined___serialize: Static<[sys::zend_inter
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Undefined___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Undefined".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Undefined".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_BSON_Undefined___toString: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -487,7 +487,7 @@ static arginfo_class_MongoDB_Driver_BulkWriteCommandResult___construct: Static<[
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
@@ -555,24 +555,24 @@ static arginfo_class_MongoDB_Driver_ClientEncryption___construct: Static<[sys::z
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_addKeyAltName: Static<[sys::zend_internal_arg_info; 3]> = Static([
     sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 258 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"keyId".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"keyId".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"keyAltName".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_createDataKey: Static<[sys::zend_internal_arg_info; 3]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"kmsProvider".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_decrypt: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 1022 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"value".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"value".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_deleteKey: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 256 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"keyId".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"keyId".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_encrypt: Static<[sys::zend_internal_arg_info; 3]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"value".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 1022 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
@@ -583,14 +583,14 @@ static arginfo_class_MongoDB_Driver_ClientEncryption_encryptExpression: Static<[
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_getKey: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 258 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"keyId".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"keyId".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Binary".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_getKeyByAltName: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 258 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"keyAltName".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_getKeys: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Cursor".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Cursor".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ClientEncryption_rewrapManyDataKey: Static<[sys::zend_internal_arg_info; 3]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 256 }, default_value: null() },
@@ -606,10 +606,10 @@ static arginfo_class_MongoDB_Driver_CursorInterface_current: Static<[sys::zend_i
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 386 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_CursorInterface_getId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_CursorInterface_getServer: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_CursorInterface_isDead: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
@@ -631,10 +631,10 @@ static arginfo_class_MongoDB_Driver_Cursor_current: Static<[sys::zend_internal_a
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 386 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Cursor_getId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Int64".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Cursor_getServer: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Cursor_isDead: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
@@ -653,16 +653,16 @@ static arginfo_class_MongoDB_Driver_Cursor_toArray: Static<[sys::zend_internal_a
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Document".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommandResult".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommandResult".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Exception_BulkWriteException_getWriteResult: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteResult".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteResult".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Exception_CommandException_getResultDocument: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 256 }, default_value: null() },
@@ -679,56 +679,56 @@ static arginfo_class_MongoDB_Driver_Manager___construct: Static<[sys::zend_inter
 ]);
 static arginfo_class_MongoDB_Driver_Manager_addSubscriber: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"subscriber".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\Subscriber".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"subscriber".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\Subscriber".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_createClientEncryption: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ClientEncryption".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ClientEncryption".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_executeBulkWrite: Static<[sys::zend_internal_arg_info; 4]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteResult".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteResult".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"namespace".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"bulk".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWrite".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"bulk".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWrite".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_executeBulkWriteCommand: Static<[sys::zend_internal_arg_info; 3]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommandResult".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"bulkWriteCommand".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommand".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommandResult".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"bulkWriteCommand".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommand".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_executeCommand: Static<[sys::zend_internal_arg_info; 4]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"db".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"command".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Command".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"command".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Command".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_executeQuery: Static<[sys::zend_internal_arg_info; 4]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"namespace".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"query".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Query".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"query".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Query".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_getEncryptedFieldsMap: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 386 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_getReadConcern: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadConcern".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadConcern".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_getReadPreference: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_getServers: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_getWriteConcern: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteConcern".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteConcern".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_selectServer: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"readPreference".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: c"null".as_ptr() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"readPreference".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Manager_startSession: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Session".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Session".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -741,7 +741,7 @@ static arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMic
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getError: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"Exception".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"Exception".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 256 }, default_value: null() },
@@ -750,7 +750,7 @@ static arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConne
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 18 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -768,19 +768,19 @@ static arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConn
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 18 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandFailed: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\CommandFailedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\CommandFailedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandStarted: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\CommandStartedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\CommandStartedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandSucceeded: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\CommandSucceededEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\CommandSucceededEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -798,7 +798,7 @@ static arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerCo
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 18 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_LogSubscriber_log: Static<[sys::zend_internal_arg_info; 4]> = Static([
     sys::zend_internal_arg_info { name: 3usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
@@ -808,39 +808,39 @@ static arginfo_class_MongoDB_Driver_Monitoring_LogSubscriber_log: Static<[sys::z
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverChanged: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerChangedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerChangedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverClosed: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerClosedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerClosedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatFailed: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerHeartbeatFailedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerHeartbeatFailedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatStarted: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerHeartbeatStartedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerHeartbeatStartedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatSucceeded: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerHeartbeatSucceededEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerHeartbeatSucceededEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverOpening: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerOpeningEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\ServerOpeningEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyChanged: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\TopologyChangedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\TopologyChangedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyClosed: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\TopologyClosedEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\TopologyClosedEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyOpening: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\TopologyOpeningEvent".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"event".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Monitoring\\TopologyOpeningEvent".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -849,13 +849,13 @@ static arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost: Stati
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ServerDescription".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ServerDescription".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -867,7 +867,7 @@ static arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort: Static
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -876,7 +876,7 @@ static arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDur
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"Exception".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"Exception".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
@@ -921,28 +921,28 @@ static arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort: Stati
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\TopologyDescription".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\TopologyDescription".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\ObjectId".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Query___construct: Static<[sys::zend_internal_arg_info; 3]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -954,7 +954,7 @@ static arginfo_class_MongoDB_Driver_ReadConcern___construct: Static<[sys::zend_i
     sys::zend_internal_arg_info { name: c"level".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 66 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadConcern___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadConcern".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadConcern".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadConcern___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -962,7 +962,7 @@ static arginfo_class_MongoDB_Driver_ReadConcern___unserialize: Static<[sys::zend
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadConcern_bsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadConcern_getLevel: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 66 }, default_value: null() },
@@ -977,7 +977,7 @@ static arginfo_class_MongoDB_Driver_ReadPreference___construct: Static<[sys::zen
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadPreference___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadPreference___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -985,7 +985,7 @@ static arginfo_class_MongoDB_Driver_ReadPreference___unserialize: Static<[sys::z
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadPreference_bsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ReadPreference_getHedge: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 258 }, default_value: null() },
@@ -1009,7 +1009,7 @@ static arginfo_class_MongoDB_Driver_ServerApi___serialize: Static<[sys::zend_int
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ServerApi___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ServerApi".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ServerApi".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ServerApi___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -1017,7 +1017,7 @@ static arginfo_class_MongoDB_Driver_ServerApi___unserialize: Static<[sys::zend_i
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ServerApi_bsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_ServerDescription___construct: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
@@ -1038,26 +1038,26 @@ static arginfo_class_MongoDB_Driver_Server___construct: Static<[sys::zend_intern
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_executeBulkWrite: Static<[sys::zend_internal_arg_info; 4]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteResult".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteResult".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"namespace".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"bulkWrite".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWrite".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"bulkWrite".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWrite".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_executeBulkWriteCommand: Static<[sys::zend_internal_arg_info; 3]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommandResult".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"bulkWriteCommand".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommand".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommandResult".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"bulkWriteCommand".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\BulkWriteCommand".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_executeCommand: Static<[sys::zend_internal_arg_info; 4]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"db".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"command".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Command".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"command".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Command".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_executeQuery: Static<[sys::zend_internal_arg_info; 4]> = Static([
-    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 2usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\CursorInterface".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"namespace".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 64 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"query".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Query".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"query".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Query".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"options".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_getHost: Static<[sys::zend_internal_arg_info; 1]> = Static([
@@ -1073,7 +1073,7 @@ static arginfo_class_MongoDB_Driver_Server_getPort: Static<[sys::zend_internal_a
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_getServerDescription: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ServerDescription".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ServerDescription".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Server_isArbiter: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
@@ -1090,7 +1090,7 @@ static arginfo_class_MongoDB_Driver_Session_advanceClusterTime: Static<[sys::zen
 ]);
 static arginfo_class_MongoDB_Driver_Session_advanceOperationTime: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16384 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"operationTime".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\TimestampInterface".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: c"operationTime".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\BSON\\TimestampInterface".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Session_getClusterTime: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 258 }, default_value: null() },
@@ -1099,10 +1099,10 @@ static arginfo_class_MongoDB_Driver_Session_getLogicalSessionId: Static<[sys::ze
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 256 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Session_getOperationTime: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Timestamp".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\BSON\\Timestamp".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Session_getServer: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_Session_getTransactionOptions: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 130 }, default_value: null() },
@@ -1128,7 +1128,7 @@ static arginfo_class_MongoDB_Driver_TopologyDescription_getType: Static<[sys::ze
 ]);
 static arginfo_class_MongoDB_Driver_TopologyDescription_hasReadableServer: Static<[sys::zend_internal_arg_info; 2]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
-    sys::zend_internal_arg_info { name: c"readPreference".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: c"null".as_ptr() },
+    sys::zend_internal_arg_info { name: c"readPreference".as_ptr(), type_: sys::zend_type { ptr: c"MongoDB\\Driver\\ReadPreference".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_TopologyDescription_hasWritableServer: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
@@ -1152,7 +1152,7 @@ static arginfo_class_MongoDB_Driver_WriteConcern___construct: Static<[sys::zend_
     sys::zend_internal_arg_info { name: c"journal".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 14 }, default_value: c"null".as_ptr() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteConcern___set_state: Static<[sys::zend_internal_arg_info; 2]> = Static([
-    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteConcern".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 1usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteConcern".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
     sys::zend_internal_arg_info { name: c"properties".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteConcern___unserialize: Static<[sys::zend_internal_arg_info; 2]> = Static([
@@ -1160,7 +1160,7 @@ static arginfo_class_MongoDB_Driver_WriteConcern___unserialize: Static<[sys::zen
     sys::zend_internal_arg_info { name: c"data".as_ptr(), type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteConcern_bsonSerialize: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"stdClass".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteConcern_getJournal: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 14 }, default_value: null() },
@@ -1193,626 +1193,626 @@ static arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount: Static<[sys::z
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 16 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteResult_getServer: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: 8388608 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\Server".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 0 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 128 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteResult_getWriteConcernError: Static<[sys::zend_internal_arg_info; 1]> = Static([
-    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteConcernError".as_ptr() as *mut c_void, type_mask: 8388610 }, default_value: null() },
+    sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: c"MongoDB\\Driver\\WriteConcernError".as_ptr() as *mut c_void, type_mask: crate::zend::class::LITERAL_NAME_BIT | 2 }, default_value: null() },
 ]);
 static arginfo_class_MongoDB_Driver_WriteResult_isAcknowledged: Static<[sys::zend_internal_arg_info; 1]> = Static([
     sys::zend_internal_arg_info { name: 0usize as *const c_char, type_: sys::zend_type { ptr: null_mut(), type_mask: 12 }, default_value: null() },
 ]);
 static class_MongoDB_BSON_BinaryInterface_methods: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"getData".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_BinaryInterface_getData.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getType".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_BinaryInterface_getType.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_BinaryInterface_getData.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getData".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_BinaryInterface_getData.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"getType".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_BinaryInterface_getType.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_BinaryInterface_getData.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Binary_methods: Static<[sys::zend_function_entry; 12]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary___construct)), arg_info: arginfo_class_MongoDB_BSON_Binary___construct.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"fromVector".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary_fromVector)), arg_info: arginfo_class_MongoDB_BSON_Binary_fromVector.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getData".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary_getData)), arg_info: arginfo_class_MongoDB_BSON_Binary_getData.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getType".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary_getType)), arg_info: arginfo_class_MongoDB_BSON_Binary_getType.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getVectorType".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary_getVectorType)), arg_info: arginfo_class_MongoDB_BSON_Binary_getVectorType.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toArray".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary_toArray)), arg_info: arginfo_class_MongoDB_BSON_Binary_toArray.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary___set_state)), arg_info: arginfo_class_MongoDB_BSON_Binary___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary___toString)), arg_info: arginfo_class_MongoDB_BSON_Binary_getData.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Binary___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary___serialize)), arg_info: arginfo_class_MongoDB_BSON_Binary_toArray.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Binary_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Binary_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary___construct)), arginfo_class_MongoDB_BSON_Binary___construct.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"fromVector".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary_fromVector)), arginfo_class_MongoDB_BSON_Binary_fromVector.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getData".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary_getData)), arginfo_class_MongoDB_BSON_Binary_getData.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getType".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary_getType)), arginfo_class_MongoDB_BSON_Binary_getType.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getVectorType".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary_getVectorType)), arginfo_class_MongoDB_BSON_Binary_getVectorType.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toArray".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary_toArray)), arginfo_class_MongoDB_BSON_Binary_toArray.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary___set_state)), arginfo_class_MongoDB_BSON_Binary___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary___toString)), arginfo_class_MongoDB_BSON_Binary_getData.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary___unserialize)), arginfo_class_MongoDB_BSON_Binary___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary___serialize)), arginfo_class_MongoDB_BSON_Binary_toArray.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Binary_jsonSerialize)), arginfo_class_MongoDB_BSON_Binary_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_DBPointer_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___construct)), arg_info: arginfo_class_MongoDB_BSON_DBPointer___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___set_state)), arg_info: arginfo_class_MongoDB_BSON_DBPointer___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___toString)), arg_info: arginfo_class_MongoDB_BSON_DBPointer___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___unserialize)), arg_info: arginfo_class_MongoDB_BSON_DBPointer___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___serialize)), arg_info: arginfo_class_MongoDB_BSON_DBPointer___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_DBPointer_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___construct)), arginfo_class_MongoDB_BSON_DBPointer___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___set_state)), arginfo_class_MongoDB_BSON_DBPointer___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___toString)), arginfo_class_MongoDB_BSON_DBPointer___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___unserialize)), arginfo_class_MongoDB_BSON_DBPointer___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer___serialize)), arginfo_class_MongoDB_BSON_DBPointer___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_DBPointer_jsonSerialize)), arginfo_class_MongoDB_BSON_DBPointer_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Decimal128Interface_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_Decimal128Interface___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_Decimal128Interface___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Decimal128_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___construct)), arg_info: arginfo_class_MongoDB_BSON_Decimal128___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___toString)), arg_info: arginfo_class_MongoDB_BSON_Decimal128___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___set_state)), arg_info: arginfo_class_MongoDB_BSON_Decimal128___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Decimal128___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___serialize)), arg_info: arginfo_class_MongoDB_BSON_Decimal128___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Decimal128_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___construct)), arginfo_class_MongoDB_BSON_Decimal128___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___toString)), arginfo_class_MongoDB_BSON_Decimal128___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___set_state)), arginfo_class_MongoDB_BSON_Decimal128___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___unserialize)), arginfo_class_MongoDB_BSON_Decimal128___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128___serialize)), arginfo_class_MongoDB_BSON_Decimal128___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Decimal128_jsonSerialize)), arginfo_class_MongoDB_BSON_Decimal128_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Document_methods: Static<[sys::zend_function_entry; 19]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document___construct)), arg_info: arginfo_class_MongoDB_BSON_Document___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"fromBSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_fromBSON)), arg_info: arginfo_class_MongoDB_BSON_Document_fromBSON.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"fromJSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_fromJSON)), arg_info: arginfo_class_MongoDB_BSON_Document_fromJSON.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"fromPHP".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_fromPHP)), arg_info: arginfo_class_MongoDB_BSON_Document_fromPHP.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"get".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_get)), arg_info: arginfo_class_MongoDB_BSON_Document_get.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getIterator".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_getIterator)), arg_info: arginfo_class_MongoDB_BSON_Document_getIterator.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"has".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_has)), arg_info: arginfo_class_MongoDB_BSON_Document_has.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toPHP".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_toPHP)), arg_info: arginfo_class_MongoDB_BSON_Document_toPHP.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toCanonicalExtendedJSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_toCanonicalExtendedJSON)), arg_info: arginfo_class_MongoDB_BSON_Document_toCanonicalExtendedJSON.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toRelaxedExtendedJSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_toRelaxedExtendedJSON)), arg_info: arginfo_class_MongoDB_BSON_Document_toCanonicalExtendedJSON.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetExists".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetExists)), arg_info: arginfo_class_MongoDB_BSON_Document_offsetExists.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetGet".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetGet)), arg_info: arginfo_class_MongoDB_BSON_Document_offsetGet.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetSet".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetSet)), arg_info: arginfo_class_MongoDB_BSON_Document_offsetSet.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetUnset".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetUnset)), arg_info: arginfo_class_MongoDB_BSON_Document_offsetUnset.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document___toString)), arg_info: arginfo_class_MongoDB_BSON_Document_toCanonicalExtendedJSON.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document___set_state)), arg_info: arginfo_class_MongoDB_BSON_Document___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Document___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Document___serialize)), arg_info: arginfo_class_MongoDB_BSON_Document___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document___construct)), arginfo_class_MongoDB_BSON_Document___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE) as _),
+    crate::zend::class::fe(c"fromBSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_fromBSON)), arginfo_class_MongoDB_BSON_Document_fromBSON.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"fromJSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_fromJSON)), arginfo_class_MongoDB_BSON_Document_fromJSON.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"fromPHP".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_fromPHP)), arginfo_class_MongoDB_BSON_Document_fromPHP.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"get".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_get)), arginfo_class_MongoDB_BSON_Document_get.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getIterator".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_getIterator)), arginfo_class_MongoDB_BSON_Document_getIterator.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"has".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_has)), arginfo_class_MongoDB_BSON_Document_has.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toPHP".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_toPHP)), arginfo_class_MongoDB_BSON_Document_toPHP.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toCanonicalExtendedJSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_toCanonicalExtendedJSON)), arginfo_class_MongoDB_BSON_Document_toCanonicalExtendedJSON.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toRelaxedExtendedJSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_toRelaxedExtendedJSON)), arginfo_class_MongoDB_BSON_Document_toCanonicalExtendedJSON.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"offsetExists".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetExists)), arginfo_class_MongoDB_BSON_Document_offsetExists.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"offsetGet".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetGet)), arginfo_class_MongoDB_BSON_Document_offsetGet.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"offsetSet".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetSet)), arginfo_class_MongoDB_BSON_Document_offsetSet.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"offsetUnset".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document_offsetUnset)), arginfo_class_MongoDB_BSON_Document_offsetUnset.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document___toString)), arginfo_class_MongoDB_BSON_Document_toCanonicalExtendedJSON.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document___set_state)), arginfo_class_MongoDB_BSON_Document___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document___unserialize)), arginfo_class_MongoDB_BSON_Document___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Document___serialize)), arginfo_class_MongoDB_BSON_Document___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Int64_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Int64___construct)), arg_info: arginfo_class_MongoDB_BSON_Int64___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Int64___toString)), arg_info: arginfo_class_MongoDB_BSON_Int64___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Int64___set_state)), arg_info: arginfo_class_MongoDB_BSON_Int64___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Int64___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Int64___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Int64___serialize)), arg_info: arginfo_class_MongoDB_BSON_Int64___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Int64_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Int64_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Int64___construct)), arginfo_class_MongoDB_BSON_Int64___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Int64___toString)), arginfo_class_MongoDB_BSON_Int64___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Int64___set_state)), arginfo_class_MongoDB_BSON_Int64___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Int64___unserialize)), arginfo_class_MongoDB_BSON_Int64___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Int64___serialize)), arginfo_class_MongoDB_BSON_Int64___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Int64_jsonSerialize)), arginfo_class_MongoDB_BSON_Int64_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Iterator_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Iterator___construct)), arg_info: arginfo_class_MongoDB_BSON_Iterator___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"current".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_current)), arg_info: arginfo_class_MongoDB_BSON_Iterator_current.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"key".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_key)), arg_info: arginfo_class_MongoDB_BSON_Iterator_key.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"next".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_next)), arg_info: arginfo_class_MongoDB_BSON_Iterator_next.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"rewind".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_rewind)), arg_info: arginfo_class_MongoDB_BSON_Iterator_next.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"valid".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_valid)), arg_info: arginfo_class_MongoDB_BSON_Iterator_valid.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Iterator___construct)), arginfo_class_MongoDB_BSON_Iterator___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"current".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_current)), arginfo_class_MongoDB_BSON_Iterator_current.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"key".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_key)), arginfo_class_MongoDB_BSON_Iterator_key.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"next".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_next)), arginfo_class_MongoDB_BSON_Iterator_next.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"rewind".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_rewind)), arginfo_class_MongoDB_BSON_Iterator_next.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"valid".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Iterator_valid)), arginfo_class_MongoDB_BSON_Iterator_valid.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_JavascriptInterface_methods: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"getCode".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_JavascriptInterface_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getScope".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_JavascriptInterface_getScope.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_JavascriptInterface_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getCode".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_JavascriptInterface_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"getScope".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_JavascriptInterface_getScope.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_JavascriptInterface_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Javascript_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___construct)), arg_info: arginfo_class_MongoDB_BSON_Javascript___construct.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___set_state)), arg_info: arginfo_class_MongoDB_BSON_Javascript___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCode".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript_getCode)), arg_info: arginfo_class_MongoDB_BSON_Javascript_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getScope".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript_getScope)), arg_info: arginfo_class_MongoDB_BSON_Javascript_getScope.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___toString)), arg_info: arginfo_class_MongoDB_BSON_Javascript_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Javascript___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___serialize)), arg_info: arginfo_class_MongoDB_BSON_Javascript___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Javascript_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Javascript_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___construct)), arginfo_class_MongoDB_BSON_Javascript___construct.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___set_state)), arginfo_class_MongoDB_BSON_Javascript___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCode".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript_getCode)), arginfo_class_MongoDB_BSON_Javascript_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getScope".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript_getScope)), arginfo_class_MongoDB_BSON_Javascript_getScope.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___toString)), arginfo_class_MongoDB_BSON_Javascript_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___unserialize)), arginfo_class_MongoDB_BSON_Javascript___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript___serialize)), arginfo_class_MongoDB_BSON_Javascript___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Javascript_jsonSerialize)), arginfo_class_MongoDB_BSON_Javascript_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_MaxKey_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey___set_state)), arg_info: arginfo_class_MongoDB_BSON_MaxKey___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey___unserialize)), arg_info: arginfo_class_MongoDB_BSON_MaxKey___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey___serialize)), arg_info: arginfo_class_MongoDB_BSON_MaxKey___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_MaxKey_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey___set_state)), arginfo_class_MongoDB_BSON_MaxKey___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey___unserialize)), arginfo_class_MongoDB_BSON_MaxKey___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey___serialize)), arginfo_class_MongoDB_BSON_MaxKey___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MaxKey_jsonSerialize)), arginfo_class_MongoDB_BSON_MaxKey_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_MinKey_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MinKey___set_state)), arg_info: arginfo_class_MongoDB_BSON_MinKey___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MinKey___unserialize)), arg_info: arginfo_class_MongoDB_BSON_MinKey___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MinKey___serialize)), arg_info: arginfo_class_MongoDB_BSON_MinKey___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_MinKey_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_MinKey_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MinKey___set_state)), arginfo_class_MongoDB_BSON_MinKey___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MinKey___unserialize)), arginfo_class_MongoDB_BSON_MinKey___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MinKey___serialize)), arginfo_class_MongoDB_BSON_MinKey___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_MinKey_jsonSerialize)), arginfo_class_MongoDB_BSON_MinKey_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_ObjectIdInterface_methods: Static<[sys::zend_function_entry; 3]> = Static([
-    sys::zend_function_entry { fname: c"getTimestamp".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_ObjectIdInterface_getTimestamp.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_ObjectIdInterface___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getTimestamp".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_ObjectIdInterface_getTimestamp.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_ObjectIdInterface___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_ObjectId_methods: Static<[sys::zend_function_entry; 8]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___construct)), arg_info: arginfo_class_MongoDB_BSON_ObjectId___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTimestamp".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId_getTimestamp)), arg_info: arginfo_class_MongoDB_BSON_ObjectId_getTimestamp.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___toString)), arg_info: arginfo_class_MongoDB_BSON_ObjectId___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___set_state)), arg_info: arginfo_class_MongoDB_BSON_ObjectId___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___unserialize)), arg_info: arginfo_class_MongoDB_BSON_ObjectId___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___serialize)), arg_info: arginfo_class_MongoDB_BSON_ObjectId___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_ObjectId_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___construct)), arginfo_class_MongoDB_BSON_ObjectId___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTimestamp".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId_getTimestamp)), arginfo_class_MongoDB_BSON_ObjectId_getTimestamp.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___toString)), arginfo_class_MongoDB_BSON_ObjectId___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___set_state)), arginfo_class_MongoDB_BSON_ObjectId___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___unserialize)), arginfo_class_MongoDB_BSON_ObjectId___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId___serialize)), arginfo_class_MongoDB_BSON_ObjectId___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_ObjectId_jsonSerialize)), arginfo_class_MongoDB_BSON_ObjectId_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_PackedArray_methods: Static<[sys::zend_function_entry; 18]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___construct)), arg_info: arginfo_class_MongoDB_BSON_PackedArray___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"fromJSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_fromJSON)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_fromJSON.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"fromPHP".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_fromPHP)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_fromPHP.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"get".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_get)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_get.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getIterator".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_getIterator)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_getIterator.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"has".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_has)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_has.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toPHP".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_toPHP)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_toPHP.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toCanonicalExtendedJSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toRelaxedExtendedJSON".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetExists".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetExists)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_offsetExists.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetGet".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetGet)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_offsetGet.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetSet".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetSet)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_offsetSet.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"offsetUnset".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetUnset)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_offsetUnset.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___toString)), arg_info: arginfo_class_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___set_state)), arg_info: arginfo_class_MongoDB_BSON_PackedArray___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___unserialize)), arg_info: arginfo_class_MongoDB_BSON_PackedArray___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___serialize)), arg_info: arginfo_class_MongoDB_BSON_PackedArray___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___construct)), arginfo_class_MongoDB_BSON_PackedArray___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE) as _),
+    crate::zend::class::fe(c"fromJSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_fromJSON)), arginfo_class_MongoDB_BSON_PackedArray_fromJSON.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"fromPHP".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_fromPHP)), arginfo_class_MongoDB_BSON_PackedArray_fromPHP.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"get".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_get)), arginfo_class_MongoDB_BSON_PackedArray_get.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getIterator".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_getIterator)), arginfo_class_MongoDB_BSON_PackedArray_getIterator.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"has".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_has)), arginfo_class_MongoDB_BSON_PackedArray_has.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toPHP".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_toPHP)), arginfo_class_MongoDB_BSON_PackedArray_toPHP.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toCanonicalExtendedJSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON)), arginfo_class_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toRelaxedExtendedJSON".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON)), arginfo_class_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"offsetExists".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetExists)), arginfo_class_MongoDB_BSON_PackedArray_offsetExists.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"offsetGet".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetGet)), arginfo_class_MongoDB_BSON_PackedArray_offsetGet.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"offsetSet".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetSet)), arginfo_class_MongoDB_BSON_PackedArray_offsetSet.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"offsetUnset".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray_offsetUnset)), arginfo_class_MongoDB_BSON_PackedArray_offsetUnset.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___toString)), arginfo_class_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___set_state)), arginfo_class_MongoDB_BSON_PackedArray___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___unserialize)), arginfo_class_MongoDB_BSON_PackedArray___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_PackedArray___serialize)), arginfo_class_MongoDB_BSON_PackedArray___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Persistable_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"bsonSerialize".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_Persistable_bsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"bsonSerialize".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_Persistable_bsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_RegexInterface_methods: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"getPattern".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_RegexInterface_getPattern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getFlags".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_RegexInterface_getPattern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_RegexInterface_getPattern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getPattern".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_RegexInterface_getPattern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"getFlags".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_RegexInterface_getPattern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_RegexInterface_getPattern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Regex_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex___construct)), arg_info: arginfo_class_MongoDB_BSON_Regex___construct.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPattern".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex_getPattern)), arg_info: arginfo_class_MongoDB_BSON_Regex_getPattern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getFlags".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex_getFlags)), arg_info: arginfo_class_MongoDB_BSON_Regex_getPattern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex___toString)), arg_info: arginfo_class_MongoDB_BSON_Regex_getPattern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex___set_state)), arg_info: arginfo_class_MongoDB_BSON_Regex___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Regex___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex___serialize)), arg_info: arginfo_class_MongoDB_BSON_Regex___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Regex_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Regex_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex___construct)), arginfo_class_MongoDB_BSON_Regex___construct.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPattern".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex_getPattern)), arginfo_class_MongoDB_BSON_Regex_getPattern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getFlags".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex_getFlags)), arginfo_class_MongoDB_BSON_Regex_getPattern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex___toString)), arginfo_class_MongoDB_BSON_Regex_getPattern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex___set_state)), arginfo_class_MongoDB_BSON_Regex___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex___unserialize)), arginfo_class_MongoDB_BSON_Regex___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex___serialize)), arginfo_class_MongoDB_BSON_Regex___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Regex_jsonSerialize)), arginfo_class_MongoDB_BSON_Regex_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Serializable_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"bsonSerialize".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_Serializable_bsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"bsonSerialize".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_Serializable_bsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Symbol_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___construct)), arg_info: arginfo_class_MongoDB_BSON_Symbol___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___toString)), arg_info: arginfo_class_MongoDB_BSON_Symbol___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___set_state)), arg_info: arginfo_class_MongoDB_BSON_Symbol___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Symbol___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___serialize)), arg_info: arginfo_class_MongoDB_BSON_Symbol___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Symbol_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Symbol_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___construct)), arginfo_class_MongoDB_BSON_Symbol___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___toString)), arginfo_class_MongoDB_BSON_Symbol___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___set_state)), arginfo_class_MongoDB_BSON_Symbol___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___unserialize)), arginfo_class_MongoDB_BSON_Symbol___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Symbol___serialize)), arginfo_class_MongoDB_BSON_Symbol___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Symbol_jsonSerialize)), arginfo_class_MongoDB_BSON_Symbol_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_TimestampInterface_methods: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"getTimestamp".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_TimestampInterface_getTimestamp.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getIncrement".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_TimestampInterface_getTimestamp.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_TimestampInterface___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getTimestamp".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_TimestampInterface_getTimestamp.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"getIncrement".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_TimestampInterface_getTimestamp.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_TimestampInterface___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Timestamp_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___construct)), arg_info: arginfo_class_MongoDB_BSON_Timestamp___construct.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTimestamp".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp_getTimestamp)), arg_info: arginfo_class_MongoDB_BSON_Timestamp_getTimestamp.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getIncrement".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp_getIncrement)), arg_info: arginfo_class_MongoDB_BSON_Timestamp_getTimestamp.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___toString)), arg_info: arginfo_class_MongoDB_BSON_Timestamp___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___set_state)), arg_info: arginfo_class_MongoDB_BSON_Timestamp___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Timestamp___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___serialize)), arg_info: arginfo_class_MongoDB_BSON_Timestamp___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Timestamp_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___construct)), arginfo_class_MongoDB_BSON_Timestamp___construct.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTimestamp".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp_getTimestamp)), arginfo_class_MongoDB_BSON_Timestamp_getTimestamp.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getIncrement".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp_getIncrement)), arginfo_class_MongoDB_BSON_Timestamp_getTimestamp.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___toString)), arginfo_class_MongoDB_BSON_Timestamp___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___set_state)), arginfo_class_MongoDB_BSON_Timestamp___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___unserialize)), arginfo_class_MongoDB_BSON_Timestamp___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp___serialize)), arginfo_class_MongoDB_BSON_Timestamp___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Timestamp_jsonSerialize)), arginfo_class_MongoDB_BSON_Timestamp_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_UTCDateTimeInterface_methods: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"toDateTime".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTimeInterface_toDateTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toDateTimeImmutable".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTimeInterface_toDateTimeImmutable.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTimeInterface___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"toDateTime".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_UTCDateTimeInterface_toDateTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"toDateTimeImmutable".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_UTCDateTimeInterface_toDateTimeImmutable.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_UTCDateTimeInterface___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_UTCDateTime_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___construct)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toDateTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime_toDateTime)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime_toDateTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toDateTimeImmutable".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime_toDateTimeImmutable)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime_toDateTimeImmutable.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___toString)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___set_state)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___unserialize)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___serialize)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_UTCDateTime_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___construct)), arginfo_class_MongoDB_BSON_UTCDateTime___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toDateTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime_toDateTime)), arginfo_class_MongoDB_BSON_UTCDateTime_toDateTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toDateTimeImmutable".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime_toDateTimeImmutable)), arginfo_class_MongoDB_BSON_UTCDateTime_toDateTimeImmutable.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___toString)), arginfo_class_MongoDB_BSON_UTCDateTime___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___set_state)), arginfo_class_MongoDB_BSON_UTCDateTime___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___unserialize)), arginfo_class_MongoDB_BSON_UTCDateTime___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime___serialize)), arginfo_class_MongoDB_BSON_UTCDateTime___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_UTCDateTime_jsonSerialize)), arginfo_class_MongoDB_BSON_UTCDateTime_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Undefined_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___construct)), arg_info: arginfo_class_MongoDB_BSON_Undefined___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__toString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___toString)), arg_info: arginfo_class_MongoDB_BSON_Undefined___toString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___set_state)), arg_info: arginfo_class_MongoDB_BSON_Undefined___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___unserialize)), arg_info: arginfo_class_MongoDB_BSON_Undefined___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___serialize)), arg_info: arginfo_class_MongoDB_BSON_Undefined___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"jsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_BSON_Undefined_jsonSerialize)), arg_info: arginfo_class_MongoDB_BSON_Undefined_jsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___construct)), arginfo_class_MongoDB_BSON_Undefined___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__toString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___toString)), arginfo_class_MongoDB_BSON_Undefined___toString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___set_state)), arginfo_class_MongoDB_BSON_Undefined___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___unserialize)), arginfo_class_MongoDB_BSON_Undefined___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Undefined___serialize)), arginfo_class_MongoDB_BSON_Undefined___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"jsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_BSON_Undefined_jsonSerialize)), arginfo_class_MongoDB_BSON_Undefined_jsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_BSON_Unserializable_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"bsonUnserialize".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_BSON_Unserializable_bsonUnserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"bsonUnserialize".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_BSON_Unserializable_bsonUnserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_BulkWriteCommandResult_methods: Static<[sys::zend_function_entry; 11]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult___construct)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getInsertedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getMatchedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getMatchedCount)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getModifiedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getModifiedCount)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getUpsertedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getUpsertedCount)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDeletedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getInsertResults".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getInsertResults)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getUpdateResults".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getUpdateResults)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDeleteResults".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isAcknowledged".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult___construct)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getInsertedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getMatchedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getMatchedCount)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getModifiedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getModifiedCount)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getUpsertedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getUpsertedCount)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDeletedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getDeletedCount)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getInsertResults".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getInsertResults)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getUpdateResults".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getUpdateResults)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDeleteResults".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_getDeleteResults)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_getInsertResults.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isAcknowledged".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged)), arginfo_class_MongoDB_Driver_BulkWriteCommandResult_isAcknowledged.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_BulkWriteCommand_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand___construct)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"count".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_count)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_count.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"deleteOne".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_deleteOne)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_deleteOne.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"deleteMany".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_deleteMany)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_deleteOne.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"insertOne".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_insertOne)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_insertOne.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"replaceOne".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_replaceOne)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_replaceOne.0.as_ptr(), num_args: 4, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"updateOne".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_updateOne)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_updateOne.0.as_ptr(), num_args: 4, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"updateMany".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_updateMany)), arg_info: arginfo_class_MongoDB_Driver_BulkWriteCommand_updateOne.0.as_ptr(), num_args: 4, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand___construct)), arginfo_class_MongoDB_Driver_BulkWriteCommand___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"count".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_count)), arginfo_class_MongoDB_Driver_BulkWriteCommand_count.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"deleteOne".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_deleteOne)), arginfo_class_MongoDB_Driver_BulkWriteCommand_deleteOne.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"deleteMany".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_deleteMany)), arginfo_class_MongoDB_Driver_BulkWriteCommand_deleteOne.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"insertOne".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_insertOne)), arginfo_class_MongoDB_Driver_BulkWriteCommand_insertOne.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"replaceOne".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_replaceOne)), arginfo_class_MongoDB_Driver_BulkWriteCommand_replaceOne.0.as_ptr(), 4, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"updateOne".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_updateOne)), arginfo_class_MongoDB_Driver_BulkWriteCommand_updateOne.0.as_ptr(), 4, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"updateMany".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWriteCommand_updateMany)), arginfo_class_MongoDB_Driver_BulkWriteCommand_updateOne.0.as_ptr(), 4, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_BulkWrite_methods: Static<[sys::zend_function_entry; 6]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite___construct)), arg_info: arginfo_class_MongoDB_Driver_BulkWrite___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"count".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_count)), arg_info: arginfo_class_MongoDB_Driver_BulkWrite_count.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"delete".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_delete)), arg_info: arginfo_class_MongoDB_Driver_BulkWrite_delete.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"insert".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_insert)), arg_info: arginfo_class_MongoDB_Driver_BulkWrite_insert.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"update".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_update)), arg_info: arginfo_class_MongoDB_Driver_BulkWrite_update.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite___construct)), arginfo_class_MongoDB_Driver_BulkWrite___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"count".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_count)), arginfo_class_MongoDB_Driver_BulkWrite_count.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"delete".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_delete)), arginfo_class_MongoDB_Driver_BulkWrite_delete.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"insert".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_insert)), arginfo_class_MongoDB_Driver_BulkWrite_insert.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"update".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_BulkWrite_update)), arginfo_class_MongoDB_Driver_BulkWrite_update.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_ClientEncryption_methods: Static<[sys::zend_function_entry; 13]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption___construct)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"addKeyAltName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_addKeyAltName)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_addKeyAltName.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"createDataKey".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_createDataKey)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_createDataKey.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"decrypt".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_decrypt)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_decrypt.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"deleteKey".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_deleteKey)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_deleteKey.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"encrypt".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_encrypt)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_encrypt.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"encryptExpression".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_encryptExpression)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_encryptExpression.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getKey".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_getKey)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_getKey.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getKeyByAltName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_getKeyByAltName)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_getKeyByAltName.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getKeys".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_getKeys)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_getKeys.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"removeKeyAltName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_removeKeyAltName)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_addKeyAltName.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"rewrapManyDataKey".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey)), arg_info: arginfo_class_MongoDB_Driver_ClientEncryption_rewrapManyDataKey.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption___construct)), arginfo_class_MongoDB_Driver_ClientEncryption___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"addKeyAltName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_addKeyAltName)), arginfo_class_MongoDB_Driver_ClientEncryption_addKeyAltName.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"createDataKey".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_createDataKey)), arginfo_class_MongoDB_Driver_ClientEncryption_createDataKey.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"decrypt".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_decrypt)), arginfo_class_MongoDB_Driver_ClientEncryption_decrypt.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"deleteKey".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_deleteKey)), arginfo_class_MongoDB_Driver_ClientEncryption_deleteKey.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"encrypt".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_encrypt)), arginfo_class_MongoDB_Driver_ClientEncryption_encrypt.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"encryptExpression".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_encryptExpression)), arginfo_class_MongoDB_Driver_ClientEncryption_encryptExpression.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getKey".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_getKey)), arginfo_class_MongoDB_Driver_ClientEncryption_getKey.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getKeyByAltName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_getKeyByAltName)), arginfo_class_MongoDB_Driver_ClientEncryption_getKeyByAltName.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getKeys".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_getKeys)), arginfo_class_MongoDB_Driver_ClientEncryption_getKeys.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"removeKeyAltName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_removeKeyAltName)), arginfo_class_MongoDB_Driver_ClientEncryption_addKeyAltName.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"rewrapManyDataKey".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey)), arginfo_class_MongoDB_Driver_ClientEncryption_rewrapManyDataKey.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Command_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Command___construct)), arg_info: arginfo_class_MongoDB_Driver_Command___construct.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Command___construct)), arginfo_class_MongoDB_Driver_Command___construct.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_CursorInterface_methods: Static<[sys::zend_function_entry; 8]> = Static([
-    sys::zend_function_entry { fname: c"current".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_current.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getId".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_getId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServer".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_getServer.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isDead".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_isDead.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"key".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_key.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"setTypeMap".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_setTypeMap.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toArray".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_CursorInterface_toArray.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"current".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_current.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"getId".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_getId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"getServer".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_getServer.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"isDead".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_isDead.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"key".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_key.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"setTypeMap".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_setTypeMap.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"toArray".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_CursorInterface_toArray.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Cursor_methods: Static<[sys::zend_function_entry; 12]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor___construct)), arg_info: arginfo_class_MongoDB_Driver_Cursor___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"current".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_current)), arg_info: arginfo_class_MongoDB_Driver_Cursor_current.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_getId)), arg_info: arginfo_class_MongoDB_Driver_Cursor_getId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServer".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_getServer)), arg_info: arginfo_class_MongoDB_Driver_Cursor_getServer.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isDead".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_isDead)), arg_info: arginfo_class_MongoDB_Driver_Cursor_isDead.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"key".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_key)), arg_info: arginfo_class_MongoDB_Driver_Cursor_key.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"next".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_next)), arg_info: arginfo_class_MongoDB_Driver_Cursor_next.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"rewind".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_rewind)), arg_info: arginfo_class_MongoDB_Driver_Cursor_next.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"setTypeMap".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_setTypeMap)), arg_info: arginfo_class_MongoDB_Driver_Cursor_setTypeMap.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"toArray".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_toArray)), arg_info: arginfo_class_MongoDB_Driver_Cursor_toArray.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"valid".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_valid)), arg_info: arginfo_class_MongoDB_Driver_Cursor_isDead.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor___construct)), arginfo_class_MongoDB_Driver_Cursor___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"current".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_current)), arginfo_class_MongoDB_Driver_Cursor_current.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"getId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_getId)), arginfo_class_MongoDB_Driver_Cursor_getId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServer".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_getServer)), arginfo_class_MongoDB_Driver_Cursor_getServer.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isDead".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_isDead)), arginfo_class_MongoDB_Driver_Cursor_isDead.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"key".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_key)), arginfo_class_MongoDB_Driver_Cursor_key.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"next".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_next)), arginfo_class_MongoDB_Driver_Cursor_next.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"rewind".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_rewind)), arginfo_class_MongoDB_Driver_Cursor_next.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(c"setTypeMap".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_setTypeMap)), arginfo_class_MongoDB_Driver_Cursor_setTypeMap.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"toArray".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_toArray)), arginfo_class_MongoDB_Driver_Cursor_toArray.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"valid".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Cursor_valid)), arginfo_class_MongoDB_Driver_Cursor_isDead.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Exception_BulkWriteCommandException_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"getErrorReply".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply)), arg_info: arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPartialResult".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult)), arg_info: arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getWriteErrors".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors)), arg_info: arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getWriteConcernErrors".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteConcernErrors)), arg_info: arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getErrorReply".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply)), arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getErrorReply.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPartialResult".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult)), arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getPartialResult.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getWriteErrors".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors)), arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getWriteConcernErrors".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteConcernErrors)), arginfo_class_MongoDB_Driver_Exception_BulkWriteCommandException_getWriteErrors.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Exception_BulkWriteException_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"getWriteResult".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteException_getWriteResult)), arg_info: arginfo_class_MongoDB_Driver_Exception_BulkWriteException_getWriteResult.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getWriteResult".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_BulkWriteException_getWriteResult)), arginfo_class_MongoDB_Driver_Exception_BulkWriteException_getWriteResult.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Exception_CommandException_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"getResultDocument".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_CommandException_getResultDocument)), arg_info: arginfo_class_MongoDB_Driver_Exception_CommandException_getResultDocument.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"getResultDocument".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_CommandException_getResultDocument)), arginfo_class_MongoDB_Driver_Exception_CommandException_getResultDocument.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Exception_RuntimeException_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"hasErrorLabel".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Exception_RuntimeException_hasErrorLabel)), arg_info: arginfo_class_MongoDB_Driver_Exception_RuntimeException_hasErrorLabel.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"hasErrorLabel".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Exception_RuntimeException_hasErrorLabel)), arginfo_class_MongoDB_Driver_Exception_RuntimeException_hasErrorLabel.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Manager_methods: Static<[sys::zend_function_entry; 19]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager___construct)), arg_info: arginfo_class_MongoDB_Driver_Manager___construct.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"addSubscriber".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_addSubscriber)), arg_info: arginfo_class_MongoDB_Driver_Manager_addSubscriber.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"createClientEncryption".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_createClientEncryption)), arg_info: arginfo_class_MongoDB_Driver_Manager_createClientEncryption.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeBulkWrite".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeBulkWrite)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeBulkWrite.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeBulkWriteCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeBulkWriteCommand)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeBulkWriteCommand.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeCommand)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeQuery".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeQuery)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeQuery.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeReadCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeReadCommand)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeReadWriteCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeReadWriteCommand)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeWriteCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeWriteCommand)), arg_info: arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getEncryptedFieldsMap".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getEncryptedFieldsMap)), arg_info: arginfo_class_MongoDB_Driver_Manager_getEncryptedFieldsMap.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getReadConcern".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getReadConcern)), arg_info: arginfo_class_MongoDB_Driver_Manager_getReadConcern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getReadPreference".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getReadPreference)), arg_info: arginfo_class_MongoDB_Driver_Manager_getReadPreference.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServers".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getServers)), arg_info: arginfo_class_MongoDB_Driver_Manager_getServers.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getWriteConcern".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getWriteConcern)), arg_info: arginfo_class_MongoDB_Driver_Manager_getWriteConcern.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"removeSubscriber".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_removeSubscriber)), arg_info: arginfo_class_MongoDB_Driver_Manager_addSubscriber.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"selectServer".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_selectServer)), arg_info: arginfo_class_MongoDB_Driver_Manager_selectServer.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"startSession".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Manager_startSession)), arg_info: arginfo_class_MongoDB_Driver_Manager_startSession.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager___construct)), arginfo_class_MongoDB_Driver_Manager___construct.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"addSubscriber".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_addSubscriber)), arginfo_class_MongoDB_Driver_Manager_addSubscriber.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"createClientEncryption".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_createClientEncryption)), arginfo_class_MongoDB_Driver_Manager_createClientEncryption.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeBulkWrite".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeBulkWrite)), arginfo_class_MongoDB_Driver_Manager_executeBulkWrite.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeBulkWriteCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeBulkWriteCommand)), arginfo_class_MongoDB_Driver_Manager_executeBulkWriteCommand.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeCommand)), arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeQuery".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeQuery)), arginfo_class_MongoDB_Driver_Manager_executeQuery.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeReadCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeReadCommand)), arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeReadWriteCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeReadWriteCommand)), arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeWriteCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_executeWriteCommand)), arginfo_class_MongoDB_Driver_Manager_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getEncryptedFieldsMap".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getEncryptedFieldsMap)), arginfo_class_MongoDB_Driver_Manager_getEncryptedFieldsMap.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getReadConcern".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getReadConcern)), arginfo_class_MongoDB_Driver_Manager_getReadConcern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getReadPreference".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getReadPreference)), arginfo_class_MongoDB_Driver_Manager_getReadPreference.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServers".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getServers)), arginfo_class_MongoDB_Driver_Manager_getServers.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getWriteConcern".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_getWriteConcern)), arginfo_class_MongoDB_Driver_Manager_getWriteConcern.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"removeSubscriber".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_removeSubscriber)), arginfo_class_MongoDB_Driver_Manager_addSubscriber.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"selectServer".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_selectServer)), arginfo_class_MongoDB_Driver_Manager_selectServer.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"startSession".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Manager_startSession)), arginfo_class_MongoDB_Driver_Manager_startSession.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_CommandFailedEvent_methods: Static<[sys::zend_function_entry; 13]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCommandName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDatabaseName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDatabaseName)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDurationMicros".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getError".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getError)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getError.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getOperationId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getOperationId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getReply".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getRequestId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getRequestId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServiceId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServerConnectionId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConnectionId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConnectionId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCommandName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDatabaseName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDatabaseName)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDurationMicros".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getError".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getError)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getError.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getOperationId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getOperationId)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getReply".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getRequestId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getRequestId)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServiceId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServerConnectionId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConnectionId)), arginfo_class_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConnectionId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_CommandStartedEvent_methods: Static<[sys::zend_function_entry; 11]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommand)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommand.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCommandName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDatabaseName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getDatabaseName)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getOperationId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getOperationId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getRequestId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getRequestId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServiceId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServerConnectionId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConnectionId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConnectionId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommand)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommand.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCommandName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDatabaseName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getDatabaseName)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getOperationId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getOperationId)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getRequestId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getRequestId)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServiceId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServerConnectionId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConnectionId)), arginfo_class_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConnectionId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_CommandSubscriber_methods: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"commandStarted".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandStarted.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"commandSucceeded".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandSucceeded.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"commandFailed".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandFailed.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"commandStarted".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandStarted.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"commandSucceeded".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandSucceeded.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"commandFailed".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_CommandSubscriber_commandFailed.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_CommandSucceededEvent_methods: Static<[sys::zend_function_entry; 12]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCommandName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDatabaseName".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDatabaseName)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDurationMicros".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getOperationId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getOperationId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getReply".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getReply)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getReply.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getRequestId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getRequestId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServiceId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServerConnectionId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCommandName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDatabaseName".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDatabaseName)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDurationMicros".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getOperationId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getOperationId)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getReply".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getReply)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getReply.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getRequestId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getRequestId)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServiceId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServerConnectionId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId)), arginfo_class_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_LogSubscriber_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"log".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_LogSubscriber_log.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"log".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_LogSubscriber_log.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_SDAMSubscriber_methods: Static<[sys::zend_function_entry; 10]> = Static([
-    sys::zend_function_entry { fname: c"serverChanged".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverChanged.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"serverClosed".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverClosed.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"serverOpening".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverOpening.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"serverHeartbeatFailed".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatFailed.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"serverHeartbeatStarted".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatStarted.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"serverHeartbeatSucceeded".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatSucceeded.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"topologyChanged".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyChanged.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"topologyClosed".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyClosed.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"topologyOpening".as_ptr(), handler: Some(crate::zh!(h::NULL)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyOpening.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"serverChanged".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverChanged.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"serverClosed".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverClosed.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"serverOpening".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverOpening.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"serverHeartbeatFailed".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatFailed.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"serverHeartbeatStarted".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatStarted.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"serverHeartbeatSucceeded".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_serverHeartbeatSucceeded.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"topologyChanged".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyChanged.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"topologyClosed".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyClosed.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(c"topologyOpening".as_ptr(), Some(crate::zh!(h::NULL)), arginfo_class_MongoDB_Driver_Monitoring_SDAMSubscriber_topologyOpening.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_ABSTRACT) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_ServerChangedEvent_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getNewDescription".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPreviousDescription".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPreviousDescription)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTopologyId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getNewDescription".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription)), arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPreviousDescription".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPreviousDescription)), arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTopologyId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId)), arginfo_class_MongoDB_Driver_Monitoring_ServerChangedEvent_getTopologyId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_ServerClosedEvent_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTopologyId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTopologyId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId)), arginfo_class_MongoDB_Driver_Monitoring_ServerClosedEvent_getTopologyId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDurationMicros".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getError".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isAwaited".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDurationMicros".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getError".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getError.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isAwaited".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent_isAwaited.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isAwaited".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isAwaited".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent_isAwaited.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDurationMicros".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getReply".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isAwaited".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDurationMicros".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getReply".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getReply.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getDurationMicros.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isAwaited".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited)), arginfo_class_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent_isAwaited.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_ServerOpeningEvent_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTopologyId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort)), arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost)), arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTopologyId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId)), arginfo_class_MongoDB_Driver_Monitoring_ServerOpeningEvent_getTopologyId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_TopologyChangedEvent_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getNewDescription".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPreviousDescription".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getPreviousDescription)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTopologyId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getNewDescription".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription)), arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPreviousDescription".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getPreviousDescription)), arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTopologyId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId)), arginfo_class_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_TopologyClosedEvent_methods: Static<[sys::zend_function_entry; 3]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTopologyId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTopologyId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId)), arginfo_class_MongoDB_Driver_Monitoring_TopologyClosedEvent_getTopologyId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Monitoring_TopologyOpeningEvent_methods: Static<[sys::zend_function_entry; 3]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTopologyId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId)), arg_info: arginfo_class_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct)), arginfo_class_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTopologyId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId)), arginfo_class_MongoDB_Driver_Monitoring_TopologyOpeningEvent_getTopologyId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Query_methods: Static<[sys::zend_function_entry; 2]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Query___construct)), arg_info: arginfo_class_MongoDB_Driver_Query___construct.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Query___construct)), arginfo_class_MongoDB_Driver_Query___construct.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_ReadConcern_methods: Static<[sys::zend_function_entry; 7]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern___construct)), arg_info: arginfo_class_MongoDB_Driver_ReadConcern___construct.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getLevel".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern_getLevel)), arg_info: arginfo_class_MongoDB_Driver_ReadConcern_getLevel.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isDefault".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern_isDefault)), arg_info: arginfo_class_MongoDB_Driver_ReadConcern_isDefault.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern___set_state)), arg_info: arginfo_class_MongoDB_Driver_ReadConcern___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"bsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern_bsonSerialize)), arg_info: arginfo_class_MongoDB_Driver_ReadConcern_bsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern___unserialize)), arg_info: arginfo_class_MongoDB_Driver_ReadConcern___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern___construct)), arginfo_class_MongoDB_Driver_ReadConcern___construct.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getLevel".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern_getLevel)), arginfo_class_MongoDB_Driver_ReadConcern_getLevel.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isDefault".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern_isDefault)), arginfo_class_MongoDB_Driver_ReadConcern_isDefault.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern___set_state)), arginfo_class_MongoDB_Driver_ReadConcern___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"bsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern_bsonSerialize)), arginfo_class_MongoDB_Driver_ReadConcern_bsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadConcern___unserialize)), arginfo_class_MongoDB_Driver_ReadConcern___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_ReadPreference_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference___construct)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference___construct.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHedge".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getHedge)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference_getHedge.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL | sys::ZEND_ACC_DEPRECATED) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getMaxStalenessSeconds".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getMaxStalenessSeconds)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference_getMaxStalenessSeconds.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getModeString".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getModeString)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference_getModeString.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTagSets".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getTagSets)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference_getTagSets.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference___set_state)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"bsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_bsonSerialize)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference_bsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference___unserialize)), arg_info: arginfo_class_MongoDB_Driver_ReadPreference___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference___construct)), arginfo_class_MongoDB_Driver_ReadPreference___construct.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHedge".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getHedge)), arginfo_class_MongoDB_Driver_ReadPreference_getHedge.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL | sys::ZEND_ACC_DEPRECATED) as _),
+    crate::zend::class::fe(c"getMaxStalenessSeconds".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getMaxStalenessSeconds)), arginfo_class_MongoDB_Driver_ReadPreference_getMaxStalenessSeconds.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getModeString".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getModeString)), arginfo_class_MongoDB_Driver_ReadPreference_getModeString.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTagSets".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_getTagSets)), arginfo_class_MongoDB_Driver_ReadPreference_getTagSets.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference___set_state)), arginfo_class_MongoDB_Driver_ReadPreference___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"bsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference_bsonSerialize)), arginfo_class_MongoDB_Driver_ReadPreference_bsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ReadPreference___unserialize)), arginfo_class_MongoDB_Driver_ReadPreference___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_ServerApi_methods: Static<[sys::zend_function_entry; 6]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___construct)), arg_info: arginfo_class_MongoDB_Driver_ServerApi___construct.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___set_state)), arg_info: arginfo_class_MongoDB_Driver_ServerApi___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"bsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi_bsonSerialize)), arg_info: arginfo_class_MongoDB_Driver_ServerApi_bsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___unserialize)), arg_info: arginfo_class_MongoDB_Driver_ServerApi___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__serialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___serialize)), arg_info: arginfo_class_MongoDB_Driver_ServerApi___serialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___construct)), arginfo_class_MongoDB_Driver_ServerApi___construct.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___set_state)), arginfo_class_MongoDB_Driver_ServerApi___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"bsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi_bsonSerialize)), arginfo_class_MongoDB_Driver_ServerApi_bsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___unserialize)), arginfo_class_MongoDB_Driver_ServerApi___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__serialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerApi___serialize)), arginfo_class_MongoDB_Driver_ServerApi___serialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_ServerDescription_methods: Static<[sys::zend_function_entry; 8]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription___construct)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHelloResponse".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getHelloResponse)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription_getHelloResponse.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getHost)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getLastUpdateTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getLastUpdateTime)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription_getLastUpdateTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getPort)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription_getLastUpdateTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getRoundTripTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getRoundTripTime)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription_getRoundTripTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getType".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getType)), arg_info: arginfo_class_MongoDB_Driver_ServerDescription_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription___construct)), arginfo_class_MongoDB_Driver_ServerDescription___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHelloResponse".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getHelloResponse)), arginfo_class_MongoDB_Driver_ServerDescription_getHelloResponse.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getHost)), arginfo_class_MongoDB_Driver_ServerDescription_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getLastUpdateTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getLastUpdateTime)), arginfo_class_MongoDB_Driver_ServerDescription_getLastUpdateTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getPort)), arginfo_class_MongoDB_Driver_ServerDescription_getLastUpdateTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getRoundTripTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getRoundTripTime)), arginfo_class_MongoDB_Driver_ServerDescription_getRoundTripTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getType".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_ServerDescription_getType)), arginfo_class_MongoDB_Driver_ServerDescription_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Server_methods: Static<[sys::zend_function_entry; 21]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server___construct)), arg_info: arginfo_class_MongoDB_Driver_Server___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeBulkWrite".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeBulkWrite)), arg_info: arginfo_class_MongoDB_Driver_Server_executeBulkWrite.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeBulkWriteCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeBulkWriteCommand)), arg_info: arginfo_class_MongoDB_Driver_Server_executeBulkWriteCommand.0.as_ptr(), num_args: 2, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeCommand)), arg_info: arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeQuery".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeQuery)), arg_info: arginfo_class_MongoDB_Driver_Server_executeQuery.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeReadCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeReadCommand)), arg_info: arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeReadWriteCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeReadWriteCommand)), arg_info: arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"executeWriteCommand".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeWriteCommand)), arg_info: arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getHost".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getHost)), arg_info: arginfo_class_MongoDB_Driver_Server_getHost.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getInfo".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getInfo)), arg_info: arginfo_class_MongoDB_Driver_Server_getInfo.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getLatency".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getLatency)), arg_info: arginfo_class_MongoDB_Driver_Server_getLatency.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getPort".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getPort)), arg_info: arginfo_class_MongoDB_Driver_Server_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServerDescription".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getServerDescription)), arg_info: arginfo_class_MongoDB_Driver_Server_getServerDescription.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTags".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getTags)), arg_info: arginfo_class_MongoDB_Driver_Server_getInfo.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getType".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_getType)), arg_info: arginfo_class_MongoDB_Driver_Server_getPort.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isArbiter".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_isArbiter)), arg_info: arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isHidden".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_isHidden)), arg_info: arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isPassive".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_isPassive)), arg_info: arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isPrimary".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_isPrimary)), arg_info: arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isSecondary".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Server_isSecondary)), arg_info: arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server___construct)), arginfo_class_MongoDB_Driver_Server___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeBulkWrite".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeBulkWrite)), arginfo_class_MongoDB_Driver_Server_executeBulkWrite.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeBulkWriteCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeBulkWriteCommand)), arginfo_class_MongoDB_Driver_Server_executeBulkWriteCommand.0.as_ptr(), 2, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeCommand)), arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeQuery".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeQuery)), arginfo_class_MongoDB_Driver_Server_executeQuery.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeReadCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeReadCommand)), arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeReadWriteCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeReadWriteCommand)), arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"executeWriteCommand".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_executeWriteCommand)), arginfo_class_MongoDB_Driver_Server_executeCommand.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getHost".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getHost)), arginfo_class_MongoDB_Driver_Server_getHost.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getInfo".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getInfo)), arginfo_class_MongoDB_Driver_Server_getInfo.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getLatency".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getLatency)), arginfo_class_MongoDB_Driver_Server_getLatency.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getPort".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getPort)), arginfo_class_MongoDB_Driver_Server_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServerDescription".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getServerDescription)), arginfo_class_MongoDB_Driver_Server_getServerDescription.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTags".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getTags)), arginfo_class_MongoDB_Driver_Server_getInfo.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getType".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_getType)), arginfo_class_MongoDB_Driver_Server_getPort.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isArbiter".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_isArbiter)), arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isHidden".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_isHidden)), arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isPassive".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_isPassive)), arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isPrimary".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_isPrimary)), arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isSecondary".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Server_isSecondary)), arginfo_class_MongoDB_Driver_Server_isArbiter.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_Session_methods: Static<[sys::zend_function_entry; 16]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session___construct)), arg_info: arginfo_class_MongoDB_Driver_Session___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"abortTransaction".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_abortTransaction)), arg_info: arginfo_class_MongoDB_Driver_Session_abortTransaction.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"advanceClusterTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_advanceClusterTime)), arg_info: arginfo_class_MongoDB_Driver_Session_advanceClusterTime.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"advanceOperationTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_advanceOperationTime)), arg_info: arginfo_class_MongoDB_Driver_Session_advanceOperationTime.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"commitTransaction".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_commitTransaction)), arg_info: arginfo_class_MongoDB_Driver_Session_abortTransaction.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"endSession".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_endSession)), arg_info: arginfo_class_MongoDB_Driver_Session_abortTransaction.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getClusterTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_getClusterTime)), arg_info: arginfo_class_MongoDB_Driver_Session_getClusterTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getLogicalSessionId".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_getLogicalSessionId)), arg_info: arginfo_class_MongoDB_Driver_Session_getLogicalSessionId.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getOperationTime".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_getOperationTime)), arg_info: arginfo_class_MongoDB_Driver_Session_getOperationTime.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServer".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_getServer)), arg_info: arginfo_class_MongoDB_Driver_Session_getServer.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTransactionOptions".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_getTransactionOptions)), arg_info: arginfo_class_MongoDB_Driver_Session_getTransactionOptions.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getTransactionState".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_getTransactionState)), arg_info: arginfo_class_MongoDB_Driver_Session_getTransactionState.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isDirty".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_isDirty)), arg_info: arginfo_class_MongoDB_Driver_Session_isDirty.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isInTransaction".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_isInTransaction)), arg_info: arginfo_class_MongoDB_Driver_Session_isDirty.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"startTransaction".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_Session_startTransaction)), arg_info: arginfo_class_MongoDB_Driver_Session_startTransaction.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session___construct)), arginfo_class_MongoDB_Driver_Session___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"abortTransaction".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_abortTransaction)), arginfo_class_MongoDB_Driver_Session_abortTransaction.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"advanceClusterTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_advanceClusterTime)), arginfo_class_MongoDB_Driver_Session_advanceClusterTime.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"advanceOperationTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_advanceOperationTime)), arginfo_class_MongoDB_Driver_Session_advanceOperationTime.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"commitTransaction".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_commitTransaction)), arginfo_class_MongoDB_Driver_Session_abortTransaction.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"endSession".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_endSession)), arginfo_class_MongoDB_Driver_Session_abortTransaction.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getClusterTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_getClusterTime)), arginfo_class_MongoDB_Driver_Session_getClusterTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getLogicalSessionId".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_getLogicalSessionId)), arginfo_class_MongoDB_Driver_Session_getLogicalSessionId.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getOperationTime".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_getOperationTime)), arginfo_class_MongoDB_Driver_Session_getOperationTime.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServer".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_getServer)), arginfo_class_MongoDB_Driver_Session_getServer.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTransactionOptions".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_getTransactionOptions)), arginfo_class_MongoDB_Driver_Session_getTransactionOptions.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getTransactionState".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_getTransactionState)), arginfo_class_MongoDB_Driver_Session_getTransactionState.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isDirty".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_isDirty)), arginfo_class_MongoDB_Driver_Session_isDirty.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isInTransaction".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_isInTransaction)), arginfo_class_MongoDB_Driver_Session_isDirty.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"startTransaction".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_Session_startTransaction)), arginfo_class_MongoDB_Driver_Session_startTransaction.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_TopologyDescription_methods: Static<[sys::zend_function_entry; 6]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription___construct)), arg_info: arginfo_class_MongoDB_Driver_TopologyDescription___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServers".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_getServers)), arg_info: arginfo_class_MongoDB_Driver_TopologyDescription_getServers.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getType".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_getType)), arg_info: arginfo_class_MongoDB_Driver_TopologyDescription_getType.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"hasReadableServer".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_hasReadableServer)), arg_info: arginfo_class_MongoDB_Driver_TopologyDescription_hasReadableServer.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"hasWritableServer".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_hasWritableServer)), arg_info: arginfo_class_MongoDB_Driver_TopologyDescription_hasWritableServer.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription___construct)), arginfo_class_MongoDB_Driver_TopologyDescription___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServers".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_getServers)), arginfo_class_MongoDB_Driver_TopologyDescription_getServers.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getType".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_getType)), arginfo_class_MongoDB_Driver_TopologyDescription_getType.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"hasReadableServer".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_hasReadableServer)), arginfo_class_MongoDB_Driver_TopologyDescription_hasReadableServer.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"hasWritableServer".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_TopologyDescription_hasWritableServer)), arginfo_class_MongoDB_Driver_TopologyDescription_hasWritableServer.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_WriteConcernError_methods: Static<[sys::zend_function_entry; 5]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError___construct)), arg_info: arginfo_class_MongoDB_Driver_WriteConcernError___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCode".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError_getCode)), arg_info: arginfo_class_MongoDB_Driver_WriteConcernError_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getInfo".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError_getInfo)), arg_info: arginfo_class_MongoDB_Driver_WriteConcernError_getInfo.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getMessage".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError_getMessage)), arg_info: arginfo_class_MongoDB_Driver_WriteConcernError_getMessage.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError___construct)), arginfo_class_MongoDB_Driver_WriteConcernError___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCode".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError_getCode)), arginfo_class_MongoDB_Driver_WriteConcernError_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getInfo".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError_getInfo)), arginfo_class_MongoDB_Driver_WriteConcernError_getInfo.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getMessage".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcernError_getMessage)), arginfo_class_MongoDB_Driver_WriteConcernError_getMessage.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_WriteConcern_methods: Static<[sys::zend_function_entry; 9]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern___construct)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern___construct.0.as_ptr(), num_args: 3, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getJournal".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_getJournal)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern_getJournal.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getW".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_getW)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern_getW.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getWtimeout".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_getWtimeout)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern_getWtimeout.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isDefault".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_isDefault)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern_isDefault.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__set_state".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern___set_state)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern___set_state.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"bsonSerialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_bsonSerialize)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern_bsonSerialize.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"__unserialize".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern___unserialize)), arg_info: arginfo_class_MongoDB_Driver_WriteConcern___unserialize.0.as_ptr(), num_args: 1, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern___construct)), arginfo_class_MongoDB_Driver_WriteConcern___construct.0.as_ptr(), 3, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getJournal".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_getJournal)), arginfo_class_MongoDB_Driver_WriteConcern_getJournal.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getW".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_getW)), arginfo_class_MongoDB_Driver_WriteConcern_getW.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getWtimeout".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_getWtimeout)), arginfo_class_MongoDB_Driver_WriteConcern_getWtimeout.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isDefault".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_isDefault)), arginfo_class_MongoDB_Driver_WriteConcern_isDefault.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__set_state".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern___set_state)), arginfo_class_MongoDB_Driver_WriteConcern___set_state.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_STATIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"bsonSerialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern_bsonSerialize)), arginfo_class_MongoDB_Driver_WriteConcern_bsonSerialize.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"__unserialize".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteConcern___unserialize)), arginfo_class_MongoDB_Driver_WriteConcern___unserialize.0.as_ptr(), 1, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_WriteError_methods: Static<[sys::zend_function_entry; 6]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteError___construct)), arg_info: arginfo_class_MongoDB_Driver_WriteError___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getCode".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getCode)), arg_info: arginfo_class_MongoDB_Driver_WriteError_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getIndex".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getIndex)), arg_info: arginfo_class_MongoDB_Driver_WriteError_getCode.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getInfo".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getInfo)), arg_info: arginfo_class_MongoDB_Driver_WriteError_getInfo.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getMessage".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getMessage)), arg_info: arginfo_class_MongoDB_Driver_WriteError_getMessage.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteError___construct)), arginfo_class_MongoDB_Driver_WriteError___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getCode".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getCode)), arginfo_class_MongoDB_Driver_WriteError_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getIndex".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getIndex)), arginfo_class_MongoDB_Driver_WriteError_getCode.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getInfo".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getInfo)), arginfo_class_MongoDB_Driver_WriteError_getInfo.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getMessage".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteError_getMessage)), arginfo_class_MongoDB_Driver_WriteError_getMessage.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static class_MongoDB_Driver_WriteResult_methods: Static<[sys::zend_function_entry; 13]> = Static([
-    sys::zend_function_entry { fname: c"__construct".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult___construct)), arg_info: arginfo_class_MongoDB_Driver_WriteResult___construct.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getInsertedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getInsertedCount)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getMatchedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getMatchedCount)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getModifiedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getModifiedCount)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getDeletedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getDeletedCount)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getUpsertedCount".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getUpsertedCount)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getServer".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getServer)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getServer.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getUpsertedIds".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getUpsertedIds)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getWriteConcernError".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getWriteConcernError)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getWriteConcernError.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getWriteErrors".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getWriteErrors)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"getErrorReplies".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getErrorReplies)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"isAcknowledged".as_ptr(), handler: Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_isAcknowledged)), arg_info: arginfo_class_MongoDB_Driver_WriteResult_isAcknowledged.0.as_ptr(), num_args: 0, flags: (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"__construct".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult___construct)), arginfo_class_MongoDB_Driver_WriteResult___construct.0.as_ptr(), 0, (sys::ZEND_ACC_PRIVATE | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getInsertedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getInsertedCount)), arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getMatchedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getMatchedCount)), arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getModifiedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getModifiedCount)), arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getDeletedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getDeletedCount)), arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getUpsertedCount".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getUpsertedCount)), arginfo_class_MongoDB_Driver_WriteResult_getInsertedCount.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getServer".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getServer)), arginfo_class_MongoDB_Driver_WriteResult_getServer.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getUpsertedIds".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getUpsertedIds)), arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getWriteConcernError".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getWriteConcernError)), arginfo_class_MongoDB_Driver_WriteResult_getWriteConcernError.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getWriteErrors".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getWriteErrors)), arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"getErrorReplies".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_getErrorReplies)), arginfo_class_MongoDB_Driver_WriteResult_getUpsertedIds.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(c"isAcknowledged".as_ptr(), Some(crate::zh!(h::zim_MongoDB_Driver_WriteResult_isAcknowledged)), arginfo_class_MongoDB_Driver_WriteResult_isAcknowledged.0.as_ptr(), 0, (sys::ZEND_ACC_PUBLIC | sys::ZEND_ACC_FINAL) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 static ext_functions: Static<[sys::zend_function_entry; 4]> = Static([
-    sys::zend_function_entry { fname: c"MongoDB\\Driver\\Monitoring\\addSubscriber".as_ptr(), handler: Some(crate::zh!(h::zif_MongoDB_Driver_Monitoring_addSubscriber)), arg_info: arginfo_MongoDB_Driver_Monitoring_addSubscriber.0.as_ptr(), num_args: 1, flags: (0) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"MongoDB\\Driver\\Monitoring\\mongoc_log".as_ptr(), handler: Some(crate::zh!(h::zif_MongoDB_Driver_Monitoring_mongoc_log)), arg_info: arginfo_MongoDB_Driver_Monitoring_mongoc_log.0.as_ptr(), num_args: 3, flags: (0) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: c"MongoDB\\Driver\\Monitoring\\removeSubscriber".as_ptr(), handler: Some(crate::zh!(h::zif_MongoDB_Driver_Monitoring_removeSubscriber)), arg_info: arginfo_MongoDB_Driver_Monitoring_addSubscriber.0.as_ptr(), num_args: 1, flags: (0) as _, frameless_function_infos: null(), doc_comment: null() },
-    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },
+    crate::zend::class::fe(c"MongoDB\\Driver\\Monitoring\\addSubscriber".as_ptr(), Some(crate::zh!(h::zif_MongoDB_Driver_Monitoring_addSubscriber)), arginfo_MongoDB_Driver_Monitoring_addSubscriber.0.as_ptr(), 1, (0) as _),
+    crate::zend::class::fe(c"MongoDB\\Driver\\Monitoring\\mongoc_log".as_ptr(), Some(crate::zh!(h::zif_MongoDB_Driver_Monitoring_mongoc_log)), arginfo_MongoDB_Driver_Monitoring_mongoc_log.0.as_ptr(), 3, (0) as _),
+    crate::zend::class::fe(c"MongoDB\\Driver\\Monitoring\\removeSubscriber".as_ptr(), Some(crate::zh!(h::zif_MongoDB_Driver_Monitoring_removeSubscriber)), arginfo_MongoDB_Driver_Monitoring_addSubscriber.0.as_ptr(), 1, (0) as _),
+    crate::zend::class::fe(null(), None, null(), 0, 0),
 ]);
 
 /// The module functions (MongoDB\Driver\Monitoring\*).

@@ -974,7 +974,7 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
         if zval::is(so, sys::IS_ARRAY) {
             for k in [&b"caseSensitive"[..], b"diacriticSensitive"] {
                 if let Some(z) = opt(so, k) {
-                    w.bool(k, sys::zend_is_true(z));
+                    w.bool(k, zval::is_true(z));
                 }
             }
             for (name, fields) in [
@@ -1187,7 +1187,7 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
         throw(E::InvalidArgument, format!("Expected \"autoEncryption\" driver option to be array, {} given", zval::type_name(z)));
         return None;
     }
-    let is_true = |k: &[u8]| opt(z, k).is_some_and(|v| sys::zend_is_true(v));
+    let is_true = |k: &[u8]| opt(z, k).is_some_and(|v| zval::is_true(v));
     let bypass_auto = is_true(b"bypassAutoEncryption");
     let bypass_qa = is_true(b"bypassQueryAnalysis");
     let doc_opt = |k: &str| -> Result<Option<Vec<u8>>, ()> {

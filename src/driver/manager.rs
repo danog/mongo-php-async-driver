@@ -214,7 +214,7 @@ unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
                     let mut b = String::new();
                     let name = hash::key_bytes(pk, &mut b).to_vec();
                     let pv = zval::deref(pv);
-                    if name.eq_ignore_ascii_case(b"CANONICALIZE_HOST_NAME") && !zval::is(pv, sys::IS_STRING) && sys::zend_is_true(pv) {
+                    if name.eq_ignore_ascii_case(b"CANONICALIZE_HOST_NAME") && !zval::is(pv, sys::IS_STRING) && zval::is_true(pv) {
                         fix.push(name);
                     }
                 }
@@ -316,7 +316,7 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     me.client_hash = key.clone();
     // safety: the reference shows the URI as given, password included
     me.uri_string = mongo_core::uri::redact(&uri_string);
-    let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| sys::zend_is_true(zval::deref(z)));
+    let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| zval::is_true(zval::deref(z)));
     if !disable_persistence {
         if let Some(c) = super::find_persistent_client(&key) {
             // safety: the reference prints the hash itself (the URI's SHA-256 and the option values)
@@ -858,7 +858,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
     } else if zval::is(rp, sys::IS_OBJECT) && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE) {
         Some(obj::data::<ReadPreference>((*rp).value.obj).prefs())
     } else {
-        sys::zend_argument_type_error(1, c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(), sys::zend_zval_value_name(rp));
+        sys::zend_argument_type_error(1, c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(), zval::value_name(rp));
         return;
     };
     let r = c.checkout().select_server_id(OpType::Read, prefs.as_ref(), &[]);
@@ -912,7 +912,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
     if !options.is_null() {
         let ht = (*options).value.arr;
         if let Some(z) = hash::find(ht, b"causalConsistency") {
-            causal = Some(sys::zend_is_true(zval::deref(z)));
+            causal = Some(zval::is_true(zval::deref(z)));
         }
         if let Some(z) = hash::find(ht, b"defaultTransactionOptions") {
             let z = zval::deref(z);
@@ -929,7 +929,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
             }
         }
         if let Some(z) = hash::find(ht, b"snapshot") {
-            snapshot = Some(sys::zend_is_true(zval::deref(z)));
+            snapshot = Some(zval::is_true(zval::deref(z)));
         }
     }
     let snap = snapshot.unwrap_or(false);

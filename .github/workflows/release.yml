@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         # 8.6: the official images are ZTS-only; added with ZTS support
-        php: ["8.4", "8.5"]
+        php: ["8.2", "8.3", "8.4", "8.5"]
         arch: [x86_64, arm64]
         libc: [glibc, musl]
     steps:
@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.4", "8.5", "8.6"]
+        php: ["8.2", "8.3", "8.4", "8.5", "8.6"]
         arch: [arm64, x86_64]
     steps:
       - name: Check the tag name
@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.4", "8.5", "8.6"]
+        php: ["8.2", "8.3", "8.4", "8.5", "8.6"]
     defaults:
       run:
         shell: bash

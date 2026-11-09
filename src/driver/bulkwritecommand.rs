@@ -83,7 +83,7 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut BulkWriteCommand {
 
 /// php_array_fetchc_bool
 unsafe fn fetch_bool(ht: *mut sys::HashTable, k: &[u8]) -> bool {
-    hash::sym_find(ht, k).is_some_and(|z| sys::zend_is_true(z))
+    hash::sym_find(ht, k).is_some_and(|z| zval::is_true(z))
 }
 
 unsafe fn opt_ht(z: *mut sys::zval) -> Option<*mut sys::HashTable> {

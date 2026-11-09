@@ -386,8 +386,11 @@ for name in sorted(arginfos):
     out.append('static %s: Static<[sys::zend_internal_arg_info; %d]> = Static([' % (name, len(rows)))
     for (n, ptr, mask, dflt) in rows:
         p = 'null_mut()' if ptr == 'null()' else '%s.as_ptr() as *mut c_void' % ptr
-        out.append('    sys::zend_internal_arg_info { name: %s, type_: sys::zend_type { ptr: %s, type_mask: %d }, default_value: %s },'
-                   % (n if n.endswith('as *const c_char') else '%s.as_ptr()' % n, p, mask, dflt if dflt == 'null()' else '%s.as_ptr()' % dflt))
+        # a class name given as a C string: _ZEND_TYPE_LITERAL_NAME_BIT from PHP 8.3 on,
+        # _ZEND_TYPE_NAME_BIT before (crate::zend::class::LITERAL_NAME_BIT)
+        m = ('crate::zend::class::LITERAL_NAME_BIT | %d' % (mask & ~TYPE_LITERAL_NAME_BIT)) if mask & TYPE_LITERAL_NAME_BIT else '%d' % mask
+        out.append('    sys::zend_internal_arg_info { name: %s, type_: sys::zend_type { ptr: %s, type_mask: %s }, default_value: %s },'
+                   % (n if n.endswith('as *const c_char') else '%s.as_ptr()' % n, p, m, dflt if dflt == 'null()' else '%s.as_ptr()' % dflt))
     out.append(']);')
 def ai(name):
     return aliases.get(name, name)
@@ -397,9 +400,9 @@ for tname in sorted(tables):
     for (fname, hnd, a, fl) in ents:
         a = ai(a)
         flg = ' | '.join('sys::' + f for f in fl.split('|')) if fl != '0' else '0'
-        out.append('    sys::zend_function_entry { fname: %s.as_ptr(), handler: %s, arg_info: %s.0.as_ptr(), num_args: %d, flags: (%s) as _, frameless_function_infos: null(), doc_comment: null() },'
+        out.append('    crate::zend::class::fe(%s.as_ptr(), %s, %s.0.as_ptr(), %d, (%s) as _),'
                    % (fname, 'Some(crate::zh!(h::%s))' % hnd if hnd else 'None', a, len(arginfos[a]) - 1, flg))
-    out.append('    sys::zend_function_entry { fname: null(), handler: None, arg_info: null(), num_args: 0, flags: 0, frameless_function_infos: null(), doc_comment: null() },')
+    out.append('    crate::zend::class::fe(null(), None, null(), 0, 0),')
     out.append(']);')
 
 out.append('')

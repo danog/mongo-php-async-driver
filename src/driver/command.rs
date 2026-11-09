@@ -60,7 +60,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Command___construct(ex: Ex, _rv: *mu
         return;
     }
     if !zval::is(doc, sys::IS_ARRAY) && !zval::is(doc, sys::IS_OBJECT) {
-        sys::zend_argument_type_error(1, c"must be of type object|array, %s given".as_ptr(), sys::zend_zval_value_name(doc));
+        sys::zend_argument_type_error(1, c"must be of type object|array, %s given".as_ptr(), zval::value_name(doc));
         return;
     }
     let me = obj::data::<Command>(call::this(ex));

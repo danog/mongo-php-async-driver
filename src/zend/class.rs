@@ -3,7 +3,7 @@
 
 use super::sys;
 use std::ffi::{c_char, CStr};
-use std::ptr::{addr_of, addr_of_mut, null_mut};
+use std::ptr::{addr_of_mut, null_mut};
 
 /// A property's default value.
 pub enum Default {
@@ -22,14 +22,50 @@ pub unsafe fn interned(s: &CStr) -> *mut sys::zend_string {
 unsafe fn class_entry(name: &CStr, functions: *const sys::zend_function_entry) -> sys::zend_class_entry {
     let mut ce: sys::zend_class_entry = std::mem::zeroed();
     ce.name = interned(name);
-    ce.default_object_handlers = addr_of!(super::obj::STD);
+    // the field exists from PHP 8.3 on (objects get their handlers in obj::alloc anyway)
+    #[cfg(php83)]
+    {
+        ce.default_object_handlers = std::ptr::addr_of!(super::obj::STD);
+    }
     ce.info.internal.builtin_functions = functions;
     ce
 }
 
 pub unsafe fn register_class(name: &CStr, functions: *const sys::zend_function_entry, parent: *mut sys::zend_class_entry, flags: u32) -> *mut sys::zend_class_entry {
     let mut ce = class_entry(name, functions);
-    sys::zend_register_internal_class_with_flags(&mut ce, parent, flags)
+    #[cfg(php84)]
+    return sys::zend_register_internal_class_with_flags(&mut ce, parent, flags);
+    // before 8.4 (zend_register_internal_class_with_flags is new there): register, then flag
+    #[cfg(not(php84))]
+    {
+        let c = sys::zend_register_internal_class_ex(&mut ce, parent);
+        (*c).ce_flags |= flags;
+        c
+    }
+}
+
+/// The type-mask bit of a class name given as a C string in internal arginfo
+/// (ZEND_TYPE_INIT_CLASS_CONST): _ZEND_TYPE_LITERAL_NAME_BIT from PHP 8.3 on, _ZEND_TYPE_NAME_BIT
+/// before (PHP 8.2 converts those C strings at registration).
+#[cfg(php83)]
+pub const LITERAL_NAME_BIT: u32 = 1 << 23;
+#[cfg(not(php83))]
+pub const LITERAL_NAME_BIT: u32 = 1 << 24;
+
+/// A method table entry; `frameless_function_infos` and `doc_comment` exist from PHP 8.4 on.
+#[allow(clippy::too_many_arguments)]
+pub const fn fe(fname: *const c_char, handler: sys::zif_handler, arg_info: *const sys::zend_internal_arg_info, num_args: u32, flags: u64) -> sys::zend_function_entry {
+    sys::zend_function_entry {
+        fname,
+        handler,
+        arg_info,
+        num_args,
+        flags: flags as _,
+        #[cfg(php84)]
+        frameless_function_infos: std::ptr::null(),
+        #[cfg(php84)]
+        doc_comment: std::ptr::null(),
+    }
 }
 
 pub unsafe fn register_interface(name: &CStr, functions: *const sys::zend_function_entry) -> *mut sys::zend_class_entry {

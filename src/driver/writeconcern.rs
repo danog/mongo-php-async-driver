@@ -89,7 +89,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___construct(ex: Ex, _rv
     }
     let n = call::num_args(ex);
     if n >= 3 && !journal.is_null() && !zval::is(journal, sys::IS_NULL) {
-        let j = sys::zend_is_true(journal);
+        let j = zval::is_true(journal);
         if j && wc.w == W_UNACKNOWLEDGED {
             throw(E::InvalidArgument, "Cannot enable journaling when using w = 0");
             return;

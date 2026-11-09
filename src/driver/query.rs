@@ -87,7 +87,7 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
     macro_rules! bool_opt {
         ($k:literal) => {
             if let Some(v) = hash::sym_find(o, $k.as_bytes()) {
-                w.bool($k.as_bytes(), sys::zend_is_true(v));
+                w.bool($k.as_bytes(), zval::is_true(v));
             }
         };
     }

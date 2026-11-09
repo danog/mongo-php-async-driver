@@ -109,6 +109,23 @@ pub unsafe fn is(z: *const sys::zval, t: u32) -> bool {
     type_of(z) as u32 == t
 }
 
+/// zend_is_true (a bool from PHP 8.4 on, an int before).
+#[inline]
+#[allow(clippy::unnecessary_cast)]
+pub unsafe fn is_true(z: *mut sys::zval) -> bool {
+    sys::zend_is_true(z) as i32 != 0
+}
+
+/// The value's name in zend_parse_parameters' type errors: zend_zval_value_name from PHP 8.3
+/// on ("true", a class name), zend_zval_type_name before ("bool"), as PHP's own messages.
+#[inline]
+pub unsafe fn value_name(z: *mut sys::zval) -> *const std::ffi::c_char {
+    #[cfg(php83)]
+    return sys::zend_zval_value_name(z);
+    #[cfg(not(php83))]
+    return sys::zend_zval_type_name(z);
+}
+
 /// ZVAL_DEREF
 #[inline]
 pub unsafe fn deref(mut z: *mut sys::zval) -> *mut sys::zval {

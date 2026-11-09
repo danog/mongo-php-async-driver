@@ -30,7 +30,7 @@ fn main() {
     if arch != "x86_64" && arch != "aarch64" {
         panic!("only x86_64 and aarch64 targets are supported (target architecture {arch})");
     }
-    for v in ["php84", "php85", "php86"] {
+    for v in ["php83", "php84", "php85", "php86"] {
         println!("cargo:rustc-check-cfg=cfg({v})");
     }
     if windows {
@@ -57,10 +57,12 @@ fn main() {
     }
     // cumulative, as ext-php-rs's: `php85` means 8.5 or later
     let cfgs: &[&str] = match api {
-        20240924 => &["php84"],
-        20250925 => &["php84", "php85"],
-        20260924 => &["php84", "php85", "php86"],
-        _ => panic!("unsupported PHP {version} (API {api}): supported are 8.4, 8.5 and 8.6"),
+        20220829 => &[],
+        20230831 => &["php83"],
+        20240924 => &["php83", "php84"],
+        20250925 => &["php83", "php84", "php85"],
+        20260924 => &["php83", "php84", "php85", "php86"],
+        _ => panic!("unsupported PHP {version} (API {api}): supported are 8.2 to 8.6"),
     };
     // the Zend symbols are resolved from the php binary when the extension is loaded
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
@@ -95,10 +97,12 @@ fn windows_php() {
         panic!("only NTS non-debug PHP builds are supported (PHP_ZTS/PHP_DEBUG = {flags})");
     }
     let cfgs: &[&str] = match api {
-        20240924 => &["php84"],
-        20250925 => &["php84", "php85"],
-        20260924 => &["php84", "php85", "php86"],
-        _ => panic!("unsupported PHP (API {api}): supported are 8.4, 8.5 and 8.6"),
+        20220829 => &[],
+        20230831 => &["php83"],
+        20240924 => &["php83", "php84"],
+        20250925 => &["php83", "php84", "php85"],
+        20260924 => &["php83", "php84", "php85", "php86"],
+        _ => panic!("unsupported PHP (API {api}): supported are 8.2 to 8.6"),
     };
     if !build_id.starts_with(&format!("API{api},NTS,")) {
         panic!("unexpected PHP extension build id {build_id}");
