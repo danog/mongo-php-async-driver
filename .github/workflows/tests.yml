@@ -167,13 +167,20 @@ jobs:
       - run: cargo test --locked -p mongo-core --lib
 
   pie:
-    name: "PIE build from source (ubuntu-24.04 / PHP 8.4)"
+    name: "PIE build from source (ubuntu-24.04 / PHP ${{ matrix.php }})"
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4", "8.5", "8.6"]
+    # PHP 8.6 is not supported yet (build.rs refuses it): its job shows the state, without failing
+    # the run, until the port lands
+    continue-on-error: ${{ matrix.php == '8.6' }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.4"
+          php-version: ${{ matrix.php }}
           tools: pie
           extensions: :mongodb
           coverage: none
