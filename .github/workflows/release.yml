@@ -5,6 +5,9 @@ name: Release binaries
 #   Linux/macOS: php_mongodb-<tag>_php<X.Y>-<arch>-<os>-<libc>.zip, holding mongodb.so
 #   Windows:     php_mongodb-<tag>-<X.Y>-nts-<compiler>-x86_64.zip, holding a .dll of the same name
 # Where no binary matches, PIE builds from source (config.m4 + Makefile.frag run cargo).
+#
+# The build jobs run third-party code (cargo build scripts, the PHP images) and get a read-only
+# token, never persisted in the checkout; only the upload job, which runs no build code, may write.
 
 on:
   release:
@@ -16,7 +19,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -32,22 +35,26 @@ jobs:
         arch: [x86_64, arm64]
         libc: [glibc, musl]
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the tag name
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
       - name: Build in the official PHP image
         run: |
           image=php:${{ matrix.php }}-cli-${{ matrix.libc == 'musl' && 'alpine' || 'bookworm' }}
           docker run --rm -v "$PWD:/src" -w /src "$image" sh tools/release/build-linux.sh mongodb.so
-      - name: Package and upload
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Package
         run: |
-          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
-          asset=php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-linux-${{ matrix.libc }}.zip
-          asset=$(echo "$asset" | tr 'A-Z' 'a-z')
-          zip -j "$asset" mongodb.so
-          gh release upload "$TAG" "$asset" --clobber
+          asset=$(echo "php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-linux-${{ matrix.libc }}.zip" | tr 'A-Z' 'a-z')
+          mkdir dist && zip -j "dist/$asset" mongodb.so
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-${{ matrix.arch }}-${{ matrix.libc }}-php${{ matrix.php }}
+          path: dist/*.zip
+          if-no-files-found: error
 
   macos:
     name: "macOS ${{ matrix.arch }} / PHP ${{ matrix.php }}"
@@ -58,31 +65,32 @@ jobs:
         php: ["8.4", "8.5"]
         arch: [arm64, x86_64]
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the tag name
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.TAG }}
-      - uses: shivammathur/setup-php@v2
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: ${{ matrix.php }}
           extensions: :mongodb
           coverage: none
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Build and package
         run: |
-          echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
           export LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib
           PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --release --locked
           cp target/release/libmongodb.dylib mongodb.so
           php -n -d "extension=$PWD/mongodb.so" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
-      - name: Package and upload
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
-          asset=php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-darwin-bsdlibc.zip
-          asset=$(echo "$asset" | tr 'A-Z' 'a-z')
-          zip -j "$asset" mongodb.so
-          gh release upload "$TAG" "$asset" --clobber
+          asset=$(echo "php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-darwin-bsdlibc.zip" | tr 'A-Z' 'a-z')
+          mkdir dist && zip -j "dist/$asset" mongodb.so
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-${{ matrix.arch }}-php${{ matrix.php }}
+          path: dist/*.zip
+          if-no-files-found: error
 
   windows:
     name: "Windows x86_64 / PHP ${{ matrix.php }}"
@@ -95,21 +103,24 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the tag name
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.TAG }}
-      - uses: shivammathur/setup-php@v2
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: ${{ matrix.php }}
           extensions: :mongodb
           coverage: none
       # ext-php-rs uses the vectorcall ABI there, which only nightly Rust has (pinned as in CI)
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-09-02
-      - name: Build
+      - name: Build and package
         run: |
-          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
           export LIBCLANG_PATH='C:\Program Files\LLVM\bin'
           export PHP=$(cygpath -w "$(command -v php.exe)")
           cargo build --release --locked
@@ -119,10 +130,30 @@ jobs:
           name=php_mongodb-${TAG}-${{ matrix.php }}-nts-${compiler}-x86_64
           cp target/release/mongodb.dll "$name.dll"
           php -n -d "extension=$(cygpath -ml "$PWD/$name.dll")" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
-          echo "NAME=$name" >> "$GITHUB_ENV"
-      - name: Package and upload
+          mkdir dist && 7z a -tzip "dist/$name.zip" "$name.dll" > /dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x86_64-php${{ matrix.php }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  upload:
+    name: Upload to the release
+    needs: [linux, macos, windows]
+    # every binary that was built is uploaded, even if another build failed
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check the tag name
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          7z a -tzip "$NAME.zip" "$NAME.dll" > /dev/null
-          gh release upload "$TAG" "$NAME.zip" --clobber
+        run: gh release upload "$TAG" dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
