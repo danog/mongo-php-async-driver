@@ -4,7 +4,7 @@ A server-supplied __pclass reaches the autoloader only as a valid class name
 Local test (not upstream). Safety review of ODM decoding: phongo (and this driver) call
 zend_fetch_class with autoload before checking Persistable. PHP's zend_lookup_class_ex rejects
 names that are not valid class names before calling any autoloader, so no ".", "/", NUL or empty
-name gets there. Same behaviour as ext-mongodb 2.5.6 (see DIVERGENCES.md, reviewed items).
+name gets there. Same behaviour as ext-mongodb 2.5.6 (not a divergence).
 --FILE--
 <?php
 spl_autoload_register(function ($c) { echo "autoload(", json_encode($c), ")\n"; });

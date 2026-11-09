@@ -1,7 +1,7 @@
 --TEST--
 Fibers: a Session used while another fiber's operation holds it throws LogicException
 --DESCRIPTION--
-Local test (not upstream; DIVERGENCES "One Session used by operations of two fibers at once").
+Local test (not upstream; DIVERGENCES "A Cursor or Session used by two fibers at once").
 Needs revolt/event-loop: REVOLT_AUTOLOAD=<path to a composer vendor/autoload.php that has
 revolt/event-loop>. While fiber A's query with a session waits for the server, every use of
 that session by another fiber or by {main} throws MongoDB\Driver\Exception\LogicException

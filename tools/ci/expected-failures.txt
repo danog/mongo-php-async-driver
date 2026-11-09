@@ -1,4 +1,5 @@
-# Upstream tests that fail by design: each one is a documented divergence (DIVERGENCES.md).
+# Upstream tests that fail by design: a documented divergence (DIVERGENCES.md), or a failure that
+# ext-mongodb has too.
 # One test per line: a PHPT path, or a PHPUnit Class::method (data sets included); or
 # "message: <text>" for every test whose failure contains that text; "<Linux|macOS|Windows>: "
 # before an entry limits it to that runner OS. They are reported as
@@ -21,7 +22,7 @@ MongoDB\Tests\ClientTest::testConstructorEmptyKmsProvider
 macOS: MongoDB\Tests\SpecTests\TransactionsConvenientApi\Prose4_RetryBackoffIsEnforcedTest::testBackoffIsEnforced
 
 # PHP on Windows reports blksize -1 in fstat() for every stream (no st_blksize there): the same
-# with ext-mongodb (DIVERGENCES "Reviewed": fstat() of GridFS streams on Windows)
+# with ext-mongodb (PHP's behaviour, not a divergence)
 Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testReadableStreamStat
 Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamStatBeforeSaving
 Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamStatAfterSaving

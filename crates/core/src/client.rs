@@ -592,7 +592,7 @@ impl Client {
                 }
                 if failed {
                     // during the TLS handshake the handshake's own error is reported ("TLS
-                    // handshake failed: ...", DIVERGENCES "TLS server checks that fail")
+                    // handshake failed: ...", DIVERGENCES "TLS errors of server checks")
                     if run.probes[i].state == State::Setup {
                         if let crate::scan::Step::Progress = run.probes[i].step() {
                             run.probes[i].poll_error(rev & crate::os::POLLHUP != 0);

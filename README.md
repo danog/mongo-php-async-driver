@@ -118,8 +118,8 @@ It tests against the official suites at their latest commits rather than the cop
 default branches of mongodb/mongo-php-driver (PHPT) and mongodb/mongo-php-library (PHPUnit) are
 cloned fresh each run (the commits are listed in the job summary), against standalone,
 replica-set and sharded servers. Upstream tests that fail by design are listed in
-`tools/ci/expected-failures.txt`, each tied to a DIVERGENCES.md entry. Any other failure fails
-the run.
+`tools/ci/expected-failures.txt` with the reason (a DIVERGENCES.md entry, or a failure
+ext-mongodb has too). Any other failure fails the run.
 
 The previous client (`danog\Mongo\Client`, built on ext-mongodb's BSON codec) is kept in
 `legacy/zm2`.

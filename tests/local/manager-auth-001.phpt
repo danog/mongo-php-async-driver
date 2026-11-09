@@ -5,7 +5,7 @@ Local test (not upstream). SCRAM-SHA-1, SCRAM-SHA-256, PLAIN and MONGODB-X509 ar
 until GSSAPI, MONGODB-AWS and MONGODB-OIDC land, a client that must authenticate with one of them
 never sends a command unauthenticated: every command fails with an
 AuthenticationException, as with a libmongoc built without the mechanism. Listed in
-DIVERGENCES.md (temporary gaps).
+DIVERGENCES.md (not implemented yet).
 --SKIPIF--
 <?php require __DIR__ . "/../phpt/utils/basic-skipif.inc"; ?>
 <?php skip_if_not_live(); ?>
