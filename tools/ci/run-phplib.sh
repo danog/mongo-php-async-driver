@@ -8,8 +8,10 @@ php=${PHP:-php}
 # an 8.3 short name breaks unquoted INI values)
 win() { if [ "${OS:-}" = Windows_NT ]; then cygpath -ml "$1"; else printf '%s' "$1"; fi; }
 cd upstream/library
-# composer runs without the extension: its version constraint is the official extension's
-COMPOSER_ROOT_VERSION=dev-ci composer install --no-interaction --no-progress --ignore-platform-req=ext-mongodb
+# composer runs without the extension: its version constraint is the official extension's. The
+# PHP constraint is ignored too (as the official library's CI does for new PHP versions): its dev
+# tools (e.g. psalm) may not allow a PHP version this extension already supports
+COMPOSER_ROOT_VERSION=dev-ci composer install --no-interaction --no-progress --ignore-platform-req=ext-mongodb --ignore-platform-req=php+
 export MONGODB_URI=$uri
 # the runner's php.ini stays (PHPUnit needs dom, mbstring, ... which are shared on Linux), but it
 # must not load ext-mongodb itself (the workflow disables it in setup-php)
