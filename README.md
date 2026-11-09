@@ -14,7 +14,8 @@ blocking, so driver calls inside PHP Fibers run concurrently.
   rustls with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust and assembly);
   compression is flate2/miniz_oxide, ruzstd and snap. The only C is the small `wrapper.c` of
   [ext-php-rs](https://github.com/extphprs/ext-php-rs), the Zend Engine bindings.
-- **No threads:** all I/O happens on the PHP thread.
+- **No threads:** all I/O happens on the PHP thread. Thread-safe (ZTS) PHP works too: each PHP
+  thread has its own clients and event-loop state.
 
 ## Install
 
@@ -27,13 +28,13 @@ pie install danog/mongo-php-async-driver
 It installs as the `mongodb` extension, so it conflicts with the official `mongodb/mongodb-extension`:
 uninstall that first (`pie uninstall mongodb/mongodb-extension`, or remove ext-mongodb's package
 or `extension=mongodb` line). Releases carry pre-built binaries for Linux (x86-64 and arm64,
-glibc and musl), macOS (arm64 and x86-64) and Windows (x86-64), for PHP 8.2 to 8.6 NTS. Elsewhere,
-PIE builds from source, which needs Rust (`cargo`) and libclang.
+glibc and musl), macOS (arm64 and x86-64) and Windows (x86-64), for PHP 8.2 to 8.6, NTS and ZTS.
+Elsewhere, PIE builds from source, which needs Rust (`cargo`) and libclang.
 
 ## Build from source
 
-PHP 8.2 to 8.6, NTS (non thread-safe) builds, 64-bit: Linux and macOS (x86-64, arm64) and
-Windows (x86-64). bindgen needs libclang.
+PHP 8.2 to 8.6, NTS or ZTS (thread-safe: FrankenPHP, the Windows "TS" builds, ext-parallel),
+non-debug, 64-bit: Linux and macOS (x86-64, arm64) and Windows (x86-64). bindgen needs libclang.
 
 ```bash
 PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
@@ -48,9 +49,6 @@ which only nightly has.
 PHP='C:\tools\php\php.exe' cargo +nightly build --release
 # target\release\mongodb.dll
 ```
-
-Thread-safe (ZTS) PHP, e.g. FrankenPHP, the Windows "TS" builds or PHP with ext-parallel, is
-not supported: `build.rs` refuses it.
 
 ## Fibers
 

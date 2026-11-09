@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   test:
-    name: "${{ matrix.os }} / PHP ${{ matrix.php }} / MongoDB ${{ matrix.mongodb }} ${{ matrix.topology }}"
+    name: "${{ matrix.os }} / PHP ${{ matrix.php }}${{ matrix.ts == 'zts' && ' ZTS' || '' }} / MongoDB ${{ matrix.mongodb }} ${{ matrix.topology }}"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     strategy:
@@ -42,6 +42,12 @@ jobs:
           - { os: macos-15, php: "8.4", mongodb: "8.0", topology: replica_set }
           # Windows
           - { os: windows-2022, php: "8.4", mongodb: "8.0", topology: server }
+          # thread-safe (ZTS) PHP: the oldest, a middle and the newest version, every OS
+          - { os: ubuntu-24.04, php: "8.2", mongodb: "8.0", topology: server, ts: zts }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, ts: zts }
+          - { os: ubuntu-24.04, php: "8.6", mongodb: "8.0", topology: server, ts: zts }
+          - { os: macos-15, php: "8.4", mongodb: "8.0", topology: server, ts: zts }
+          - { os: windows-2022, php: "8.4", mongodb: "8.0", topology: server, ts: zts }
     defaults:
       run:
         shell: bash
@@ -64,6 +70,8 @@ jobs:
           topology: ${{ matrix.topology }}
 
       - uses: shivammathur/setup-php@v2
+        env:
+          phpts: ${{ matrix.ts || 'nts' }}
         with:
           php-version: ${{ matrix.php }}
           tools: composer
@@ -81,7 +89,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: php-${{ matrix.php }}
+          key: php-${{ matrix.php }}-${{ matrix.ts || 'nts' }}
 
       - name: libclang (for the Zend Engine bindings)
         run: |
@@ -107,7 +115,7 @@ jobs:
             Windows) ext=$(cygpath -ml "$PWD/target/release/mongodb.dll") ;;
           esac
           echo "EXT=$ext" >> "$GITHUB_ENV"
-          php -n -d "extension=$ext" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
+          php -n -d "extension=$ext" -r 'echo "mongodb ", phpversion("mongodb"), PHP_ZTS ? " (ZTS)" : "", "\n";'
 
       - name: Official driver tests (PHPT)
         env:
@@ -143,7 +151,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.mongodb }}-${{ matrix.topology }}
+          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.ts || 'nts' }}-${{ matrix.mongodb }}-${{ matrix.topology }}
           path: |
             phpt.xml
             phplib.xml
@@ -169,16 +177,39 @@ jobs:
       - run: cargo test --locked -p mongo-crypt --no-default-features
       - run: cargo test --locked -p mongo-core --lib
 
+  # the official driver's FrankenPHP test (PHPC-2797): FrankenPHP reboots its PHP threads in-process
+  # (GSHUTDOWN and MINIT again in one process) and the extension must keep working; run against
+  # this extension built into the FrankenPHP image (thread-safe PHP 8.5)
+  frankenphp:
+    name: "FrankenPHP in-process restart (ZTS, ubuntu-24.04)"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start MongoDB
+        run: docker run --detach --publish 27017:27017 mongo:8.0
+      - name: Build the FrankenPHP image with this extension
+        run: docker build --tag mongodb-frankenphp --file tools/ci/frankenphp.Dockerfile .
+      - name: Restart test
+        env:
+          MONGODB_URI: mongodb://host.docker.internal:27017/?directConnection=true
+          SKIP_BUILD: "1"
+        run: bash tests/phpt/frankenphp/restart-test.sh
+
   pie:
-    name: "PIE build from source (ubuntu-24.04 / PHP ${{ matrix.php }})"
+    name: "PIE build from source (ubuntu-24.04 / PHP ${{ matrix.php }} ${{ matrix.ts }})"
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         php: ["8.2", "8.3", "8.4", "8.5", "8.6"]
+        ts: [nts]
+        include:
+          - { php: "8.4", ts: zts }
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
+        env:
+          phpts: ${{ matrix.ts }}
         with:
           php-version: ${{ matrix.php }}
           tools: pie
@@ -186,6 +217,8 @@ jobs:
           coverage: none
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: php-${{ matrix.php }}-${{ matrix.ts }}
       - run: sudo apt-get install -y -qq libclang-dev
       # the phpize/configure/make path PIE takes when no pre-built binary matches
       - name: pie build

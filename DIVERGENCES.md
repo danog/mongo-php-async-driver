@@ -50,7 +50,8 @@ because of an entry are named with it and listed in `tools/ci/expected-failures.
 | Error-message length | truncated at 503 bytes | not truncated (only very long host lists reach that) | none |
 | BSON stack use | survives `fiber.stack_size=64K` at the deepest nesting | needs 128 KiB there (PHP's default is 2 MiB) | none |
 | macOS: a server check whose reply arrives with the server's close | the check fails ("connection closed ...") | the reply is read first, as on Linux | `cargo test --test scan_parallel` |
-| Supported builds | also ZTS, debug and 32-bit PHP | NTS, non-debug, 64-bit: Linux/macOS x86-64 and arm64, Windows x86-64 (nightly Rust); `build.rs` refuses the rest | `build.rs` |
+| Supported builds | also debug and 32-bit PHP | NTS and ZTS, non-debug, 64-bit: Linux/macOS x86-64 and arm64, Windows x86-64 (nightly Rust); `build.rs` refuses the rest | `build.rs` |
+| ZTS: persistent clients of threads still running at module shutdown | each thread's clients are destroyed at its GSHUTDOWN, also when the main thread runs it for a thread that is still registered (`mongoc_client_destroy` ends their pooled server sessions) | clients are per thread (as phongo's) and a thread's are destroyed at its own GSHUTDOWN (`ts_free_thread`: FrankenPHP and ext-parallel threads end that way); those of a thread that never ran it are dropped with the thread, their sockets closed without `endSessions` (the server expires the sessions) | none (needs threads that never end; the CI's ZTS jobs and its `frankenphp` job cover the per-thread clients) |
 
 ## 3. Not implemented yet
 

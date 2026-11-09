@@ -16,3 +16,5 @@ curl -fsSL --proto '=https' --tlsv1.2 https://sh.rustup.rs | sh -s -- -y -q --pr
 PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --release --locked
 cp target/release/libmongodb.so "$out"
 php -n -d "extension=$PWD/$out" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
+# the image is the expected build (NTS or ZTS: EXPECT_ZTS=0/1)
+test "$(php -n -r 'echo PHP_ZTS;')" = "${EXPECT_ZTS:-0}"

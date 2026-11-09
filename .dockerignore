@@ -1,0 +1,4 @@
+# docker build contexts (tools/ci/frankenphp.Dockerfile): sources only
+.git/
+target/
+upstream/
