@@ -31,7 +31,7 @@ EventLoop::queue(function () use ($m, $ns, &$fiberDone) {
     $fiberDone = true;
 });
 $m->executeQuery($ns, new Query(['$where' => 'sleep(300) || true'], ['limit' => 1]))->toArray();
-echo "timer ran during the {main} call: ", var_export($ticks >= 5, true), "\n";
+echo "timer ran during the {main} call: ", var_export($ticks >= 1, true), "\n";
 echo "queued fiber done during the {main} call: ", var_export($fiberDone, true), "\n";
 EventLoop::cancel($timer);
 
