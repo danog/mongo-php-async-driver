@@ -1,65 +1,77 @@
 # mongo-php-async-driver
 
-A pure-Rust, drop-in replacement for the PHP `mongodb` extension (ext-mongodb), with one
+A pure-Rust, drop-in replacement for the PHP `mongodb` extension (ext-mongodb 2.5.6), with one
 addition: network waits give control to the [Revolt](https://revolt.run) event loop instead of
-blocking. Inside a PHP Fiber they suspend the fiber; in `{main}`, when `Revolt\EventLoop` is
-loaded, they suspend `{main}` (the loop runs meanwhile). Without Revolt loaded, a `{main}` call
-blocks exactly as ext-mongodb does.
+blocking, so driver calls inside PHP Fibers run concurrently.
 
-**Status: work in progress, not usable yet.** The extension loads as `mongodb`, reports
-ext-mongodb 2.5.6's version, INI settings and phpinfo(), and registers ext-mongodb 2.5.6's whole
-API surface (its Reflection dump is identical), but the methods are being ported: those not
-ported yet throw an `Error`.
+- **Same API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
+  class, constant, `var_dump()` output, serialization format, exception and message (the
+  Reflection dump is identical). [PHPLIB](https://github.com/mongodb/mongo-php-library) and code
+  written for ext-mongodb run unchanged. Every difference is listed, with its reason and the test
+  that pins it, in [DIVERGENCES.md](DIVERGENCES.md); where mirroring ext-mongodb would be unsafe
+  (a crash, an overflow, unbounded allocation, a leaked secret), safety wins.
+- **No C libraries:** no libbson, libmongoc or libmongocrypt, no OpenSSL, zlib or zstd. TLS is
+  rustls with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust and assembly);
+  compression is flate2/miniz_oxide, ruzstd and snap. The only C is the small `wrapper.c` of
+  [ext-php-rs](https://github.com/extphprs/ext-php-rs), the Zend Engine bindings.
+- **No threads:** all I/O happens on the PHP thread.
 
-## Goals
+## Build
 
-- **Same PHP API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and
-  `MongoDB\Driver\*` class, the same constants, `var_dump()`, serialization, exceptions and
-  messages, so that [PHPLIB](https://github.com/mongodb/mongo-php-library) and ext-mongodb user
-  code run unchanged.
-- **No C libraries:** no libbson, libmongoc or libmongocrypt, no OpenSSL, ring or aws-lc, no C
-  zstd. The Zend Engine layer is [ext-php-rs](https://github.com/extphprs/ext-php-rs) (its
-  bindgen-generated bindings and its small `wrapper.c` are the only C involved). TLS is rustls
-  with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust with inline
-  assembly, no C). Wire compression is pure Rust too: zlib through flate2 on miniz_oxide,
-  zstd through ruzstd, snappy through snap.
-- **I/O on the PHP thread, no threads:** synchronous calls make the same blocking socket calls
-  as ext-mongodb. Inside a fiber, a wait registers the socket in one poll set (epoll/kqueue via
-  mio) whose fd one Revolt `onReadable` watcher drives, and suspends the fiber. On Windows
-  (no such handle for IOCP) each wait watches its sockets with Revolt `onReadable` /
-  `onWritable` directly.
+PHP 8.4 or 8.5, NTS (non thread-safe) builds, 64-bit: Linux and macOS (x86-64, arm64) and
+Windows (x86-64). bindgen needs libclang.
+
+```bash
+PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
+# load target/release/libmongodb.so (.dylib on macOS) with extension=... instead of ext-mongodb
+```
+
+On Windows, set `PHP` to php.exe (there is no php-config; ext-php-rs downloads the matching PHP
+development pack) and use nightly Rust: ext-php-rs needs the vectorcall calling convention,
+which only nightly has.
+
+```bash
+PHP='C:\tools\php\php.exe' cargo +nightly build --release
+# target\release\mongodb.dll
+```
+
+Thread-safe (ZTS) PHP, e.g. FrankenPHP, the Windows "TS" builds or PHP with ext-parallel, is
+not supported: `build.rs` refuses it.
 
 ## Fibers
 
-Automatic, no option: any driver call made inside a `Fiber` suspends that fiber while it waits
-for the network, so other fibers run. It needs `revolt/event-loop` (`composer require
-revolt/event-loop`; the class is looked up by name, the extension has no dependency on it):
-without it, a call inside a fiber throws a `RuntimeException`. Once the class `Revolt\EventLoop`
-is loaded, calls in `{main}` wait through the loop as well (`{main}` is suspended and the loop
-runs other fibers, timers and watchers until the I/O is ready); before that, `{main}` calls block
-as with ext-mongodb. Concurrent operations of one
-Manager each use their own connections, at most `maxPoolSize` (default 100) at once; a fiber
-finding them all in use waits at most `serverSelectionTimeoutMS`. They connect only to the server
-they selected, and server scans are shared: one runs at a time, other fibers wait for it. A `Cursor` or `Session` is used
-by one fiber at a time: using one while another fiber's operation holds it throws a
-`LogicException`. Object destructors, the GC and
-shutdown never suspend. Details and every difference from ext-mongodb: `DIVERGENCES.md`.
+Automatic, with no option: a driver call made inside a `Fiber` suspends that fiber while it waits
+for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
+(`composer require revolt/event-loop`); without it, a call inside a fiber throws a
+`RuntimeException`. The extension looks the class up by name and has no dependency on it.
+
+- **`{main}`:** once `Revolt\EventLoop` is loaded, calls in `{main}` also wait through the loop,
+  so timers, watchers and other fibers keep running. Before that, `{main}` calls block exactly as
+  with ext-mongodb.
+- **Concurrency:** concurrent operations of one `Manager` each get their own connections, at most
+  `maxPoolSize` (default 100) at once; a fiber finding them all in use waits at most
+  `serverSelectionTimeoutMS`. Server scans are shared: one runs at a time.
+- **One fiber per object:** a `Cursor` or `Session` used while another fiber's operation holds it
+  throws a `LogicException`.
+- **No surprise switches:** destructors, the garbage collector and shutdown never suspend.
+
+Under the hood, waits go through one epoll/kqueue poll set (via mio) that a single Revolt
+`onReadable` watcher drives; on Windows each wait watches its sockets with Revolt directly.
 Benchmark: `tools/bench/fibers.php`.
 
 ## fork()
 
-There is no fork detection per operation (no `getpid()` per operation): a child process keeps
-using the connections, cursors and sessions it inherited. Do not use them from both processes;
-create a new `Manager` in the child (`DIVERGENCES.md`, "Use after `fork()`"). As with ext-mongodb,
-a live cursor or session destroyed in a child (for example when the child exits) leaves the
-parent's server cursor and transaction alone.
+There is no per-operation fork detection: a child process keeps using the connections and
+cursors it inherited, so do not use them from both processes; create a new `Manager` in the
+child. As with ext-mongodb, a live cursor or session destroyed in a child (for example when the
+child exits) leaves the parent's cursor and transaction alone, and the child never reuses the
+parent's pooled server sessions.
 
 ## Monitoring timestamps
 
-APM and `LogSubscriber` callbacks run when the operation releases the client, not while it runs
-(see "APM delivery time" in `DIVERGENCES.md`). Each callback whose signature allows it receives
-one extra trailing `int`: the value `hrtime(true)` had when the event or log message was created.
-Tracing integrations can use it instead of their own `hrtime(true)` in the callback:
+APM and `LogSubscriber` callbacks run when the operation releases the client, not while it runs.
+So that tracing tools can still time commands, each callback whose signature allows it gets one
+extra trailing `int`: the value `hrtime(true)` had when the event or message was created.
 
 ```php
 public function commandStarted(CommandStartedEvent $event): void
@@ -68,74 +80,57 @@ public function commandStarted(CommandStartedEvent $event): void
 }
 ```
 
-It is passed to methods that declare exactly the interface's parameters, or end in an untyped,
-`mixed`, `int` (or union with `int`) by-value variadic; any other signature is called exactly as
+It is passed only to methods that declare exactly the interface's parameters, or that end in an
+untyped, `mixed` or `int`-accepting by-value variadic. Every other signature is called exactly as
 ext-mongodb calls it.
 
 ## Client-side encryption
 
-`ClientEncryption` and `autoEncryption` (with `bypassAutoEncryption` or `bypassQueryAnalysis`) are a
-pure-Rust port of libmongocrypt 1.21: every KMS provider (local, AWS, Azure, GCP, KMIP, on-demand
-credentials), CSFLE, and Queryable Encryption (equality, range including Decimal128, string
-search). Automatic encryption through query analysis (mongocryptd or crypt_shared, MongoDB
-Enterprise) is not included. Differences from ext-mongodb are listed in DIVERGENCES.md.
+`ClientEncryption` and `autoEncryption` (with `bypassAutoEncryption` or `bypassQueryAnalysis`)
+are a pure-Rust port of libmongocrypt 1.21:
+- every KMS provider (local, AWS, Azure, GCP, KMIP) and on-demand credentials;
+- CSFLE;
+- Queryable Encryption: equality, range (including Decimal128) and string search.
 
-Trust model (as in ext-mongodb): a data key document names its KMS endpoint, and the configured
-credentials for that provider (an AWS request signature, an Azure or GCP access token) are sent to
-that endpoint. Whoever can write to the key vault collection can therefore direct those requests to a
-host of their choosing; protect the key vault collection as you would the keys themselves.
+Not included: automatic encryption through query analysis (mongocryptd or crypt_shared, from
+MongoDB Enterprise).
+
+**Trust model (as in ext-mongodb):** a data key document names its KMS endpoint, and the
+provider's credentials (an AWS request signature, an Azure or GCP access token) are sent to that
+endpoint. Whoever can write to the key vault collection can direct those requests to a host of
+their choosing, so protect the key vault collection as you would the keys themselves.
 
 ## Tests
 
-The upstream suites are carried over and run against both this extension and ext-mongodb:
-
-- `tests/phpt`: ext-mongodb's PHPT suite (2.5.6), run with `tools/phpt.sh`, compared with
-  `tools/phpt-diff.sh`;
-- `tests/phplib`: PHPLIB's tests (2.5.1);
+- `tests/phpt`: ext-mongodb's PHPT suite (2.5.6). Run it with `tools/phpt.sh` and compare it with
+  ext-mongodb's results using `tools/phpt-diff.sh`.
+- `tests/phplib`: PHPLIB's test suite (2.5.1).
+- `tests/local`: this driver's own tests, mostly for the entries of DIVERGENCES.md.
 - `tests/spec`: the MongoDB specifications, as a submodule (`git submodule update --init`).
+- `cargo test`: the Rust crates' unit and integration tests.
 
-`tools/topo.sh` starts the standalone, replica-set and sharded topologies the suites use.
-`tests/UPSTREAM.md` records the upstream versions; `tests/NOT_APPLICABLE.md` lists the tests that
-cannot run here or are expected to fail, with the reason.
-`DIVERGENCES.md` lists every behaviour that differs from ext-mongodb 2.5.6 (safety wins over
-parity), with the test that pins each one.
+`tools/topo.sh` starts the standalone, replica-set and sharded servers the suites use.
+`tests/UPSTREAM.md` records the upstream versions. `tests/NOT_APPLICABLE.md` lists the tests that
+cannot run here, with the reason.
 
-CI (`.github/workflows/tests.yml`) runs on Linux, macOS and Windows, on every push and daily,
-against the official suites at their latest commits rather than the copies above: the default
-branches of mongodb/mongo-php-driver (PHPT) and mongodb/mongo-php-library (PHPUnit) are cloned
-fresh each run (the commits are listed in the job summary), on standalone, replica-set and
-sharded servers. Upstream tests that fail by design are listed in `tools/ci/expected-failures.txt`,
-each tied to a `DIVERGENCES.md` row; any other failure fails the run.
+**CI** (`.github/workflows/tests.yml`) runs on Linux, macOS and Windows, on every push and daily.
+It tests against the official suites at their latest commits rather than the copies above: the
+default branches of mongodb/mongo-php-driver (PHPT) and mongodb/mongo-php-library (PHPUnit) are
+cloned fresh each run (the commits are listed in the job summary), against standalone,
+replica-set and sharded servers. Upstream tests that fail by design are listed in
+`tools/ci/expected-failures.txt`, each tied to a DIVERGENCES.md entry. Any other failure fails
+the run.
 
-## Build
-
-```bash
-# PHP: the php binary of the same version (ext-php-rs reads the version from it); bindgen needs libclang
-PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo build --release
-# target/release/libmongodb.so: load it with extension=/path/to/libmongodb.so instead of ext-mongodb
-```
-
-PHP 8.4 and 8.5, NTS builds only, on Linux, macOS and other Unix systems (x86-64, arm64) and on
-Windows (x86-64). Thread-safe (ZTS) PHP builds are not supported (e.g. FrankenPHP, the Windows
-"TS" builds, PHP with ext-parallel): `build.rs` refuses them (`DIVERGENCES.md`, "Supported
-builds"). On Windows there is no php-config: set `PHP` to php.exe (ext-php-rs downloads
-the matching PHP development pack), and use a nightly Rust (ext-php-rs needs the vectorcall
-calling convention of PHP's functions there, which only nightly Rust has):
-
-```bash
-PHP='C:\tools\php\php.exe' cargo +nightly build --release
-# target\release\mongodb.dll
-```
-
-The previous reads-only client (`danog\Mongo\Client`), which used ext-mongodb's BSON codec, is in
-`legacy/zm2` and is being turned into the new engine.
-
-Written by Daniil Gentili ([@danog](https://github.com/danog)).
+The previous client (`danog\Mongo\Client`, built on ext-mongodb's BSON codec) is kept in
+`legacy/zm2`.
 
 ## License
 
-Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE), except the Unicode folding code of Queryable
-Encryption string search in `crates/crypt/src/unicode/`, which is ported from libmongocrypt under the
-Server Side Public License v1 (see [LICENSE-SSPL](LICENSE-SSPL)). That code is behind the default
-`sspl-text-fold` cargo feature: build with `--no-default-features` for an Apache-2.0-only extension
-(string search then requires `caseSensitive` and `diacriticSensitive` set to true).
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The exception is the Unicode folding
+code used by Queryable Encryption string search (`crates/crypt/src/unicode/`), which is ported
+from libmongocrypt under the Server Side Public License v1 (see [LICENSE-SSPL](LICENSE-SSPL)). It
+sits behind the default `sspl-text-fold` cargo feature: build with `--no-default-features` for an
+Apache-2.0-only extension (string search then requires `caseSensitive` and `diacriticSensitive`
+set to true).
+
+Written by Daniil Gentili ([@danog](https://github.com/danog)).
