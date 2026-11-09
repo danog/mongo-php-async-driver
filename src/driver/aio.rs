@@ -6,7 +6,7 @@
 //!   so only while fibers are waiting in the driver (then Revolt's {main} suspension runs the
 //!   loop and they progress); otherwise, and wherever a fiber may not switch (object
 //!   destruction, shutdown, zend_fiber_switch_blocked()), the plain blocking waits are used.
-//! - How (Unix, backend 1): one process-wide mio Poll (epoll/kqueue) holds the sockets being
+//! - How (Unix, backend 1): one mio Poll (epoll/kqueue) per PHP thread holds the sockets being
 //!   waited for, token = waiter slot; its fd (a dup) is a PHP socket stream watched by one
 //!   Revolt onReadable callback, referenced only while waits are pending. A wait registers its
 //!   sockets, stores `EventLoop::getSuspension()` in its slot and suspends; the callback drains
@@ -24,11 +24,10 @@
 //! - Never across a PHP call: a borrow of the state here (PHP may re-enter).
 
 use crate::zend::{call, sys, zval};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
 use std::io;
 use std::ptr::{addr_of, null_mut};
-use std::sync::atomic::{AtomicU32, AtomicU8, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
 extern "C" {
@@ -41,11 +40,13 @@ extern "C" {
     fn zend_call_known_function(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable);
 }
 
-/// Object destruction and shutdown in progress: waits block.
-static FORBID: AtomicU32 = AtomicU32::new(0);
-/// revolt/event-loop in this request: 0 not looked up, 1 present, 2 missing (autoloading it in
-/// a fiber failed).
-static REVOLT: AtomicU8 = AtomicU8::new(0);
+thread_local! {
+    /// Object destruction and shutdown in progress: waits block.
+    static FORBID: Cell<u32> = const { Cell::new(0) };
+    /// revolt/event-loop in this request: 0 not looked up, 1 present, 2 missing (autoloading it
+    /// in a fiber failed).
+    static REVOLT: Cell<u8> = const { Cell::new(0) };
+}
 
 pub static BACKEND: mongo_core::aio::Backend = mongo_core::aio::Backend { active, poll, sleep, require, park, unpark, current };
 
@@ -53,17 +54,17 @@ const NO_LOOP: &str = "MongoDB driver calls inside a Fiber need the revolt/event
 
 #[inline]
 fn in_fiber() -> bool {
-    // SAFETY: the executor globals of the (single) PHP thread
-    unsafe { !(*addr_of!(sys::executor_globals)).active_fiber.is_null() }
+    // SAFETY: the executor globals of the calling PHP thread
+    unsafe { !(*crate::zend::eg()).active_fiber.is_null() }
 }
 
 /// EG_FLAGS_IN_SHUTDOWN
 fn shutting_down() -> bool {
-    unsafe { (*addr_of!(sys::executor_globals)).flags & 1 != 0 }
+    unsafe { (*crate::zend::eg()).flags & 1 != 0 }
 }
 
 fn revolt() -> bool {
-    match REVOLT.load(Relaxed) {
+    match REVOLT.get() {
         1 => true,
         2 => false,
         _ => {
@@ -74,7 +75,7 @@ fn revolt() -> bool {
             if ok {
                 found_revolt(ce);
             }
-            REVOLT.store(if ok { 1 } else { 2 }, Relaxed);
+            REVOLT.set(if ok { 1 } else { 2 });
             ok
         }
     }
@@ -82,35 +83,35 @@ fn revolt() -> bool {
 
 /// The class-table size (the counter of mongo_core::aio's synchronous fast path).
 fn class_count() -> u32 {
-    unsafe { (*(*addr_of!(sys::executor_globals)).class_table).nNumOfElements }
+    unsafe { (*(*crate::zend::eg()).class_table).nNumOfElements }
 }
 
 /// Whether Revolt\EventLoop is loaded (declared; {main} never autoloads it). A miss is
 /// remembered until a class is added.
 fn revolt_loaded() -> bool {
-    if REVOLT.load(Relaxed) == 1 {
+    if REVOLT.get() == 1 {
         return true;
     }
     let count = class_count();
-    if count == mongo_core::aio::NO_LOOP_AT.load(Relaxed) {
+    if count == mongo_core::aio::no_loop_at() {
         return false;
     }
-    // EG(active_fiber) and the class-table size of the (single, NTS) PHP thread, for
-    // mongo_core::aio's synchronous fast path (EG(class_table) is set per request: published
-    // here, in a request, never at MINIT)
+    // EG(active_fiber) and the class-table size of this PHP thread, for mongo_core::aio's
+    // synchronous fast path (EG(class_table) is set per request: published here, in a request,
+    // never at MINIT, and withdrawn at RSHUTDOWN)
     unsafe {
-        let eg = addr_of!(sys::executor_globals);
+        let eg = crate::zend::eg();
         mongo_core::aio::set_sync_words(addr_of!((*eg).active_fiber).cast(), addr_of!((*(*eg).class_table).nNumOfElements));
     }
     let name = unsafe { zval::string(b"Revolt\\EventLoop") };
     let ce = unsafe { sys::zend_lookup_class_ex(name.value.str_, null_mut(), ZEND_FETCH_CLASS_NO_AUTOLOAD) };
     if ce.is_null() {
-        mongo_core::aio::NO_LOOP_AT.store(count, Relaxed);
+        mongo_core::aio::set_no_loop_at(count);
         return false;
     }
     found_revolt(ce);
-    REVOLT.store(1, Relaxed);
-    mongo_core::aio::NO_LOOP_AT.store(u32::MAX, Relaxed);
+    REVOLT.set(1);
+    mongo_core::aio::set_no_loop_at(u32::MAX);
     true
 }
 
@@ -122,7 +123,7 @@ const ZEND_FETCH_CLASS_NO_AUTOLOAD: u32 = 0x80;
 /// suspension runs the loop meanwhile); never where PHP forbids fiber switches, in object
 /// destruction or at shutdown.
 fn active() -> bool {
-    if FORBID.load(Relaxed) > 0 || shutting_down() || unsafe { zend_fiber_switch_blocked() } {
+    if FORBID.get() > 0 || shutting_down() || unsafe { zend_fiber_switch_blocked() } {
         return false;
     }
     if in_fiber() {
@@ -133,11 +134,11 @@ fn active() -> bool {
 }
 
 fn current() -> usize {
-    unsafe { (*addr_of!(sys::executor_globals)).active_fiber as usize }
+    unsafe { (*crate::zend::eg()).active_fiber as usize }
 }
 
 fn require() -> Result<(), &'static str> {
-    if FORBID.load(Relaxed) == 0 && in_fiber() && !revolt() {
+    if FORBID.get() == 0 && in_fiber() && !revolt() {
         return Err(NO_LOOP);
     }
     Ok(())
@@ -148,10 +149,10 @@ pub fn blocking<R>(f: impl FnOnce() -> R) -> R {
     struct G;
     impl Drop for G {
         fn drop(&mut self) {
-            FORBID.fetch_sub(1, Relaxed);
+            FORBID.set(FORBID.get() - 1);
         }
     }
-    FORBID.fetch_add(1, Relaxed);
+    FORBID.set(FORBID.get() + 1);
     let _g = G;
     f()
 }
@@ -319,38 +320,74 @@ unsafe fn method(o: &sys::zval, name: &'static [u8], args: &mut [sys::zval]) -> 
     rv
 }
 
-/// The Closures, created once per process (their function name is a permanent interned
-/// string: they must be built at MINIT).
+/// The internal functions behind the Closures. Their name is a permanent interned string made at
+/// MINIT; the functions themselves are per thread: an internal function's run-time cache (where
+/// observers keep their data) must not be shared by the threads of a thread-safe PHP.
 struct Closures {
     ready: sys::zend_internal_function,
     timer: sys::zend_internal_function,
     /// Windows: a socket watcher's callback
     #[cfg(windows)]
     socket: sys::zend_internal_function,
+    /// the run-time caches the functions point to
+    _caches: Vec<Box<[u8]>>,
 }
 
-static mut FUNCS: Option<&'static mut Closures> = None;
+/// The functions' name ("{closure}", interned at MINIT).
+static mut CLOSURE_NAME: *mut sys::zend_string = null_mut();
 
-/// MINIT: the internal functions behind the callbacks; installs the backend.
+thread_local! {
+    static FUNCS: std::cell::OnceCell<Box<std::cell::UnsafeCell<Closures>>> = const { std::cell::OnceCell::new() };
+}
+
+/// MINIT: the name of the callbacks' functions; installs the backend.
 pub unsafe fn minit() {
-    let mk = |h: sys::zif_handler| {
-        let mut f = std::mem::zeroed::<sys::zend_internal_function>();
-        f.type_ = 1; // ZEND_INTERNAL_FUNCTION
-        f.fn_flags = sys::ZEND_ACC_PUBLIC;
-        f.function_name = crate::zend::class::interned(c"{closure}");
-        f.handler = h;
-        // the run-time cache an internal function declared at run time gets (observers use it)
-        let cache = Box::leak(vec![0u8; zend_internal_run_time_cache_reserved_size().max(8)].into_boxed_slice());
-        f.run_time_cache__ptr = cache.as_mut_ptr().cast();
-        f
-    };
-    FUNCS = Some(Box::leak(Box::new(Closures {
-        ready: mk(Some(crate::zh!(on_ready))),
-        timer: mk(Some(crate::zh!(on_timer))),
-        #[cfg(windows)]
-        socket: mk(Some(crate::zh!(on_socket))),
-    })));
+    CLOSURE_NAME = crate::zend::class::interned(c"{closure}");
     mongo_core::aio::set_backend(Some(&BACKEND));
+}
+
+/// This thread's callback functions (made on first use; they live as long as the thread). An
+/// engine restarted in the same process (MSHUTDOWN, then MINIT again: FrankenPHP) interns their
+/// name anew.
+unsafe fn funcs() -> *mut Closures {
+    let c = FUNCS.with(|f| {
+        f.get_or_init(|| {
+            let mut caches = Vec::new();
+            let mut mk = |h: sys::zif_handler| {
+                let mut f = std::mem::zeroed::<sys::zend_internal_function>();
+                f.type_ = 1; // ZEND_INTERNAL_FUNCTION
+                f.fn_flags = sys::ZEND_ACC_PUBLIC;
+                f.function_name = CLOSURE_NAME;
+                f.handler = h;
+                // the run-time cache an internal function declared at run time gets (observers use it)
+                let mut cache = vec![0u8; zend_internal_run_time_cache_reserved_size().max(8)].into_boxed_slice();
+                f.run_time_cache__ptr = cache.as_mut_ptr().cast();
+                caches.push(cache);
+                f
+            };
+            let ready = mk(Some(crate::zh!(on_ready)));
+            let timer = mk(Some(crate::zh!(on_timer)));
+            #[cfg(windows)]
+            let socket = mk(Some(crate::zh!(on_socket)));
+            Box::new(std::cell::UnsafeCell::new(Closures {
+                ready,
+                timer,
+                #[cfg(windows)]
+                socket,
+                _caches: caches,
+            }))
+        })
+        .get()
+    });
+    if (*c).ready.function_name != CLOSURE_NAME {
+        (*c).ready.function_name = CLOSURE_NAME;
+        (*c).timer.function_name = CLOSURE_NAME;
+        #[cfg(windows)]
+        {
+            (*c).socket.function_name = CLOSURE_NAME;
+        }
+    }
+    c
 }
 
 unsafe fn fake_closure(f: *mut sys::zend_internal_function) -> sys::zval {
@@ -359,10 +396,6 @@ unsafe fn fake_closure(f: *mut sys::zend_internal_function) -> sys::zval {
     z
 }
 
-#[allow(static_mut_refs)]
-unsafe fn funcs() -> &'static mut Closures {
-    FUNCS.as_mut().expect("aio::minit")
-}
 
 /// The PHP socket stream of the request's keep-alive watcher: a dup of the mio fd (readable
 /// when a registered socket is ready).
@@ -412,7 +445,7 @@ unsafe fn php_state() -> io::Result<()> {
     let mut zs = zval::undef();
     ext_php_rs::types::Zval::set_resource(&mut zs, (*stream).res);
     (*stream).set___exposed(1);
-    let cb = fake_closure(&mut funcs().ready);
+    let cb = fake_closure(&mut (*funcs()).ready);
     let mut args = [zs, cb];
     let id = event_loop("onReadable", &mut args);
     if call::has_exception() || !zval::is(&id, sys::IS_STRING) {
@@ -464,9 +497,10 @@ pub fn rshutdown() {
     });
     drop(drop_later);
     drop(php);
-    REVOLT.store(0, Relaxed);
+    REVOLT.set(0);
     FNS.with_borrow_mut(|f| *f = Fns::default());
-    mongo_core::aio::NO_LOOP_AT.store(u32::MAX, Relaxed);
+    mongo_core::aio::set_no_loop_at(u32::MAX);
+    mongo_core::aio::set_sync_words(std::ptr::null(), std::ptr::null());
 }
 
 // ------------------------------------------------------------------ waits
@@ -619,7 +653,7 @@ unsafe fn watch(token: usize, fds: &[mongo_core::os::PollFd]) -> io::Result<Vec<
             if p.events & bit == 0 {
                 continue;
             }
-            let mut args = [zval::copy(&streams.last().unwrap().0), fake_closure(&mut funcs().socket)];
+            let mut args = [zval::copy(&streams.last().unwrap().0), fake_closure(&mut (*funcs()).socket)];
             let id = event_loop(method, &mut args);
             if call::has_exception() || !zval::is(&id, sys::IS_STRING) {
                 return fail(streams, mongo_core::aio::interrupted());
@@ -736,7 +770,7 @@ unsafe fn arm_timer(at: Instant, old: Option<sys::zval>) {
         event_loop("cancel", &mut [id]);
     }
     let secs = at.saturating_duration_since(Instant::now()).as_secs_f64();
-    let mut args = [zval::double(secs), fake_closure(&mut funcs().timer)];
+    let mut args = [zval::double(secs), fake_closure(&mut (*funcs()).timer)];
     let id = event_loop("delay", &mut args);
     if zval::is(&id, sys::IS_STRING) {
         event_loop("unreference", &mut [zval::copy(&id)]);

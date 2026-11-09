@@ -71,7 +71,7 @@ unsafe fn free_manager(o: *mut sys::zend_object) {
                 // mongoc_topology_destroy's ServerClosed/TopologyChanged/TopologyClosed
                 cl.close();
                 // request shutdown: no more events (phongo_pclient_destroy)
-                if (*std::ptr::addr_of!(sys::executor_globals)).flags & EG_FLAGS_IN_SHUTDOWN != 0 {
+                if (*crate::zend::eg()).flags & EG_FLAGS_IN_SHUTDOWN != 0 {
                     cl.clear_events();
                 }
             }
@@ -277,7 +277,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager___construct(ex: Ex, rv: *mut
     // the constructor's messages reach the subscribers before its exception propagates (phongo
     // logs while it constructs, then throws): the exception is set aside while they run, and
     // one a subscriber throws becomes its previous exception, as phongo's would chain
-    let g = std::ptr::addr_of_mut!(sys::executor_globals);
+    let g = crate::zend::eg();
     let pending = (*g).exception;
     if pending.is_null() {
         super::log::flush();
@@ -1041,7 +1041,7 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     }
     let bwe = super::lookup(c"mongodb\\driver\\exception\\bulkwriteexception");
     let ex_obj = if call::has_exception() {
-        let prev = (*std::ptr::addr_of_mut!(sys::executor_globals)).exception;
+        let prev = (*crate::zend::eg()).exception;
         let name = crate::zend::class::name((*prev).ce);
         let msg = format!("Bulk write failed due to previous {name}: {}", error.message);
         super::throw_code(bwe, &msg, 0)

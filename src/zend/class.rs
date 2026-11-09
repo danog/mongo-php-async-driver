@@ -3,7 +3,7 @@
 
 use super::sys;
 use std::ffi::{c_char, CStr};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 /// A property's default value.
 pub enum Default {
@@ -90,7 +90,7 @@ pub unsafe fn implements(ce: *mut sys::zend_class_entry, interfaces: &[*mut sys:
 
 /// An internal class by lower-case name (registered earlier: PHP's own, or ours).
 pub unsafe fn lookup(lcname: &CStr) -> *mut sys::zend_class_entry {
-    let ct = (*addr_of_mut!(sys::compiler_globals)).class_table;
+    let ct = (*super::cg()).class_table;
     let z = sys::zend_hash_str_find(ct, lcname.as_ptr(), lcname.to_bytes().len());
     if z.is_null() {
         panic!("mongodb: class {lcname:?} is not registered");

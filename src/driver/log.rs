@@ -67,18 +67,19 @@ fn handler(level: Level, domain: &str, message: &str) {
     emit(level, domain.as_bytes(), message.as_bytes());
 }
 
-/// phongo_log_handler
+/// phongo_log_handler (a message logged while the thread's state is being destroyed, when its
+/// clients go at the thread's exit, is dropped)
 fn emit(level: Level, domain: &[u8], message: &[u8]) {
-    STREAM.with(|s| {
+    let _ = STREAM.try_with(|s| {
         if let Some(s) = &mut *s.borrow_mut() {
             write_stream(s, level, domain, message);
         }
     });
     // trace logs are only reported via streams
-    if level >= Level::Trace || LOGGERS.with(|l| l.borrow().is_empty()) {
+    if level >= Level::Trace || LOGGERS.try_with(|l| l.borrow().is_empty()).unwrap_or(true) {
         return;
     }
-    PENDING.with(|p| {
+    let _ = PENDING.try_with(|p| {
         let mut p = p.borrow_mut();
         if p.len() < MAX_PENDING {
             p.push_back((level, domain.to_vec(), message.to_vec(), mongo_core::apm::hrtime()));

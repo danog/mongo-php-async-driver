@@ -1,7 +1,8 @@
 //! Zend Engine layer: the FFI declarations (`sys` = ext-php-rs's bindings) and Rust ports of the
 //! inline helpers and macros of the PHP headers that the extension needs (zend_types.h,
 //! zend_string.h, zend_hash.h, zend_API.h, ...). zvals follow ext-php-rs's ownership (see
-//! `zval`). NTS builds only: globals are plain symbols.
+//! `zval`). The engine's per-thread globals (EG, CG) are reached through [`eg`] and [`cg`]:
+//! plain symbols on NTS builds, the calling thread's TSRM storage on ZTS builds.
 
 pub mod call;
 pub mod class;
@@ -13,6 +14,26 @@ pub mod zstr;
 pub mod zval;
 
 use std::ffi::{c_char, CStr};
+
+/// The executor globals (EG) of the calling thread.
+#[inline(always)]
+pub fn eg() -> *mut sys::zend_executor_globals {
+    // the address of the engine's globals (nothing is read here)
+    #[cfg(not(php_zts))]
+    return std::ptr::addr_of_mut!(sys::executor_globals);
+    // the thread's TSRM block plus the globals' offset (TSRMG_FAST_BULK, in ext-php-rs's wrapper.c)
+    #[cfg(php_zts)]
+    return unsafe { sys::ext_php_rs_executor_globals() };
+}
+
+/// The compiler globals (CG) of the calling thread.
+#[inline(always)]
+pub fn cg() -> *mut sys::zend_compiler_globals {
+    #[cfg(not(php_zts))]
+    return std::ptr::addr_of_mut!(sys::compiler_globals);
+    #[cfg(php_zts)]
+    return unsafe { sys::ext_php_rs_compiler_globals() };
+}
 
 /// A `*const c_char` for a static C string literal.
 #[inline]

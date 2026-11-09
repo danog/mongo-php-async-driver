@@ -575,7 +575,7 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut Cursor {
 /// fiber is inside one, or (`advances`) when advancing needs the Session another fiber's
 /// operation holds.
 unsafe fn exclusive(ex: Ex, advances: bool, f: impl FnOnce(&mut Cursor)) {
-    let fiber = (*std::ptr::addr_of!(sys::executor_globals)).active_fiber as usize;
+    let fiber = (*crate::zend::eg()).active_fiber as usize;
     let o = call::this(ex);
     let owner = obj::data::<Cursor>(o).owner;
     if owner != usize::MAX && owner != fiber {

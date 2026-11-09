@@ -23,9 +23,6 @@ static DEPS: zend::Static<[sys::zend_module_dep; 5]> = zend::Static([
     sys::zend_module_dep { name: null(), rel: null(), version: null(), type_: 0 },
 ]);
 
-/// The `mongodb.debug` INI value (an empty string when unset).
-pub static mut DEBUG: *mut sys::zend_string = null_mut();
-
 unsafe extern "C" fn on_update_debug(
     _entry: *mut sys::zend_ini_entry,
     new_value: *mut sys::zend_string,
@@ -34,7 +31,6 @@ unsafe extern "C" fn on_update_debug(
     _a3: *mut c_void,
     _stage: c_int,
 ) -> sys::zend_result {
-    DEBUG = new_value;
     crate::driver::log::set_debug(if new_value.is_null() { None } else { Some(zend::zstr::bytes(new_value)) });
     sys::ZEND_RESULT_CODE_SUCCESS
 }
@@ -83,6 +79,7 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
 }
 
 unsafe extern "C" fn mshutdown(_type: c_int, module_number: c_int) -> sys::zend_result {
+    // (ZTS: the other threads' clients went at their GSHUTDOWN)
     crate::driver::destroy_persistent_clients();
     crate::driver::log::mshutdown();
     sys::zend_unregister_ini_entries(module_number);
@@ -130,7 +127,7 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     size: std::mem::size_of::<sys::zend_module_entry>() as u16,
     zend_api: const_parse(env!("PHP_MODULE_API")),
     zend_debug: 0,
-    zts: 0,
+    zts: cfg!(php_zts) as u8,
     ini_entry: null(),
     deps: addr_of!(DEPS.0) as *const sys::zend_module_dep,
     name: c"mongodb".as_ptr(),
@@ -141,10 +138,22 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     request_shutdown_func: Some(rshutdown),
     info_func: Some(minfo),
     version: VERSION.as_ptr(),
+    #[cfg(not(php_zts))]
     globals_size: 0,
+    #[cfg(not(php_zts))]
     globals_ptr: null_mut(),
+    #[cfg(not(php_zts))]
     globals_ctor: None,
+    #[cfg(not(php_zts))]
     globals_dtor: None,
+    #[cfg(php_zts)]
+    globals_size: std::mem::size_of::<usize>(),
+    #[cfg(php_zts)]
+    globals_id_ptr: addr_of_mut!(GLOBALS_ID),
+    #[cfg(php_zts)]
+    globals_ctor: Some(gctor),
+    #[cfg(php_zts)]
+    globals_dtor: Some(gdtor),
     post_deactivate_func: None,
     module_started: 0,
     type_: 0,
@@ -152,6 +161,38 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     module_number: 0,
     build_id: concat!(env!("PHP_BUILD_ID"), "\0").as_ptr() as *const c_char,
 };
+
+/// ZTS: the TSRM id of the module's per-thread globals, which hold nothing but the thread they
+/// were made for: their destructor (GSHUTDOWN) destroys that thread's persistent clients
+/// (phongo_pclient_destroy_all at GSHUTDOWN), as each thread has its own (thread_local).
+#[cfg(php_zts)]
+static mut GLOBALS_ID: c_int = 0;
+
+/// A per-thread address: the identity of the calling thread while it lives.
+#[cfg(php_zts)]
+fn thread_mark() -> usize {
+    thread_local! {
+        static MARK: u8 = const { 0 };
+    }
+    MARK.with(|m| m as *const u8 as usize)
+}
+
+/// GINIT: the globals of a new thread (run on that thread).
+#[cfg(php_zts)]
+unsafe extern "C" fn gctor(g: *mut c_void) {
+    *(g as *mut usize) = thread_mark();
+}
+
+/// GSHUTDOWN: the thread's end (ts_free_thread, on the thread), or module shutdown (ts_free_id,
+/// on the main thread, for every thread still registered). Only the owning thread can reach its
+/// clients; another thread's are dropped with that thread's storage (their sockets closed,
+/// nothing sent: as phongo when a client's thread is gone).
+#[cfg(php_zts)]
+unsafe extern "C" fn gdtor(g: *mut c_void) {
+    if *(g as *const usize) == thread_mark() {
+        crate::driver::destroy_persistent_clients();
+    }
+}
 
 const fn const_parse(s: &str) -> u32 {
     let b = s.as_bytes();

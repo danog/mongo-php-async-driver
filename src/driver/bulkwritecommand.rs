@@ -590,7 +590,7 @@ unsafe fn execute_bulkwritecommand(rv: *mut sys::zval, client: &ClientRef, bwc: 
     if has_top_level_error && exc.error.domain != domain::SERVER && exc.error.domain != domain::WRITE_CONCERN {
         super::throw_error(&exc.error, Some(error_reply));
     }
-    let pending = (*std::ptr::addr_of_mut!(sys::executor_globals)).exception;
+    let pending = (*crate::zend::eg()).exception;
     // an InvalidArgumentException alone when there is neither a partial result nor an error reply
     if !pending.is_null() && (*pending).ce == super::lookup(c"mongodb\\driver\\exception\\invalidargumentexception") && ret.res.is_none() && mongo_core::bson::iter::is_empty(error_reply) {
         return;

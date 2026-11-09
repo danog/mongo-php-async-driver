@@ -6,7 +6,8 @@
 //! path when it is false.
 
 use std::io;
-use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::net::Interest;
@@ -33,22 +34,41 @@ pub struct Backend {
 
 static BACKEND: AtomicPtr<Backend> = AtomicPtr::new(std::ptr::null_mut());
 
-/// The address of a pointer that is null while no fiber runs (the extension's
-/// &EG(active_fiber)); null: unknown (every call asks the backend).
-static FIBER: AtomicPtr<*const ()> = AtomicPtr::new(std::ptr::null_mut());
+/// The words of the synchronous fast path, per thread (each PHP thread of a thread-safe PHP
+/// has its own executor globals):
+/// - `fiber`: the address of a pointer that is null while no fiber runs (the extension's
+///   &EG(active_fiber)); null: unknown (every call asks the backend);
+/// - `classes`: the address of a counter that changes whenever the event loop may have become
+///   available (the extension's class-table size: Revolt\EventLoop can only appear with a new
+///   class);
+/// - `no_loop_at`: the counter's value when the backend last found no event loop in {main}
+///   (u32::MAX: not known, or an event loop is there). Maintained by the backend.
+struct SyncWords {
+    fiber: Cell<*const *const ()>,
+    classes: Cell<*const u32>,
+    no_loop_at: Cell<u32>,
+}
 
-/// The address of a counter that changes whenever the event loop may have become available
-/// (the extension's class-table size: Revolt\EventLoop can only appear with a new class).
-static CLASSES: AtomicPtr<u32> = AtomicPtr::new(std::ptr::null_mut());
+thread_local! {
+    static SYNC: SyncWords = const { SyncWords { fiber: Cell::new(std::ptr::null()), classes: Cell::new(std::ptr::null()), no_loop_at: Cell::new(u32::MAX) } };
+}
 
-/// The counter's value when the backend last found no event loop in {main} (u32::MAX: not
-/// known, or an event loop is there). Maintained by the backend.
-pub static NO_LOOP_AT: AtomicU32 = AtomicU32::new(u32::MAX);
-
-/// Sets the words [`quiet`] reads.
+/// Sets the words [`quiet`] reads (null pointers: none, until they are set again).
 pub fn set_sync_words(fiber: *const *const (), classes: *const u32) {
-    FIBER.store(fiber as *mut *const (), Ordering::Release);
-    CLASSES.store(classes as *mut u32, Ordering::Release);
+    SYNC.with(|w| {
+        w.fiber.set(fiber);
+        w.classes.set(classes);
+    });
+}
+
+/// The counter value at which the backend last found no event loop (u32::MAX: none).
+#[inline]
+pub fn no_loop_at() -> u32 {
+    SYNC.with(|w| w.no_loop_at.get())
+}
+
+pub fn set_no_loop_at(v: u32) {
+    SYNC.with(|w| w.no_loop_at.set(v));
 }
 
 /// The synchronous fast path: a {main} call while no event loop is loaded (and none can have
@@ -56,10 +76,11 @@ pub fn set_sync_words(fiber: *const *const (), classes: *const u32) {
 /// synchronous use does not call into the backend per send/receive.
 #[inline(always)]
 fn quiet() -> bool {
-    let f = FIBER.load(Ordering::Relaxed);
-    let c = CLASSES.load(Ordering::Relaxed);
-    // SAFETY: the extension's executor-globals words, valid for the process lifetime
-    !f.is_null() && !c.is_null() && unsafe { std::ptr::read_volatile(f) }.is_null() && unsafe { std::ptr::read_volatile(c) } == NO_LOOP_AT.load(Ordering::Relaxed)
+    SYNC.with(|w| {
+        let (f, c) = (w.fiber.get(), w.classes.get());
+        // SAFETY: the extension's executor-globals words of this thread, valid while set
+        !f.is_null() && !c.is_null() && unsafe { std::ptr::read_volatile(f) }.is_null() && unsafe { std::ptr::read_volatile(c) } == w.no_loop_at.get()
+    })
 }
 
 /// Installs (or removes, with None) the backend.

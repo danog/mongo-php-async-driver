@@ -6,17 +6,20 @@
 use crate::error::Error;
 use crate::sdam::ServerDescription;
 use crate::topology::TopologyDescription;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::Cell;
 
-/// The number of registered subscribers (events are only built while some exist).
-static SUBSCRIBERS: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    /// The number of subscribers registered by this thread (events are only built while some
+    /// exist; a thread-safe PHP's threads each have their own).
+    static SUBSCRIBERS: Cell<usize> = const { Cell::new(0) };
+}
 
 pub fn set_subscriber_count(n: usize) {
-    SUBSCRIBERS.store(n, Ordering::Relaxed);
+    SUBSCRIBERS.with(|s| s.set(n));
 }
 
 pub fn enabled() -> bool {
-    SUBSCRIBERS.load(Ordering::Relaxed) > 0
+    SUBSCRIBERS.with(|s| s.get()) > 0
 }
 
 /// What every command event carries (mongoc_apm_command_*_t).

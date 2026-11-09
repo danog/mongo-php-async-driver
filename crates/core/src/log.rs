@@ -8,7 +8,7 @@
 //! produced: they name libmongoc's C functions, and the dumps contain credentials and documents.
 //! Only explicit TRACE messages (`MongoDB\Driver\Monitoring\mongoc_log()`) reach the stream.
 
-use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 /// mongoc_log_level_t
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -55,8 +55,11 @@ impl Level {
 pub type Handler = fn(Level, &str, &str);
 
 static HANDLER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
-/// The most verbose level anyone listens to, plus one (0: nobody listens).
-static MAX: AtomicU8 = AtomicU8::new(0);
+thread_local! {
+    /// The most verbose level anyone on this thread listens to, plus one (0: nobody listens;
+    /// a thread-safe PHP's threads each have their own listeners).
+    static MAX: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
 
 /// Installs the handler (once, at module startup).
 pub fn set_handler(h: Handler) {
@@ -65,11 +68,11 @@ pub fn set_handler(h: Handler) {
 
 /// Sets the most verbose level that is listened to (None: logging is off).
 pub fn set_max_level(l: Option<Level>) {
-    MAX.store(l.map_or(0, |l| l as u8 + 1), Ordering::Relaxed);
+    MAX.with(|m| m.set(l.map_or(0, |l| l as u8 + 1)));
 }
 
 pub fn enabled(l: Level) -> bool {
-    (l as u8) < MAX.load(Ordering::Relaxed)
+    (l as u8) < MAX.with(|m| m.get())
 }
 
 /// mongoc_log: `msg` is only built when the level is listened to.

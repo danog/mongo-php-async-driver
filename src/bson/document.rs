@@ -221,7 +221,7 @@ const BP_VAR_IS: i32 = 3;
 
 unsafe extern "C" fn read_property(o: *mut sys::zend_object, m: *mut sys::zend_string, t: i32, _c: *mut *mut std::ffi::c_void, rv: *mut sys::zval) -> *mut sys::zval {
     if !get(&obj::data::<Bson>(o).bson, zstr::bytes(m), rv, t == BP_VAR_IS, false) {
-        return addr_of_mut!((*addr_of_mut!(sys::executor_globals)).uninitialized_zval);
+        return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     rv
 }
@@ -239,10 +239,10 @@ unsafe extern "C" fn read_dimension(o: *mut sys::zend_object, off: *mut sys::zva
     // `$doc[]` (append, NULL offset): phongo dereferences NULL; we throw its write error
     if off.is_null() {
         throw(E::Logic, format!("Cannot write to {} property", crate::zend::class::name(ce().document)));
-        return addr_of_mut!((*addr_of_mut!(sys::executor_globals)).uninitialized_zval);
+        return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     if !get_by_zval(&obj::data::<Bson>(o).bson, off, rv, t == BP_VAR_IS) {
-        return addr_of_mut!((*addr_of_mut!(sys::executor_globals)).uninitialized_zval);
+        return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     rv
 }
@@ -505,10 +505,10 @@ unsafe extern "C" fn pa_read_dimension(o: *mut sys::zend_object, off: *mut sys::
     // `$arr[]` (NULL offset): phongo dereferences NULL; we throw its write error
     if off.is_null() {
         throw(E::Logic, format!("Cannot write to {} offset", crate::zend::class::name(ce().packedarray)));
-        return addr_of_mut!((*addr_of_mut!(sys::executor_globals)).uninitialized_zval);
+        return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     if !pa_get_by_zval(&obj::data::<PackedArray>(o).0.bson, off, rv, t == BP_VAR_IS) {
-        return addr_of_mut!((*addr_of_mut!(sys::executor_globals)).uninitialized_zval);
+        return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     rv
 }

@@ -3,7 +3,7 @@
 
 use super::{sys, zval};
 use std::ffi::{CStr, CString};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 pub type Ex = *mut sys::zend_execute_data;
 
@@ -37,7 +37,7 @@ pub unsafe fn none(ex: Ex) -> bool {
 
 #[inline]
 pub unsafe fn has_exception() -> bool {
-    !(*addr_of_mut!(sys::executor_globals)).exception.is_null()
+    !(*super::eg()).exception.is_null()
 }
 
 /// zend_throw_exception(ce, msg, 0); the message stops at a NUL as with C strings.
