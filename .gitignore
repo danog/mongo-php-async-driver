@@ -1,1 +1,11 @@
 /target
+
+# run-tests.php leftovers of failed tests; the .sh repro scripts contain the whole environment
+# (credentials included): never commit them
+/tests/**/*.sh
+!/tests/phpt/frankenphp/restart-test.sh
+/tests/**/*.diff
+/tests/**/*.exp
+/tests/**/*.out
+/tests/**/*.log
+/tests/**/*.mem
