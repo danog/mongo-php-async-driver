@@ -5,10 +5,6 @@
 # "expected" and do not fail the run; a listed test that starts passing is reported so the entry
 # can be removed.
 
-# No fork detection per operation (user decision): a child's first operation may reuse a server
-# session from the parent's pool (phongo resets the client at the child's first method call)
-upstream/driver/tests/session/bug1274-003.phpt
-upstream/driver/tests/session/bug1274-006.phpt
 
 # Automatic encryption with query analysis (mongocryptd / crypt_shared) is not implemented: the
 # Manager constructor refuses it (the library's CSFLE spec and prose tests use it throughout)

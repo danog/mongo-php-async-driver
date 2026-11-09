@@ -48,12 +48,25 @@ impl Default for ServerSession {
 #[derive(Debug, Default)]
 pub struct Pool {
     sessions: Vec<ServerSession>,
+    /// the process the pooled sessions were used in (a fork epoch: no system call)
+    filled_in: crate::os::CreatedIn,
 }
 
 impl Pool {
+    /// After fork(), the pooled sessions are the parent's (its operations may still use them):
+    /// the child starts with an empty pool (user decision 2026-11-09, upstream PHPC-1274)
+    #[inline]
+    fn forget_if_forked(&mut self) {
+        if !self.filled_in.is_current() {
+            self.sessions.clear();
+            self.filled_in = crate::os::CreatedIn::default();
+        }
+    }
+
     /// _mongoc_topology_pop_server_session: a pooled session that is not about to expire, or
     /// a new one.
     pub fn pop(&mut self, timeout_minutes: i64, now_usec: i64) -> ServerSession {
+        self.forget_if_forked();
         while let Some(s) = self.sessions.pop() {
             if !s.timed_out(timeout_minutes, now_usec) {
                 return s;
@@ -67,6 +80,7 @@ impl Pool {
         if s.dirty || s.timed_out(timeout_minutes, now_usec) {
             return;
         }
+        self.forget_if_forked();
         // drop the expired ones at the cold end
         self.sessions.retain(|o| !o.timed_out(timeout_minutes, now_usec));
         self.sessions.push(s);
