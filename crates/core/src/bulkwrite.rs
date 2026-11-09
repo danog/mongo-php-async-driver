@@ -357,7 +357,15 @@ impl BulkWrite {
         }
         // select a stream
         let sel = if opts.server_id != 0 {
-            client.stream_for_server(opts.server_id, true).map(|_| ()).and_then(|_| client.check_server_for_session(opts.server_id, session.as_deref_mut())).map(|_| opts.server_id)
+            if let Err(e) = client.stream_for_server(opts.server_id, true) {
+                // the stream's reply (pooled mode's backpressure labels)
+                let f = client.stream_failure(e);
+                if !f.reply.is_empty() {
+                    exc.set_error_reply(&f.reply);
+                }
+                return exc.set_error(f.error);
+            }
+            client.check_server_for_session(opts.server_id, session.as_deref_mut()).map(|_| opts.server_id)
         } else {
             client.select_for_optype(OpType::Write, None, session.as_deref_mut(), &[]).map(|r| r.0)
         };

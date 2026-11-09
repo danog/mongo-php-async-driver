@@ -509,7 +509,12 @@ impl BulkOperation {
         let mut offset = 0u32;
         for i in 0..self.commands.len() {
             let sel = if self.server_id != 0 {
-                client.stream_for_server(self.server_id, true).map(|_| self.server_id).and_then(|s| client.check_server_for_session(s, session.as_deref_mut()).map(|_| (s, false)))
+                if let Err(e) = client.stream_for_server(self.server_id, true) {
+                    // the stream's reply (pooled mode's backpressure labels)
+                    let f = client.stream_failure(e);
+                    return (false, if f.reply.is_empty() { empty_doc() } else { f.reply }, f.error);
+                }
+                client.check_server_for_session(self.server_id, session.as_deref_mut()).map(|_| (self.server_id, false))
             } else {
                 client.select_for_optype(OpType::Write, None, session.as_deref_mut(), &[])
             };

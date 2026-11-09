@@ -210,6 +210,12 @@ pub struct Client {
     mode: ScanMode,
     /// The error of a failed Client::connect_pooled.
     connect_error: Option<Error>,
+    /// connect_pooled's failure is a network error other than name resolution: it gets the
+    /// backpressure labels (_handle_network_error_connecting)
+    connect_overloaded: bool,
+    /// The reply of the last failed stream_for_server: pooled mode's backpressure labels, else
+    /// empty (mongoc_cluster_stream_for_server's reply).
+    stream_reply: Vec<u8>,
 }
 
 /// What `run_scan`'s checks are for.
@@ -290,7 +296,7 @@ impl Client {
 
     /// Another cluster of the client whose shared state is `shared` (no connections yet).
     pub fn cluster(shared: Rc<Shared>) -> Self {
-        let mut c = Client { shared, nodes: Vec::new(), interrupted: false, fail: None, mode: ScanMode::Own, connect_error: None };
+        let mut c = Client { shared, nodes: Vec::new(), interrupted: false, fail: None, mode: ScanMode::Own, connect_error: None, connect_overloaded: false, stream_reply: Vec::new() };
         c.reconcile_nodes();
         c
     }
@@ -397,6 +403,12 @@ impl Client {
         self.heartbeat_started(id);
         let t0 = std::time::Instant::now();
         let timeout = ms(self.settings.connect_timeout_ms);
+        // a pooled cluster's connection: its hello waits socketTimeoutMS for the reply
+        let pooled = (self.mode == ScanMode::Connect).then(|| ms(self.settings.socket_timeout_ms));
+        let pool = |p: Probe| match pooled {
+            Some(t) => p.pooled(t),
+            None => p,
+        };
         if let Some(conn) = self.nodes[i].conn.take() {
             let hello_ok = self.nodes[i].handshake.as_ref().is_some_and(|h| h.hello_ok);
             let cmd = self.check_command(hello_ok);
@@ -433,7 +445,7 @@ impl Client {
             // the host parser's AF_UNIX rule (a '/' and ".sock"): a blocking connect at setup
             match Conn::connect_unix(&addr) {
                 Ok(conn) => match msg(true) {
-                    Ok(m) => run.probes.push(Probe::with_stream(id, conn, m, timeout, true, tls)),
+                    Ok(m) => run.probes.push(pool(Probe::with_stream(id, conn, m, timeout, true, tls))),
                     Err(e) => self.setup_failed(id, net_check_error(e), t0),
                 },
                 Err(e) => self.setup_failed(id, net_check_error(e), t0),
@@ -451,7 +463,9 @@ impl Client {
             match crate::net::resolve(&h, port) {
                 Ok(a) => n.dns = Some((a, now)),
                 Err(_) => {
-                    let e = Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, format!("Failed to resolve '{h}'"));
+                    // the scanner quotes the host, mongoc_client_connect_tcp (pooled) does not
+                    let m = if pooled.is_some() { format!("Failed to resolve {h}") } else { format!("Failed to resolve '{h}'") };
+                    let e = Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, m);
                     return self.setup_failed(id, e, t0);
                 }
             }
@@ -462,7 +476,7 @@ impl Client {
         };
         for (k, sa) in targets.into_iter().enumerate() {
             match msg(k == 0) {
-                Ok(m) => run.probes.push(Probe::connect(id, &addr, sa, crate::scan::HAPPY_EYEBALLS_DELAY * k as u32, m, timeout, tls.clone())),
+                Ok(m) => run.probes.push(pool(Probe::connect(id, &addr, sa, crate::scan::HAPPY_EYEBALLS_DELAY * k as u32, m, timeout, tls.clone()))),
                 Err(e) => return self.setup_failed(id, net_check_error(e), t0),
             }
         }
@@ -474,11 +488,17 @@ impl Client {
         if self.mode == ScanMode::Connect {
             // _handle_network_error_connecting: only a name-resolution error invalidates the
             // server and clears its pool (not in load-balanced mode)
-            if e.code == code::STREAM_NAME_RESOLUTION && self.td().ty != TopologyType::LoadBalanced {
+            if let Some(n) = self.nodes.iter().find(|n| n.id == id) {
+                let addr = n.addr.clone();
+                log::warning(log::CLUSTER, || format!("Failed connection to {addr} ({})", e.message));
+            }
+            let dns = e.domain == domain::STREAM && e.code == code::STREAM_NAME_RESOLUTION;
+            if dns && self.td().ty != TopologyType::LoadBalanced {
                 let mut td = self.td();
                 td.invalidate_server(id, &e);
                 td.clear_connection_pool(id, &crate::sdam::ZERO_OID);
             }
+            self.connect_overloaded = !dns;
             self.connect_error = Some(e);
             return;
         }
@@ -566,7 +586,11 @@ impl Client {
                 }
                 // a hang-up with data still to read (macOS reports a peer's close so, Linux
                 // does not) is read first: the reply, or the TLS alert, says more
-                if rev & crate::os::POLLERR != 0 || (rev & crate::os::POLLHUP != 0 && rev & crate::os::POLLIN == 0) {
+                let failed = rev & crate::os::POLLERR != 0 || (rev & crate::os::POLLHUP != 0 && rev & crate::os::POLLIN == 0);
+                if !failed && rev & run.probes[i].events != 0 {
+                    run.probes[i].connected = true;
+                }
+                if failed {
                     // during the TLS handshake the handshake's own error is reported ("TLS
                     // handshake failed: ...", DIVERGENCES "TLS server checks that fail")
                     if run.probes[i].state == State::Setup {
@@ -675,6 +699,7 @@ impl Client {
         p.done = true;
         let elapsed = p.start.elapsed();
         let id = p.node;
+        let in_hello = p.in_hello;
         let error = p.error.take();
         drop(p.conn.take());
         let Some(ni) = self.nodes.iter().position(|n| n.id == id) else { return };
@@ -682,9 +707,16 @@ impl Client {
         self.nodes[ni].last_used = now;
         let siblings = run.probes.iter().filter(|q| q.node == id && !q.done).count();
         if self.mode == ScanMode::Connect && siblings == 0 {
-            // pooled connection errors leave the topology alone (_cluster_add_node)
-            let raw = error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, default_msg));
-            self.connect_error = Some(Error::new(domain::CLIENT, code::STREAM_CONNECT, format!("{} calling hello on '{}'", raw.message, self.nodes[ni].addr)));
+            // _cluster_add_node: the stream's or the hello's error as it is, with the
+            // backpressure labels; the topology is left alone (an application error labelled
+            // SystemOverloadedError is ignored). A failure to connect is logged.
+            let addr = self.nodes[ni].addr.clone();
+            let e = error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, format!("Failed to connect to target host: {addr}")));
+            if !in_hello {
+                log::warning(log::CLUSTER, || format!("Failed connection to {addr} ({})", e.message));
+            }
+            self.connect_overloaded = true;
+            self.connect_error = Some(e);
             return;
         }
         if self.nodes[ni].conn.is_some() || siblings > 0 {
@@ -998,6 +1030,7 @@ impl Client {
     /// _cluster_fetch_stream_single: the connection to `server_id` (reconnecting through a
     /// blocking scan when allowed).
     pub fn stream_for_server(&mut self, server_id: u32, reconnect_ok: bool) -> Result<&mut Conn, Error> {
+        self.stream_reply.clear();
         self.check_entry()?;
         let pooled = self.shared.pooled.get();
         if pooled && !self.nodes.iter().any(|n| n.id == server_id) {
@@ -1038,7 +1071,17 @@ impl Client {
         // stream open but not authenticated: first use since connecting. A connection that
         // should be authenticated is never used unauthenticated.
         if crate::auth::requires_auth(&self.shared.uri) && !n.auth.has_auth {
-            self.authenticate_node(server_id)?;
+            if let Err(e) = self.authenticate_node(server_id) {
+                if pooled {
+                    // _cluster_add_node: the new connection is closed
+                    if let Some(n) = self.nodes.iter().find(|n| n.id == server_id) {
+                        let addr = n.addr.clone();
+                        log::warning(log::CLUSTER, || format!("Failed authentication to {addr} ({})", e.message));
+                    }
+                    self.disconnect_node(server_id);
+                }
+                return Err(e);
+            }
         }
         let lb = self.td().ty == TopologyType::LoadBalanced;
         let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
@@ -1068,6 +1111,7 @@ impl Client {
     fn connect_pooled(&mut self, server_id: u32) -> Result<(), Error> {
         self.mode = ScanMode::Connect;
         self.connect_error = None;
+        self.connect_overloaded = false;
         // nothing joins this check: discovered servers are the monitors' business
         let mut run = ScanRun { probes: Vec::new(), seen: Default::default(), retried: Default::default(), discovered: MAX_DISCOVERED_PER_SCAN };
         self.node_setup(server_id, &mut run);
@@ -1075,9 +1119,21 @@ impl Client {
         self.mode = ScanMode::Own;
         self.take_interrupted()?;
         match self.connect_error.take() {
-            Some(e) => Err(e),
+            Some(e) => {
+                if self.connect_overloaded {
+                    crate::cmdparts::add_error_label(&mut self.stream_reply, "SystemOverloadedError");
+                    crate::cmdparts::add_error_label(&mut self.stream_reply, "RetryableError");
+                }
+                Err(e)
+            }
             None => Ok(()),
         }
+    }
+
+    /// A failed stream_for_server as an operation's failure: the error with the stream's reply
+    /// (pooled mode's backpressure labels).
+    pub fn stream_failure(&mut self, error: Error) -> crate::cmdparts::Failure {
+        crate::cmdparts::Failure { error, reply: std::mem::take(&mut self.stream_reply) }
     }
 
     /// The success of connect_pooled's check: the node gets the connection and its handshake
@@ -1190,19 +1246,7 @@ impl Client {
                 Err(interrupted_error())
             }
             Err(e) => {
-                let detail = match &e {
-                    NetError::Closed | NetError::Timeout => {
-                        log::debug(log::CLUSTER, || "could not read message length, stream probably closed or timed out".to_owned());
-                        "Failed to read 4 bytes: socket error or timeout".to_owned()
-                    }
-                    NetError::Protocol(m) => m.to_string(),
-                    e => format!("Failure during socket delivery: {e}"),
-                };
-                let err = if matches!(e, NetError::Protocol(m) if m == crate::wire::DECOMPRESS_ERROR) {
-                    Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, detail)
-                } else {
-                    Error::new(domain::STREAM, code::STREAM_SOCKET, format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"))
-                };
+                let err = command_network_error(cmd_name, db, &e);
                 // the connection's pool generation: pooled, the one it was made with; single-
                 // threaded, the server's current one (_cluster_fetch_stream_single copies it)
                 let generation = if self.shared.pooled.get() {
@@ -1275,6 +1319,23 @@ impl Client {
 /// The error of an operation whose wait was interrupted (crate::aio::Interrupted).
 pub fn interrupted_error() -> Error {
     Error::new(domain::STREAM, code::STREAM_SOCKET, crate::aio::Interrupted.to_string())
+}
+
+/// A command's network error as mongoc-cluster.c reports it (RUN_CMD_ERR_DECORATE).
+pub(crate) fn command_network_error(cmd_name: &str, db: &str, e: &NetError) -> Error {
+    let detail = match e {
+        NetError::Closed | NetError::Timeout => {
+            log::debug(log::CLUSTER, || "could not read message length, stream probably closed or timed out".to_owned());
+            "Failed to read 4 bytes: socket error or timeout".to_owned()
+        }
+        NetError::Protocol(m) => m.to_string(),
+        e => format!("Failure during socket delivery: {e}"),
+    };
+    if matches!(e, NetError::Protocol(m) if *m == crate::wire::DECOMPRESS_ERROR) {
+        Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, detail)
+    } else {
+        Error::new(domain::STREAM, code::STREAM_SOCKET, format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"))
+    }
 }
 
 /// A failed check's error (the part before " calling hello on ...").

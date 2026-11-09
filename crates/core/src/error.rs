@@ -177,6 +177,10 @@ impl Error {
     pub fn is_network(&self) -> bool {
         self.domain == domain::STREAM || (self.domain == domain::PROTOCOL && self.code == code::PROTOCOL_INVALID_REPLY)
     }
+    /// _mongoc_error_is_auth
+    pub fn is_auth(&self) -> bool {
+        self.domain == domain::CLIENT && self.code == code::CLIENT_AUTHENTICATE
+    }
 }
 
 impl fmt::Display for Error {

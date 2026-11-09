@@ -377,6 +377,11 @@ impl Cursor {
             None => self.implicit.as_mut(),
         };
         let is_get_more = matches!(mongo_core::cmdparts::command_name(body).as_deref(), Some("getMore" | "killCursors"));
+        // _mongoc_cursor_fetch_stream: the stream before the command (a failure sends no
+        // command events; its reply, e.g. pooled mode's backpressure labels, is the error's)
+        if let Err(e) = cl.stream_for_server(self.server_id, true) {
+            return Err(cl.stream_failure(e));
+        }
         if !is_get_more {
             cl.check_server_for_session(self.server_id, sess.as_deref_mut())?;
         }

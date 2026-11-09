@@ -545,6 +545,11 @@ impl Client {
             backoff.wait(is_overload, &reply);
             let sel = self.select_for_optype(OpType::Write, None, session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { break };
+            // mongoc_cluster_stream_for_writes: no stream for the retry ends it (the previous
+            // attempt's outcome is kept)
+            if !self.retry_stream(sid, self.uri.get_bool("retrywrites", true)) {
+                break;
+            }
             cmd.server_id = sid;
             retry_server = Some(sid);
         }
@@ -584,7 +589,22 @@ impl Client {
             let prefs = cmd.read_prefs.clone();
             let sel = self.select_for_optype(OpType::Read, prefs.as_ref(), session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { return r };
+            // mongoc_cluster_stream_for_reads: no stream for the retry ends it
+            if !self.retry_stream(sid, self.uri.get_bool("retryreads", true)) {
+                return r;
+            }
             cmd.server_id = sid;
+        }
+    }
+
+    /// The stream part of _mongoc_cluster_stream_for_optype for a retry attempt
+    /// (select_retry_server, which asks for no reply or error): a network or authentication
+    /// error is tried once more when `retryable`. False when there is no stream.
+    fn retry_stream(&mut self, server_id: u32, retryable: bool) -> bool {
+        match self.stream_for_server(server_id, true) {
+            Ok(_) => true,
+            Err(e) if retryable && (e.is_network() || e.is_auth()) => self.stream_for_server(server_id, true).is_ok(),
+            Err(_) => false,
         }
     }
 

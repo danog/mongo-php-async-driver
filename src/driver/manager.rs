@@ -678,7 +678,10 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
             invalid("Cannot set read concern after starting transaction")
         } else if in_txn && wc.is_some() && cmd_name != "commitTransaction" && cmd_name != "abortTransaction" {
             invalid("Cannot set write concern after starting transaction")
-        } else if let Err(e) = cl.stream_for_server(sid, true).map(|_| ()).and_then(|_| cl.check_server_for_session(sid, sess.as_deref_mut())) {
+        } else if let Err(e) = cl.stream_for_server(sid, true) {
+            // the stream's reply (pooled mode's backpressure labels)
+            Err(cl.stream_failure(e))
+        } else if let Err(e) = cl.check_server_for_session(sid, sess.as_deref_mut()) {
             Err(mongo_core::cmdparts::Failure::from(e))
         } else {
             let mut parts = mongo_core::cmdparts::Parts::new(&db, &bson);

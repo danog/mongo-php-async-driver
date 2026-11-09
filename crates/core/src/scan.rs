@@ -66,6 +66,14 @@ pub struct Probe {
     pub error: Option<Error>,
     /// finished: removed at the end of the loop iteration
     pub done: bool,
+    /// the connection is established (the socket was ready without an error)
+    pub connected: bool,
+    /// a pooled cluster's new connection (_cluster_add_node), not a server check: libmongoc's
+    /// pooled-mode messages, and `hello_timeout` for the hello's reply
+    pooled: bool,
+    hello_timeout: Option<Duration>,
+    /// the check failed while running the hello (not while connecting)
+    pub in_hello: bool,
 }
 
 fn stream_error(code: u32, msg: &str) -> Error {
@@ -78,7 +86,7 @@ impl Probe {
     pub fn with_stream(node: u32, mut conn: Conn, msg: Vec<u8>, timeout: Option<Duration>, fresh: bool, tls: TlsSetup) -> Probe {
         let now = Instant::now();
         let name = conn.addr.clone();
-        let mut p = Probe { node, addr: None, fresh, conn: None, state: State::Send, events: crate::os::POLLOUT, start: now, delay_until: now, timeout, msg, sent: 0, tls: None, name, error: None, done: false };
+        let mut p = Probe { node, addr: None, fresh, conn: None, state: State::Send, events: crate::os::POLLOUT, start: now, delay_until: now, timeout, msg, sent: 0, tls: None, name, error: None, done: false, connected: true, pooled: false, hello_timeout: None, in_hello: false };
         if let Err(e) = conn.set_nonblocking() {
             p.fail(NetError::Io(std::io::Error::other(e.to_string())), "Failed to write rpc bytes.");
             return p;
@@ -94,7 +102,26 @@ impl Probe {
     /// A check that connects to `addr` once `delay` has passed.
     pub fn connect(node: u32, name: &str, addr: SocketAddr, delay: Duration, msg: Vec<u8>, timeout: Option<Duration>, tls: TlsSetup) -> Probe {
         let now = Instant::now();
-        Probe { node, addr: Some(addr), fresh: true, conn: None, state: State::PendingConnect, events: crate::os::POLLOUT, start: now, delay_until: now + delay, timeout, msg, sent: 0, tls, name: name.to_owned(), error: None, done: false }
+        Probe { node, addr: Some(addr), fresh: true, conn: None, state: State::PendingConnect, events: crate::os::POLLOUT, start: now, delay_until: now + delay, timeout, msg, sent: 0, tls, name: name.to_owned(), error: None, done: false, connected: false, pooled: false, hello_timeout: None, in_hello: false }
+    }
+
+    /// This check makes a pooled cluster's connection (_cluster_add_node): its hello waits
+    /// `hello_timeout` (socketTimeoutMS) for the reply, its errors are libmongoc's pooled ones.
+    pub fn pooled(mut self, hello_timeout: Option<Duration>) -> Probe {
+        self.pooled = true;
+        self.hello_timeout = hello_timeout;
+        self
+    }
+
+    /// mongoc_client_connect_tcp: no address of the host accepted the connection.
+    fn connect_error(&self) -> Error {
+        stream_error(code::STREAM_CONNECT, &format!("Failed to connect to target host: {}", self.name))
+    }
+
+    /// A network error of the pooled connection's hello (mongoc_cluster_run_command_private).
+    fn hello_error(&mut self, e: &NetError) -> Error {
+        self.in_hello = true;
+        crate::client::command_network_error("hello", "admin", e)
     }
 
     fn fail(&mut self, _e: NetError, msg: &str) {
@@ -153,7 +180,8 @@ impl Probe {
 
     /// When the check times out (None: never, connectTimeoutMS 0).
     pub fn deadline(&self) -> Option<Instant> {
-        self.timeout.map(|t| self.start + t)
+        let t = if self.pooled && self.state == State::Recv { self.hello_timeout } else { self.timeout };
+        t.map(|t| self.start + t)
     }
 
     pub fn timed_out(&self, now: Instant) -> bool {
@@ -162,7 +190,13 @@ impl Probe {
 
     /// POLLERR/POLLHUP on the socket (mongoc_async_run's messages).
     pub fn poll_error(&mut self, hup: bool) {
-        let e = if self.state == State::Send {
+        let e = if self.pooled && self.state != State::Setup {
+            if self.state == State::Send && !self.connected {
+                self.connect_error()
+            } else {
+                self.hello_error(&NetError::Closed)
+            }
+        } else if self.state == State::Send {
             stream_error(code::STREAM_CONNECT, if hup { "connection refused" } else { "unknown connection error" })
         } else {
             stream_error(code::STREAM_SOCKET, if hup { "connection closed" } else { "unknown socket error" })
@@ -174,6 +208,15 @@ impl Probe {
     /// The deadline passed (mongoc_async_run): "connection timeout" while connecting, else
     /// "socket timeout".
     pub fn timeout_error(&mut self) {
+        if self.pooled {
+            let e = match self.state {
+                State::Send if !self.connected => self.connect_error(),
+                State::Setup => stream_error(code::STREAM_SOCKET, "TLS handshake timed out."),
+                _ => self.hello_error(&NetError::Timeout),
+            };
+            self.error = Some(e);
+            return;
+        }
         self.error = Some(stream_error(code::STREAM_CONNECT, if self.state == State::Send { "connection timeout" } else { "socket timeout" }));
     }
 
@@ -211,6 +254,10 @@ impl Probe {
                     Step::Progress
                 }
                 Ok(false) => Step::Progress,
+                Err(e) if self.pooled => {
+                    self.error = Some(self.hello_error(&e));
+                    Step::Failed
+                }
                 Err(_) => {
                     self.error = Some(stream_error(code::STREAM_SOCKET, "Failed to write rpc bytes."));
                     Step::Failed
@@ -225,6 +272,10 @@ impl Probe {
                         Step::Failed
                     }
                 },
+                Err(e) if self.pooled => {
+                    self.error = Some(self.hello_error(&e));
+                    Step::Failed
+                }
                 Err(NetError::Closed) => {
                     self.error = Some(stream_error(code::STREAM_SOCKET, "Server closed connection."));
                     Step::Failed
