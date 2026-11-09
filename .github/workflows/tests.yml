@@ -165,3 +165,26 @@ jobs:
       - run: cargo test --locked -p mongo-crypt
       - run: cargo test --locked -p mongo-crypt --no-default-features
       - run: cargo test --locked -p mongo-core --lib
+
+  pie:
+    name: "PIE build from source (ubuntu-24.04 / PHP 8.4)"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: pie
+          extensions: :mongodb
+          coverage: none
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get install -y -qq libclang-dev
+      # the phpize/configure/make path PIE takes when no pre-built binary matches
+      - name: pie build
+        run: |
+          pie repository:add path "$PWD"
+          pie build 'danog/mongo-php-async-driver:*@dev' | tee pie.log
+          so=$(sed -n 's/^Build complete: //p' pie.log | tail -1)
+          test -f "$so"
+          php -n -d "extension=$so" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'

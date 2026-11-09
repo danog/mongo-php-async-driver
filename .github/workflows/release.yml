@@ -1,0 +1,128 @@
+name: Release binaries
+
+# Pre-built binaries for PIE (`pie install danog/mongo-php-async-driver`), attached to each
+# GitHub release under the names PIE looks for (docs/extension-maintainers.md of php/pie):
+#   Linux/macOS: php_mongodb-<tag>_php<X.Y>-<arch>-<os>-<libc>.zip, holding mongodb.so
+#   Windows:     php_mongodb-<tag>-<X.Y>-nts-<compiler>-x86_64.zip, holding a .dll of the same name
+# Where no binary matches, PIE builds from source (config.m4 + Makefile.frag run cargo).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and upload binaries for"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  linux:
+    name: "Linux ${{ matrix.arch }} ${{ matrix.libc }} / PHP ${{ matrix.php }}"
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4", "8.5"]
+        arch: [x86_64, arm64]
+        libc: [glibc, musl]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build in the official PHP image
+        run: |
+          image=php:${{ matrix.php }}-cli-${{ matrix.libc == 'musl' && 'alpine' || 'bookworm' }}
+          docker run --rm -v "$PWD:/src" -w /src "$image" sh tools/release/build-linux.sh mongodb.so
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+          asset=php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-linux-${{ matrix.libc }}.zip
+          asset=$(echo "$asset" | tr 'A-Z' 'a-z')
+          zip -j "$asset" mongodb.so
+          gh release upload "$TAG" "$asset" --clobber
+
+  macos:
+    name: "macOS ${{ matrix.arch }} / PHP ${{ matrix.php }}"
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4", "8.5"]
+        arch: [arm64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: :mongodb
+          coverage: none
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: |
+          echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
+          export LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib
+          PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --release --locked
+          cp target/release/libmongodb.dylib mongodb.so
+          php -n -d "extension=$PWD/mongodb.so" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+          asset=php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-darwin-bsdlibc.zip
+          asset=$(echo "$asset" | tr 'A-Z' 'a-z')
+          zip -j "$asset" mongodb.so
+          gh release upload "$TAG" "$asset" --clobber
+
+  windows:
+    name: "Windows x86_64 / PHP ${{ matrix.php }}"
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4", "8.5"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: :mongodb
+          coverage: none
+      # ext-php-rs uses the vectorcall ABI there, which only nightly Rust has (pinned as in CI)
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-02
+      - name: Build
+        run: |
+          case "$TAG" in ""|*[!A-Za-z0-9._-]*) echo "unexpected tag name: $TAG" >&2; exit 1 ;; esac
+          export LIBCLANG_PATH='C:\Program Files\LLVM\bin'
+          export PHP=$(cygpath -w "$(command -v php.exe)")
+          cargo build --release --locked
+          # "PHP Extension Build => API20240924,NTS,VS17" -> vs17
+          compiler=$(php -i | sed -n 's/^PHP Extension Build => .*,\(VS[0-9]*\)$/\1/p' | tr 'A-Z' 'a-z')
+          test -n "$compiler"
+          name=php_mongodb-${TAG}-${{ matrix.php }}-nts-${compiler}-x86_64
+          cp target/release/mongodb.dll "$name.dll"
+          php -n -d "extension=$(cygpath -ml "$PWD/$name.dll")" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
+          echo "NAME=$name" >> "$GITHUB_ENV"
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          7z a -tzip "$NAME.zip" "$NAME.dll" > /dev/null
+          gh release upload "$TAG" "$NAME.zip" --clobber

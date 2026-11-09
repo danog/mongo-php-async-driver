@@ -1,0 +1,26 @@
+{
+    "name": "danog/mongo-php-async-driver",
+    "type": "php-ext",
+    "description": "Drop-in replacement for the mongodb PHP extension (ext-mongodb 2.5.6) in pure Rust, with async I/O in fibers through Revolt",
+    "keywords": ["mongodb", "database", "driver", "async", "fiber", "revolt"],
+    "homepage": "https://github.com/danog/mongo-php-async-driver",
+    "license": "Apache-2.0 AND SSPL-1.0",
+    "authors": [
+        {
+            "name": "Daniil Gentili",
+            "email": "daniil@daniil.it"
+        }
+    ],
+    "require": {
+        "php": ">=8.4 <8.6"
+    },
+    "conflict": {
+        "mongodb/mongodb-extension": "*"
+    },
+    "php-ext": {
+        "extension-name": "mongodb",
+        "support-zts": false,
+        "support-nts": true,
+        "download-url-method": ["pre-packaged-binary", "composer-default"]
+    }
+}

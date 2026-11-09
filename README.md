@@ -16,7 +16,21 @@ blocking, so driver calls inside PHP Fibers run concurrently.
   [ext-php-rs](https://github.com/extphprs/ext-php-rs), the Zend Engine bindings.
 - **No threads:** all I/O happens on the PHP thread.
 
-## Build
+## Install
+
+With [PIE](https://github.com/php/pie):
+
+```bash
+pie install danog/mongo-php-async-driver
+```
+
+It installs as the `mongodb` extension, so it conflicts with the official `mongodb/mongodb-extension`:
+uninstall that first (`pie uninstall mongodb/mongodb-extension`, or remove ext-mongodb's package
+or `extension=mongodb` line). Releases carry pre-built binaries for Linux (x86-64 and arm64,
+glibc and musl), macOS (arm64 and x86-64) and Windows (x86-64), for PHP 8.4 and 8.5 NTS. Elsewhere,
+PIE builds from source, which needs Rust (`cargo`) and libclang.
+
+## Build from source
 
 PHP 8.4 or 8.5, NTS (non thread-safe) builds, 64-bit: Linux and macOS (x86-64, arm64) and
 Windows (x86-64). bindgen needs libclang.

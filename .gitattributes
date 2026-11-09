@@ -1,2 +1,5 @@
 # checkouts are byte-for-byte (no CRLF conversion on Windows): test fixtures are compared exactly
 * -text
+
+# not needed to build: kept out of the source archives PIE downloads
+/tests export-ignore
