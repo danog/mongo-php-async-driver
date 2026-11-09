@@ -183,17 +183,29 @@ jobs:
   frankenphp:
     name: "FrankenPHP in-process restart (ZTS, ubuntu-24.04)"
     runs-on: ubuntu-24.04
+    # as the official driver's frankenphp.yml: a service container the runner waits for (its
+    # healthcheck), reached from the FrankenPHP container through the Docker host
+    services:
+      mongodb:
+        image: mongodb/mongodb-atlas-local:8.0
+        ports:
+          - "27017:27017"
+    env:
+      MONGODB_URI: mongodb://host.docker.internal:27017/?directConnection=true&serverSelectionTimeoutMS=2000
     steps:
       - uses: actions/checkout@v4
-      - name: Start MongoDB
-        run: docker run --detach --publish 27017:27017 mongo:8.0
       - name: Build the FrankenPHP image with this extension
         run: docker build --tag mongodb-frankenphp --file tools/ci/frankenphp.Dockerfile .
       - name: Restart test
         env:
-          MONGODB_URI: mongodb://host.docker.internal:27017/?directConnection=true
           SKIP_BUILD: "1"
         run: bash tests/phpt/frankenphp/restart-test.sh
+      - name: Containers and connectivity (on failure)
+        if: failure()
+        run: |
+          docker ps -a
+          docker run --rm --add-host host.docker.internal:host-gateway busybox:1.36 \
+            sh -c 'nc -z -w 3 host.docker.internal 27017 && echo "27017 reachable from a container" || echo "27017 NOT reachable from a container"'
 
   pie:
     name: "PIE build from source (ubuntu-24.04 / PHP ${{ matrix.php }} ${{ matrix.ts }})"
