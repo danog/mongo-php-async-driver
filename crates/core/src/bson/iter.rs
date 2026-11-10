@@ -174,20 +174,11 @@ impl<'a> Iter<'a> {
         self.d2 = 0;
         self.d3 = 0;
         self.d4 = 0;
-        let mut o = self.key;
-        let mut found = false;
-        while o < len {
-            if data[o] == 0 {
-                o += 1;
-                self.d1 = o;
-                found = true;
-                break;
-            }
-            o += 1;
-        }
-        if !found {
-            return self.invalid();
-        }
+        let mut o = match super::swar::find_nul(data, self.key) {
+            Some(z) => z + 1,
+            None => return self.invalid(),
+        };
+        self.d1 = o;
         self.keylen = self.d1 - 1 - self.key;
         let ty = data[self.off];
         match ty {

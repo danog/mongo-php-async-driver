@@ -5,6 +5,7 @@
 use super::fmt;
 use super::iter::{self, Iter, Value, Visitor};
 use super::oid;
+use super::swar;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -255,6 +256,14 @@ pub fn escape(o: &mut Vec<u8>, s: &[u8], allow_nul: bool) -> bool {
     let n = s.len();
     while i < n {
         let start = i;
+        // eight bytes at a time over runs without a byte to escape
+        while i + 8 <= n {
+            let w = swar::load(s, i);
+            if swar::lt_bytes(w, 0x20) | swar::eq_bytes(w, b'"') | swar::eq_bytes(w, b'\\') | swar::eq_bytes(w, 0xc0) != 0 {
+                break;
+            }
+            i += 8;
+        }
         while i < n && !special(s[i]) {
             i += 1;
         }

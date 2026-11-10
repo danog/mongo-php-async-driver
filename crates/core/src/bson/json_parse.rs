@@ -192,10 +192,7 @@ impl<'a> P<'a> {
         self.i += 1;
         // the common case: no escape before the closing quote, the input itself
         let st = self.i;
-        let mut j = st;
-        while j < self.s.len() && self.s[j] != b'"' && self.s[j] != b'\\' {
-            j += 1;
-        }
+        let j = super::swar::find2(self.s, st, b'"', b'\\');
         if j < self.s.len() && self.s[j] == b'"' {
             self.i = j + 1;
             return Ok(Cow::Borrowed(&self.s[st..j]));
@@ -203,9 +200,7 @@ impl<'a> P<'a> {
         let mut out = Vec::new();
         loop {
             let st = self.i;
-            while self.i < self.s.len() && self.s[self.i] != b'"' && self.s[self.i] != b'\\' {
-                self.i += 1;
-            }
+            self.i = super::swar::find2(self.s, st, b'"', b'\\');
             out.extend_from_slice(&self.s[st..self.i]);
             if self.i >= self.s.len() {
                 return Err("Incomplete JSON".into());
