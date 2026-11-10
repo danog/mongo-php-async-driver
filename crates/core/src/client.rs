@@ -986,8 +986,13 @@ impl Client {
             if let Some(id) = sel {
                 if self.td().cluster_time.is_none() {
                     let mut td = self.td();
-                    if let Some(h) = td.server(id).map(|s| s.hello.clone()) {
+                    // the hello is moved out and back (not copied: this runs on every selection
+                    // while no $clusterTime is known, i.e. always on a standalone)
+                    if let Some(h) = td.server_mut(id).map(|s| std::mem::take(&mut s.hello)) {
                         td.update_cluster_time(&h);
+                        if let Some(s) = td.server_mut(id) {
+                            s.hello = h;
+                        }
                     }
                 }
                 return Ok((id, must));
