@@ -1,20 +1,23 @@
 # mongo-php-async-driver
 
-A pure-Rust, drop-in replacement for the PHP `mongodb` extension (ext-mongodb 2.5.6), with one
-addition: network waits give control to the [Revolt](https://revolt.run) event loop instead of
-blocking, so driver calls inside PHP Fibers run concurrently.
+A MongoDB driver for PHP with native Fiber support, written in Rust: a drop-in replacement for
+the `mongodb` extension (ext-mongodb 2.5.6) whose network waits give control to the
+[Revolt](https://revolt.run) event loop instead of blocking: code written for ext-mongodb runs
+unchanged, and driver calls made from concurrent PHP Fibers run at the same time.
 
+- **Fibers, with no code changes:** with `revolt/event-loop` installed, a driver call inside a
+  `Fiber` suspends only that fiber while it waits for the network, so other fibers and Revolt's
+  timers and watchers keep running. Each concurrent operation gets its own pooled connection
+  (`maxPoolSize`): 50 to 200 concurrent fibers reach 43–56k operations/s on one core, 3.3–4.3×
+  what ext-mongodb does one call at a time. Anything built on Revolt (Amp v3, for one) works.
+  Calls in `{main}` wait through the loop too once Revolt is loaded, unless
+  `mongodb.main_event_loop=0`. See [Fibers](#fibers).
 - **Same API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
   class, constant, `var_dump()` output, serialization format, exception and message (the
   Reflection dump is identical). [PHPLIB](https://github.com/mongodb/mongo-php-library) and code
   written for ext-mongodb run unchanged. Every difference is listed, with its reason and the test
   that pins it, in [DIVERGENCES.md](DIVERGENCES.md); where mirroring ext-mongodb would be unsafe
   (a crash, an overflow, unbounded allocation, a leaked secret), safety wins.
-- **Fibers, with no code changes:** with `revolt/event-loop` installed, a driver call inside a
-  `Fiber` suspends only that fiber while it waits for the network, so other fibers and Revolt's
-  timers and watchers keep running. Each concurrent operation gets its own pooled connection
-  (`maxPoolSize`). Calls in `{main}` wait through the loop too once Revolt is loaded, unless
-  `mongodb.main_event_loop=0`. See [Fibers](#fibers).
 - **Faster than ext-mongodb:** about half the CPU time per operation (`findOne` 12.1 µs against
   27.1 µs, `insertOne` 12.3 against 28.7), 59% less time encoding and decoding BSON, 72% less CPU
   to set up a TLS connection; with concurrent Fibers, 3.3–4.3× the throughput ext-mongodb reaches
@@ -115,6 +118,21 @@ The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `fromjson.php`, `hands
 `fibers.php`, `main.php`, `scan.php`).
 
 ## Fibers
+
+```php
+use MongoDB\Driver\{Manager, Query};
+use Revolt\EventLoop;
+
+$manager = new Manager('mongodb://127.0.0.1');
+foreach (['alice', 'bob', 'carol'] as $name) {
+    // three queries in flight at once, on three pooled connections
+    EventLoop::queue(function () use ($manager, $name) {
+        $users = $manager->executeQuery('app.users', new Query(['name' => $name]))->toArray();
+        echo $name, ': ', count($users), "\n";
+    });
+}
+EventLoop::run();
+```
 
 Automatic, with no option: a driver call made inside a `Fiber` suspends that fiber while it waits
 for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
