@@ -403,16 +403,16 @@ fn json_double(t: &[u8]) -> R<f64> {
 fn strtod(s: &[u8]) -> R<f64> {
     let txt = std::str::from_utf8(s).unwrap_or("");
     let t = txt.trim_start();
-    let lower = t.to_ascii_lowercase();
-    let (sign, rest) = match lower.as_bytes().first() {
-        Some(b'-') => (-1.0, &lower[1..]),
-        Some(b'+') => (1.0, &lower[1..]),
-        _ => (1.0, &lower[..]),
+    let (sign, rest) = match t.as_bytes().first() {
+        Some(b'-') => (-1.0, &t.as_bytes()[1..]),
+        Some(b'+') => (1.0, &t.as_bytes()[1..]),
+        _ => (1.0, t.as_bytes()),
     };
-    if rest.starts_with("inf") {
+    let prefix = |p: &[u8]| rest.len() >= p.len() && rest[..p.len()].eq_ignore_ascii_case(p);
+    if prefix(b"inf") {
         return Ok(sign * f64::INFINITY);
     }
-    if rest.starts_with("nan") {
+    if prefix(b"nan") {
         return Ok(if sign < 0.0 { -f64::NAN } else { f64::NAN });
     }
     let b = t.as_bytes();
@@ -455,7 +455,8 @@ fn strtod(s: &[u8]) -> R<f64> {
 
 /// `bson_ascii_strtoll(val, &end, 10)` with the whole-string and range checks.
 fn strtoll(s: &[u8]) -> R<i64> {
-    let txt = lossy(s);
+    // as `lossy` (up to a NUL), borrowed unless not UTF-8 (no allocation per $numberInt/$numberLong)
+    let txt = String::from_utf8_lossy(&s[..s.iter().position(|&c| c == 0).unwrap_or(s.len())]);
     let t = txt.trim_start();
     let b = t.as_bytes();
     let (neg, mut i) = match b.first() {
