@@ -47,8 +47,10 @@ pub struct Cursor {
     pub coll: String,
     pub id: i64,
     state: State,
-    batch: VecDeque<Vec<u8>>,
-    current_doc: Option<Vec<u8>>,
+    /// the last reply: the batch documents are ranges of it (not copied out one by one)
+    reply: Vec<u8>,
+    batch: VecDeque<(usize, usize)>,
+    current_doc: Option<(usize, usize)>,
     zchild: sys::zval,
     current: i64,
     advanced: bool,
@@ -90,6 +92,7 @@ impl Default for Cursor {
             coll: String::new(),
             id: 0,
             state: State::InBatch,
+            reply: Vec::new(),
             batch: VecDeque::new(),
             current_doc: None,
             zchild: zval::undef(),
@@ -229,7 +232,7 @@ impl Cursor {
         c.server_id = server_id;
         c.db = db.to_owned();
         c.state = State::InBatch;
-        if !c.read_response(&reply) {
+        if !c.read_response(reply) {
             c.error = Some((Error::new(mongo_core::error::domain::PROTOCOL, mongo_core::error::code::PROTOCOL_INVALID_REPLY, "Invalid reply to find command."), None));
         }
         c
@@ -247,9 +250,16 @@ impl Cursor {
         c
     }
 
-    /// _mongoc_cursor_start_reading_response: cursor id, namespace and batch of a reply.
-    fn read_response(&mut self, reply: &[u8]) -> bool {
+    /// _mongoc_cursor_start_reading_response: cursor id, namespace and batch of a reply
+    /// (kept as the cursor's current reply).
+    fn read_response(&mut self, reply: Vec<u8>) -> bool {
         self.batch.clear();
+        let r = self.parse_response(&reply);
+        self.reply = reply;
+        r
+    }
+
+    fn parse_response(&mut self, reply: &[u8]) -> bool {
         let mut in_batch = false;
         let mut ns: Option<Vec<u8>> = None;
         let mut ns_invalid = false;
@@ -262,8 +272,7 @@ impl Cursor {
                         (b"ns", _) => ns_invalid = true,
                         (b"firstBatch" | b"nextBatch", Value::Array(a)) => {
                             in_batch = true;
-                            let a = a.to_vec();
-                            self.push_batch(&a);
+                            self.push_batch(reply, a);
                         }
                         _ => {}
                     }
@@ -293,11 +302,14 @@ impl Cursor {
         in_batch
     }
 
-    fn push_batch(&mut self, arr: &[u8]) {
+    /// The documents of the batch array `arr` (a slice of `reply`), as ranges of `reply`.
+    fn push_batch(&mut self, reply: &[u8], arr: &[u8]) {
+        let base = reply.as_ptr() as usize;
         if let Some(mut it) = Iter::new(arr) {
             while it.next() {
                 if let Value::Document(d) = it.value() {
-                    self.batch.push_back(d.to_vec());
+                    let start = d.as_ptr() as usize - base;
+                    self.batch.push_back((start, start + d.len()));
                 }
             }
         }
@@ -413,7 +425,7 @@ impl Cursor {
         unsafe { super::apm::flush(&c) };
         match r {
             Ok(reply) => {
-                if self.read_response(&reply) {
+                if self.read_response(reply) {
                     self.release_implicit_if_exhausted(&c);
                     return true;
                 }
@@ -515,8 +527,8 @@ impl Cursor {
     }
 
     unsafe fn decode_current(&mut self) {
-        if let Some(d) = &self.current_doc {
-            match super::to_zval(d, &self.typemap) {
+        if let Some((a, b)) = self.current_doc {
+            match super::to_zval(&self.reply[a..b], &self.typemap) {
                 Some(z) => self.zchild = z,
                 None => self.free_current(),
             }
@@ -541,7 +553,7 @@ impl Cursor {
     /// The next document of an internal find (the key vault): None at the end
     pub fn next_raw(&mut self) -> Result<Option<Vec<u8>>, (Error, Option<Vec<u8>>)> {
         if self.next_doc() {
-            return Ok(self.current_doc.take());
+            return Ok(self.current_doc.take().map(|(a, b)| self.reply[a..b].to_vec()));
         }
         match self.error.take() {
             Some(e) => Err(e),
