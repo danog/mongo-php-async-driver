@@ -1,17 +1,17 @@
 # mongo-php-async-driver
 
-A MongoDB driver for PHP with native Fiber support, written in Rust: a drop-in replacement for
+A fully async MongoDB driver for PHP, written in Rust: a drop-in replacement for
 the `mongodb` extension (ext-mongodb 2.5.6) whose network waits give control to the
 [Revolt](https://revolt.run) event loop instead of blocking: code written for ext-mongodb runs
-unchanged, and driver calls made from concurrent PHP Fibers run at the same time.
+unchanged, and concurrent driver calls run at the same time.
 
-- **Fibers, with no code changes:** with `revolt/event-loop` installed, a driver call inside a
+- **Async, with no code changes:** with `revolt/event-loop` installed, a driver call inside a
   `Fiber` suspends only that fiber while it waits for the network, so other fibers and Revolt's
   timers and watchers keep running. Each concurrent operation gets its own pooled connection
   (`maxPoolSize`): 50 to 200 concurrent fibers reach 43–56k operations/s on one core, 3.3–4.3×
   what ext-mongodb does one call at a time. Anything built on Revolt (Amp v3, for one) works.
   Calls in `{main}` wait through the loop too once Revolt is loaded, unless
-  `mongodb.main_event_loop=0`. See [Fibers](#fibers).
+  `mongodb.main_event_loop=0`. See [Async](#async).
 - **Same API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
   class, constant, `var_dump()` output, serialization format, exception and message (the
   Reflection dump is identical). [PHPLIB](https://github.com/mongodb/mongo-php-library) and code
@@ -20,7 +20,7 @@ unchanged, and driver calls made from concurrent PHP Fibers run at the same time
   (a crash, an overflow, unbounded allocation, a leaked secret), safety wins.
 - **Faster than ext-mongodb:** about half the CPU time per operation (`findOne` 12.1 µs against
   27.1 µs, `insertOne` 12.3 against 28.7), 59% less time encoding and decoding BSON, 72% less CPU
-  to set up a TLS connection; with concurrent Fibers, 3.3–4.3× the throughput ext-mongodb reaches
+  to set up a TLS connection; with concurrent async calls, 3.3–4.3× the throughput ext-mongodb reaches
   one call at a time. See [Performance](#performance).
 - **No C libraries:** no libbson, libmongoc or libmongocrypt, no OpenSSL, zlib or zstd. TLS is
   rustls with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust and assembly);
@@ -89,7 +89,7 @@ includes the server's work.
   Extended JSON, 641 µs against 973 µs with canonical.
 - **Connection setup** (new client and first command): CPU −26% over TCP (162 µs against 220 µs),
   −72% with TLS (375 µs against 1324 µs); wall time −16% and −39%.
-- **Fibers** (`findOne`, 20,000 operations): sequential calls in `{main}` run at 15.9k operations/s
+- **Async** (`findOne` in Fibers, 20,000 operations): sequential calls in `{main}` run at 15.9k operations/s
   (ext-mongodb: 12.9k). With 50 or 200 concurrent fibers, 43–44k operations/s with
   `maxPoolSize=4` and 54–56k with 32: 3.3–4.3× what ext-mongodb does one call at a time. The single
   client core is the limit.
@@ -117,7 +117,7 @@ none on string comparisons.
 The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `fromjson.php`, `handshake.php`,
 `fibers.php`, `main.php`, `scan.php`).
 
-## Fibers
+## Async
 
 ```php
 use MongoDB\Driver\{Manager, Query};
