@@ -42,6 +42,19 @@ impl Writer {
         d
     }
 
+    /// `f` on the document so far, finished in place (terminator and length written, then
+    /// taken back): a lookup while building without copying the buffer.
+    pub fn with_doc<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> R {
+        let head: [u8; 4] = self.buf[0..4].try_into().unwrap();
+        self.buf.push(0);
+        let n = self.buf.len() as u32;
+        self.buf[0..4].copy_from_slice(&n.to_le_bytes());
+        let r = f(&self.buf);
+        self.buf.pop();
+        self.buf[0..4].copy_from_slice(&head);
+        r
+    }
+
     pub fn len(&self) -> usize {
         self.buf.len() + 1
     }

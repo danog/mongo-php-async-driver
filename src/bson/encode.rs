@@ -240,12 +240,8 @@ impl Enc {
                 let o = (*data).value.obj;
                 if obj::instanceof(oce, c.document) {
                     copy_elements(&obj::data::<document::Bson>(o).bson, w);
-                    if flags & ADD_ID != 0 {
-                        let d = w.buf_as_doc();
-                        let mut it = Iter::new(&d).unwrap();
-                        if it.find(b"_id") {
-                            flags &= !ADD_ID;
-                        }
+                    if flags & ADD_ID != 0 && w.with_doc(|d| Iter::new(d).unwrap().find(b"_id")) {
+                        flags &= !ADD_ID;
                     }
                     return self.done(flags, w, id_out);
                 }
@@ -338,14 +334,17 @@ impl Enc {
         }
         if flags & RETURN_ID != 0 {
             if let Some(out) = id_out {
-                let d = w.buf_as_doc();
-                let mut it = Iter::new(&d).unwrap();
-                if !it.find(b"_id") {
-                    throw(E::UnexpectedValue, "Error copying \"_id\" field from encoded document");
-                } else {
-                    let mut iw = Writer::new();
-                    iw.element_from(None, &it);
-                    *out = Some(iw.finish());
+                let id = w.with_doc(|d| {
+                    let mut it = Iter::new(d).unwrap();
+                    it.find(b"_id").then(|| {
+                        let mut iw = Writer::with_capacity(32);
+                        iw.element_from(None, &it);
+                        iw.finish()
+                    })
+                });
+                match id {
+                    Some(id) => *out = Some(id),
+                    None => throw(E::UnexpectedValue, "Error copying \"_id\" field from encoded document"),
                 }
             }
         }
