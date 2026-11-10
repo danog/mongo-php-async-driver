@@ -519,20 +519,22 @@ impl Client {
                     }
                 }
             }
+            // everything the retry decision needs is read here (errorLabels looked up once), so
+            // the reply is not copied before r is kept
             let reply = match &r {
-                Ok(rep) | Err(Failure { reply: rep, .. }) => rep.clone(),
+                Ok(rep) | Err(Failure { reply: rep, .. }) => rep.as_slice(),
             };
-            let ok = r.is_ok();
-            let is_retryable_write = eligibility == Eligibility::RetryableWrite && write_error_type(&reply) == WriteErr::Retry;
-            let (is_overload, overload_retryable) = overload(&reply, eligibility);
-            let keep_previous = kept.is_some() && crate::cmd::has_label(&reply, "NoWritesPerformed");
+            let labels = crate::cmd::error_labels(reply);
+            let is_retryable_write = eligibility == Eligibility::RetryableWrite && write_error_type_with(reply, labels) == WriteErr::Retry;
+            let (is_overload, overload_retryable) = overload(labels, eligibility);
+            let keep_previous = kept.is_some() && crate::cmd::labels_have(labels, "NoWritesPerformed");
+            let base_backoff = if is_overload { backoff_base_ms(reply) } else { 0 };
             if !keep_previous {
                 kept = Some(r);
             }
             if !(is_retryable_write || overload_retryable) {
                 break;
             }
-            let _ = ok;
             attempt += 1;
             if is_overload {
                 allowed = self.max_adaptive_retries();
@@ -543,7 +545,7 @@ impl Client {
             if self.td().server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
                 deprioritized.push(cmd.server_id);
             }
-            backoff.wait(is_overload, &reply);
+            backoff.wait(is_overload, base_backoff);
             let sel = self.select_for_optype(OpType::Write, None, session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { break };
             // mongoc_cluster_stream_for_writes: no stream for the retry ends it (the previous
@@ -571,7 +573,7 @@ impl Client {
                 Err(f) => (f.reply.as_slice(), Some(&f.error)),
             };
             let is_retryable_read = eligibility == Eligibility::RetryableRead && read_error_is_retryable(err, reply);
-            let (is_overload, overload_retryable) = overload(reply, eligibility);
+            let (is_overload, overload_retryable) = overload(crate::cmd::error_labels(reply), eligibility);
             if !(is_retryable_read || overload_retryable) {
                 return r;
             }
@@ -585,8 +587,7 @@ impl Client {
             if self.td().server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
                 deprioritized.push(cmd.server_id);
             }
-            let reply = reply.to_vec();
-            backoff.wait(is_overload, &reply);
+            backoff.wait(is_overload, if is_overload { backoff_base_ms(reply) } else { 0 });
             let prefs = cmd.read_prefs.clone();
             let sel = self.select_for_optype(OpType::Read, prefs.as_ref(), session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { return r };
@@ -750,10 +751,19 @@ pub enum Eligibility {
     RetryableWrite,
 }
 
-/// The overload labels of a reply: (SystemOverloadedError, and retryable as such).
-fn overload(reply: &[u8], e: Eligibility) -> (bool, bool) {
-    let o = crate::cmd::has_label(reply, "SystemOverloadedError");
-    (o, o && crate::cmd::has_label(reply, "RetryableError") && e != Eligibility::None)
+/// The overload labels of a reply (its errorLabels): (SystemOverloadedError, and retryable as
+/// such).
+fn overload(labels: &[u8], e: Eligibility) -> (bool, bool) {
+    let o = crate::cmd::labels_have(labels, "SystemOverloadedError");
+    (o, o && crate::cmd::labels_have(labels, "RetryableError") && e != Eligibility::None)
+}
+
+/// The reply's baseBackoffMS (0: none).
+fn backoff_base_ms(reply: &[u8]) -> i64 {
+    match find(reply, b"baseBackoffMS") {
+        Some(v @ (Value::Int32(_) | Value::Int64(_))) => crate::sdam::as_i64(&v),
+        _ => 0,
+    }
 }
 
 /// The exponential backoff of overload retries (mongoc-retry-backoff-generator.c: base
@@ -764,16 +774,13 @@ struct Backoff {
 }
 
 impl Backoff {
-    fn wait(&mut self, is_overload: bool, reply: &[u8]) {
+    /// `base_ms`: the reply's baseBackoffMS (backoff_base_ms)
+    fn wait(&mut self, is_overload: bool, base_ms: i64) {
         let n = self.attempt;
         self.attempt += 1;
         if !is_overload {
             return;
         }
-        let base_ms = match find(reply, b"baseBackoffMS") {
-            Some(v @ (Value::Int32(_) | Value::Int64(_))) => crate::sdam::as_i64(&v),
-            _ => 0,
-        };
         let base = if base_ms > 0 { base_ms as f64 } else { 100.0 };
         let max = (base * 2f64.powi(n as i32)).min(10_000.0);
         let r = u32::from_le_bytes(crate::bson::oid::random_bytes(4)[..4].try_into().unwrap()) as f64 / u32::MAX as f64;
@@ -792,7 +799,12 @@ pub enum WriteErr {
 
 /// _mongoc_write_error_get_type
 pub fn write_error_type(reply: &[u8]) -> WriteErr {
-    if crate::cmd::has_label(reply, "RetryableWriteError") {
+    write_error_type_with(reply, crate::cmd::error_labels(reply))
+}
+
+/// write_error_type with the reply's errorLabels already looked up.
+fn write_error_type_with(reply: &[u8], labels: &[u8]) -> WriteErr {
+    if crate::cmd::labels_have(labels, "RetryableWriteError") {
         return WriteErr::Retry;
     }
     match crate::cmd::check_ok_no_wce(reply) {

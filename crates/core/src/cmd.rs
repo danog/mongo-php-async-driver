@@ -124,8 +124,21 @@ impl CmdError {
 
 /// mongoc_error_has_label: `reply.errorLabels` contains `label`.
 pub fn has_label(reply: &[u8], label: &str) -> bool {
-    let Some(Value::Array(a)) = find(reply, b"errorLabels") else { return false };
-    let Some(mut it) = Iter::new(a) else { return false };
+    labels_have(error_labels(reply), label)
+}
+
+/// The `errorLabels` array of a reply (empty when there is none), for several `labels_have`
+/// checks with one lookup.
+pub fn error_labels(reply: &[u8]) -> &[u8] {
+    match find(reply, b"errorLabels") {
+        Some(Value::Array(a)) => a,
+        _ => &[],
+    }
+}
+
+/// An `errorLabels` array (see error_labels) contains `label`.
+pub fn labels_have(labels: &[u8], label: &str) -> bool {
+    let Some(mut it) = Iter::new(labels) else { return false };
     while it.next() {
         if matches!(it.value(), Value::Utf8(s) if s == label.as_bytes()) {
             return true;
