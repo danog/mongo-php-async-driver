@@ -143,6 +143,8 @@ jobs:
 
       - name: Results
         if: always()
+        env:
+          PHP_VERSION_MINOR: ${{ matrix.php }}
         run: |
           suites=("Driver (PHPT)" phpt.xml "Library (PHPUnit)" phplib.xml)
           [ "${{ matrix.topology }}" = server ] && suites+=("Fibers (tests/local)" fibers.xml)

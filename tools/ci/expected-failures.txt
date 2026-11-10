@@ -1,8 +1,8 @@
 # Upstream tests that fail by design: a documented divergence (DIVERGENCES.md), or a failure that
 # ext-mongodb has too.
 # One test per line: a PHPT path, or a PHPUnit Class::method (data sets included); or
-# "message: <text>" for every test whose failure contains that text; "<Linux|macOS|Windows>: "
-# before an entry limits it to that runner OS. They are reported as
+# "message: <text>" for every test whose failure contains that text; "<Linux|macOS|Windows>: " or
+# "php<X.Y>: " before an entry limits it to that runner OS or PHP version. They are reported as
 # "expected" and do not fail the run; a listed test that starts passing is reported so the entry
 # can be removed.
 
@@ -26,3 +26,16 @@ macOS: MongoDB\Tests\SpecTests\TransactionsConvenientApi\Prose4_RetryBackoffIsEn
 Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testReadableStreamStat
 Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamStatBeforeSaving
 Windows: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamStatAfterSaving
+
+# PHP 8.6: fclose(), file_put_contents() and copy() return false when flushing fails (UPGRADING),
+# and the library's GridFS StreamWrapper has no stream_flush(), so every flush through it "fails".
+# The library's code on PHP 8.6, the same with ext-mongodb (not a divergence).
+php8.6: MongoDB\Tests\GridFS\BucketFunctionalTest::testOpenUploadStreamAndMultipleWriteOperations
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testCopy
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testEmptyFilename
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testFilePutAndGetContents
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testFileStats
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testRenameAllRevisions
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testRenameSameFilename
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testStreamWithContextResolver
+php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamClose
