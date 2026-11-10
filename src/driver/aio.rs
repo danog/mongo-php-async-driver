@@ -3,8 +3,8 @@
 //! up by name, never a dependency of the extension), so other fibers run meanwhile.
 //!
 //! - When: a call inside a fiber (EG(active_fiber)) waits by suspending; a call in {main} does
-//!   so only while fibers are waiting in the driver (then Revolt's {main} suspension runs the
-//!   loop and they progress); otherwise, and wherever a fiber may not switch (object
+//!   so whenever Revolt\EventLoop is loaded and mongodb.main_event_loop is on (Revolt's {main}
+//!   suspension runs the loop meanwhile); otherwise, and wherever a fiber may not switch (object
 //!   destruction, shutdown, zend_fiber_switch_blocked()), the plain blocking waits are used.
 //! - How (Unix, backend 1): one epoll/kqueue instance per PHP thread (mongo_core::reactor:
 //!   sockets registered once, edge-triggered) reports the sockets being waited for, token =
@@ -13,7 +13,10 @@
 //!   its sockets, stores `EventLoop::getSuspension()` in the slot and suspends; the callback
 //!   drains the reactor and resumes the ready slots.
 //! - The watcher and the timer belong to the driver of the first wait; a wait after
-//!   EventLoop::setDriver() moves them to the new driver. Per wait, two Revolt calls are saved
+//!   EventLoop::setDriver() moves them to the new driver. Waits pending on the old one stay
+//!   there (`Loop::parked`): its watcher stays referenced until they end, the new driver's
+//!   counts only its own waits (`Php::here`), so either loop ends when nothing waits on it.
+//!   Per wait, two Revolt calls are saved
 //!   where its internals are those of revolt/event-loop 1.x (checked once per driver, else
 //!   the public calls): {main}'s suspension is kept between waits (`main_suspension`), and the
 //!   watcher's `referenced` flag is set in place (`InPlace`).
@@ -258,6 +261,14 @@ struct Slot {
     state: SlotState,
     suspension: Option<sys::zval>,
     deadline: Option<Instant>,
+    /// the `Php::epoch` of the driver the wait suspended on
+    epoch: u32,
+}
+
+impl Slot {
+    fn free(gen: u32) -> Slot {
+        Slot { gen, state: SlotState::Free, suspension: None, deadline: None, epoch: 0 }
+    }
 }
 
 struct Loop {
@@ -268,9 +279,28 @@ struct Loop {
     #[cfg(windows)]
     streams: Vec<(usize, *mut sys::php_stream)>,
     slots: Vec<Slot>,
-    pending: usize,
-    /// request-level PHP state (reset at request end)
+    /// request-level PHP state (reset at request end): on EventLoop's current driver
     php: Option<Php>,
+    /// on drivers EventLoop::setDriver() replaced while waits were pending on them (fibers
+    /// suspended there; still alive): kept as they were until those waits end, or until the
+    /// driver is EventLoop's again (then it is `php` again)
+    parked: Vec<Php>,
+    /// the next `Php::epoch`
+    epochs: u32,
+}
+
+impl Loop {
+    /// A wait suspended on the driver of `epoch` ended. Returns the parked state of that driver
+    /// once nothing waits there any more (the caller retires it).
+    fn done(&mut self, epoch: u32) -> Option<Php> {
+        if let Some(p) = self.php.as_mut().filter(|p| p.epoch == epoch) {
+            p.here -= 1;
+            return None;
+        }
+        let i = self.parked.iter().position(|p| p.epoch == epoch)?;
+        self.parked[i].here -= 1;
+        (self.parked[i].here == 0).then(|| self.parked.swap_remove(i))
+    }
 }
 
 /// The PHP side of the loop in this request, on one Revolt driver.
@@ -278,6 +308,10 @@ struct Php {
     /// the driver the watcher and the timer belong to (EventLoop::setDriver() may replace it
     /// between waits: the next wait then moves to the new one); not held from here
     driver: WeakObj,
+    /// names this state in the slots of its waits
+    epoch: u32,
+    /// the waits pending on this driver (the watcher is referenced while there are any)
+    here: usize,
     /// the onReadable callback id, and whether it is referenced
     watcher: sys::zval,
     referenced: bool,
@@ -305,8 +339,9 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
                 #[cfg(windows)]
                 streams: Vec::new(),
                 slots: Vec::new(),
-                pending: 0,
                 php: None,
+                parked: Vec::new(),
+                epochs: 0,
             });
         }
         Ok(f(l.as_mut().unwrap()))
@@ -774,16 +809,36 @@ unsafe fn php_state() -> io::Result<()> {
     if call::has_exception() {
         return Err(mongo_core::aio::interrupted());
     }
-    // the watcher's driver is no longer the current one (EventLoop::setDriver()): it moves
-    let old = with(|l| match &l.php {
-        Some(p) if !now.is_null() && p.driver.get() != now => Some(l.php.take()),
-        Some(_) => None,
-        None => Some(None),
+    // the watcher's driver is no longer the current one (EventLoop::setDriver()): the state of
+    // the old one is parked while waits are pending there (else retired), the current one's
+    // is made, or taken back from the parked ones
+    let moved = with(|l| {
+        match &l.php {
+            Some(p) if !now.is_null() && p.driver.get() != now => {}
+            Some(_) => return None,
+            None => {}
+        }
+        let mut retired = None;
+        if let Some(old) = l.php.take() {
+            if old.here > 0 && !old.driver.get().is_null() {
+                l.parked.push(old);
+            } else {
+                retired = Some(old);
+            }
+        }
+        // a freed driver's waits never end (their fibers are gone or never resumed)
+        l.parked.retain(|p| !p.driver.get().is_null());
+        if let Some(i) = l.parked.iter().position(|p| p.driver.get() == now) {
+            l.php = Some(l.parked.swap_remove(i));
+        }
+        Some(retired)
     })?;
-    match old {
-        None => return Ok(()),
-        Some(Some(old)) => retire(old),
-        Some(None) => {}
+    let Some(retired) = moved else { return Ok(()) };
+    if let Some(old) = retired {
+        retire(old);
+    }
+    if with(|l| l.php.is_some())? {
+        return Ok(());
     }
     #[cfg(unix)]
     let stream = keepalive_stream()?;
@@ -809,8 +864,11 @@ unsafe fn php_state() -> io::Result<()> {
     let in_place = in_place(driver, &id);
     let driver = WeakObj::new(driver);
     with(|l| {
+        l.epochs = l.epochs.wrapping_add(1);
         l.php = Some(Php {
             driver,
+            epoch: l.epochs,
+            here: 0,
             watcher: id,
             referenced: false,
             in_place,
@@ -825,8 +883,8 @@ unsafe fn php_state() -> io::Result<()> {
 
 /// The PHP state of a driver that is no longer EventLoop's (EventLoop::setDriver(), allowed only
 /// while that driver does not run; it usually frees the old driver, and the watcher, timer and
-/// kept suspension with it): if it is still alive, they are cancelled on it. Waits still
-/// pending on it (fibers suspended on a loop that is gone) stay pending.
+/// kept suspension with it) and where nothing waits: if it is still alive, they are cancelled
+/// on it.
 unsafe fn retire(old: Php) {
     let d = old.driver.get();
     if !d.is_null() {
@@ -845,6 +903,7 @@ pub fn rshutdown() {
     // fiber, whose unwinding wait re-enters this state
     let mut drop_later: Vec<sys::zval> = Vec::new();
     let mut php = None;
+    let mut parked = Vec::new();
     let _ = LOOP.try_with(|l| {
         if let Ok(mut l) = l.try_borrow_mut() {
             if let Some(l) = l.as_mut() {
@@ -852,11 +911,11 @@ pub fn rshutdown() {
                 for s in &mut l.slots {
                     drop_later.extend(s.suspension.take());
                     if s.state != SlotState::Free {
-                        *s = Slot { gen: s.gen.wrapping_add(1), state: SlotState::Free, suspension: None, deadline: None };
+                        *s = Slot::free(s.gen.wrapping_add(1));
                     }
                 }
-                l.pending = 0;
                 php = l.php.take();
+                parked = std::mem::take(&mut l.parked);
                 #[cfg(windows)]
                 {
                     // streams of waits that never ended: PHP closes them with the request's
@@ -871,6 +930,7 @@ pub fn rshutdown() {
     });
     drop(drop_later);
     drop(php);
+    drop(parked);
     REVOLT.set(0);
     FNS.with_borrow_mut(|f| *f = Fns::default());
     mongo_core::aio::set_no_loop_at(u32::MAX);
@@ -915,7 +975,7 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
         let t = match l.slots.iter().position(|s| s.state == SlotState::Free) {
             Some(t) => t,
             None => {
-                l.slots.push(Slot { gen: 0, state: SlotState::Free, suspension: None, deadline: None });
+                l.slots.push(Slot::free(0));
                 l.slots.len() - 1
             }
         };
@@ -925,8 +985,9 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
             // a readiness the reactor already saw: no suspension
             return Ok(None);
         }
-        l.slots[t] = Slot { gen, state: SlotState::Pending, suspension: None, deadline };
-        l.pending += 1;
+        let php = l.php.as_mut().expect("php_state");
+        php.here += 1;
+        l.slots[t] = Slot { gen, state: SlotState::Pending, suspension: None, deadline, epoch: php.epoch };
         Ok(Some(t))
     })??;
     let Some(token) = token else {
@@ -947,12 +1008,16 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     let streams = match unsafe { watch(token, fds) } {
         Ok(s) => s,
         Err(e) => {
-            let _ = with(|l| {
-                if l.slots[token].gen == my_gen {
-                    l.slots[token] = Slot { gen: my_gen, state: SlotState::Free, suspension: None, deadline: None };
-                    l.pending -= 1;
+            let retired = with(|l| {
+                if l.slots[token].gen != my_gen {
+                    return None;
                 }
+                let s = std::mem::replace(&mut l.slots[token], Slot::free(my_gen));
+                l.done(s.epoch)
             });
+            if let Ok(Some(p)) = retired {
+                unsafe { saving_exception(|| retire(p)) };
+            }
             unsafe { after_wait()? };
             return Err(e);
         }
@@ -967,15 +1032,18 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     };
     #[cfg(unix)]
     mongo_core::reactor::disarm(fds, token);
-    let state = with(|l| {
+    let (state, retired) = with(|l| {
         // the slot is still this wait's unless the request ended meanwhile (rshutdown)
         if l.slots[token].gen != my_gen {
-            return SlotState::Pending;
+            return (SlotState::Pending, None);
         }
-        let s = std::mem::replace(&mut l.slots[token], Slot { gen: my_gen, state: SlotState::Free, suspension: None, deadline: None });
-        l.pending -= 1;
-        s.state
+        let s = std::mem::replace(&mut l.slots[token], Slot::free(my_gen));
+        (s.state, l.done(s.epoch))
     })?;
+    if let Some(p) = retired {
+        // the last wait on a replaced driver
+        unsafe { saving_exception(|| retire(p)) };
+    }
     unsafe { after_wait()? };
     r?;
     match state {
@@ -1043,15 +1111,22 @@ unsafe fn disown(stream: *mut sys::php_stream) {
     }
 }
 
-/// Windows: the end of a wait: its watchers are cancelled, its streams disowned and released.
-/// After the request ended (`rshutdown` took the watchers and disowned the streams), the
-/// streams' references are left alone: the request's resources are gone.
+/// Windows: the end of a wait: its watchers are cancelled (on the driver they were made on),
+/// its streams disowned and released. After the request ended (`rshutdown` took the watchers
+/// and disowned the streams), the streams' references are left alone: the request's resources
+/// are gone.
 #[cfg(windows)]
 unsafe fn unwatch(token: usize, gen: u32, streams: Vec<(sys::zval, *mut sys::php_stream)>) {
     let ids = with(|l| {
         if l.slots.get(token).is_none_or(|s| s.gen != gen) {
             return None;
         }
+        // the driver of the wait: EventLoop's (null), a replaced one still alive, or none left
+        let epoch = l.slots[token].epoch;
+        let on = match &l.php {
+            Some(p) if p.epoch == epoch => Some(null_mut()),
+            _ => l.parked.iter().find(|p| p.epoch == epoch).map(|p| p.driver.get()).filter(|d| !d.is_null()),
+        };
         let mut ids = Vec::new();
         let mut i = 0;
         while i < l.watches.len() {
@@ -1062,15 +1137,23 @@ unsafe fn unwatch(token: usize, gen: u32, streams: Vec<(sys::zval, *mut sys::php
             }
         }
         l.streams.retain(|(t, _)| *t != token);
-        Some(ids)
+        Some((ids, on))
     });
-    let Ok(Some(ids)) = ids else {
+    let Ok(Some((ids, on))) = ids else {
         std::mem::forget(streams);
         return;
     };
     saving_exception(|| {
         for id in ids {
-            event_loop("cancel", &mut [id]);
+            match on {
+                Some(d) if d.is_null() => {
+                    event_loop("cancel", &mut [id]);
+                }
+                Some(d) => {
+                    call::method_n(d, b"cancel", &mut [id]);
+                }
+                None => {}
+            }
         }
     });
     for (zs, stream) in streams {
@@ -1093,7 +1176,11 @@ unsafe extern "C" fn on_socket(ex: *mut sys::zend_execute_data, rv: *mut sys::zv
     let id = zval::str_bytes(id);
     let s = LOOP.with_borrow_mut(|l| {
         let l = l.as_mut()?;
-        let token = l.watches.iter().find(|(w, _)| zval::str_bytes(w) == id)?.1;
+        // ids are per driver: a wait on EventLoop's current driver first
+        let epoch = l.php.as_ref().map(|p| p.epoch);
+        let mut found = l.watches.iter().filter(|(w, _)| zval::str_bytes(w) == id).map(|&(_, t)| t);
+        let first = found.next()?;
+        let token = std::iter::once(first).chain(found).find(|&t| l.slots.get(t).is_some_and(|s| Some(s.epoch) == epoch)).unwrap_or(first);
         let s = l.slots.get_mut(token).filter(|s| s.state == SlotState::Pending)?;
         let z = s.suspension.take()?;
         s.state = SlotState::Ready;
@@ -1160,7 +1247,7 @@ unsafe fn arm_timer(at: Instant, old: Option<sys::zval>) {
 unsafe fn after_wait() -> io::Result<()> {
     let id = with(|l| {
         let php = l.php.as_mut()?;
-        if l.pending != 0 || !php.referenced {
+        if php.here != 0 || !php.referenced {
             return None;
         }
         php.referenced = false;
