@@ -128,7 +128,7 @@ jobs:
         run: tools/ci/run-phplib.sh "$EXT" "$CLUSTER_URI" "$PWD/phplib.xml"
 
       # this driver's own fiber tests (the official suites have none): the event-loop backend of
-      # each OS (epoll / kqueue through mio; Windows: per-socket watchers), against revolt/event-loop
+      # each OS (epoll / kqueue; Windows: per-socket watchers), against revolt/event-loop
       - name: Fiber tests (tests/local)
         if: matrix.topology == 'server'
         env:

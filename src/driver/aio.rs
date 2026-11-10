@@ -6,11 +6,12 @@
 //!   so only while fibers are waiting in the driver (then Revolt's {main} suspension runs the
 //!   loop and they progress); otherwise, and wherever a fiber may not switch (object
 //!   destruction, shutdown, zend_fiber_switch_blocked()), the plain blocking waits are used.
-//! - How (Unix, backend 1): one mio Poll (epoll/kqueue) per PHP thread holds the sockets being
-//!   waited for, token = waiter slot; its fd (a dup) is a PHP socket stream watched by one
-//!   Revolt onReadable callback, referenced only while waits are pending. A wait registers its
-//!   sockets, stores `EventLoop::getSuspension()` in its slot and suspends; the callback drains
-//!   mio and resumes the ready slots.
+//! - How (Unix, backend 1): one epoll/kqueue instance per PHP thread (mongo_core::reactor:
+//!   sockets registered once, edge-triggered) reports the sockets being waited for, token =
+//!   waiter slot; its fd (a dup) is a PHP socket stream watched by one Revolt onReadable
+//!   callback, referenced only while waits are pending. A wait names its slot as the waiter of
+//!   its sockets, stores `EventLoop::getSuspension()` in the slot and suspends; the callback
+//!   drains the reactor and resumes the ready slots.
 //! - How (Windows, backend 2: IOCP has no handle a PHP stream could wrap): a wait wraps each of
 //!   its sockets in a PHP socket stream (whose socket handle is reset before the stream goes,
 //!   so PHP never shuts down or closes the driver's socket) and watches it with
@@ -215,10 +216,6 @@ struct Slot {
 }
 
 struct Loop {
-    #[cfg(unix)]
-    poll: mio::Poll,
-    #[cfg(unix)]
-    events: mio::Events,
     /// Windows: the Revolt watchers of the waits (watcher id, slot) and the streams wrapping their
     /// sockets (slot, stream)
     #[cfg(windows)]
@@ -251,10 +248,6 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
     LOOP.with_borrow_mut(|l| {
         if l.is_none() {
             *l = Some(Loop {
-                #[cfg(unix)]
-                poll: mio::Poll::new()?,
-                #[cfg(unix)]
-                events: mio::Events::with_capacity(64),
                 #[cfg(windows)]
                 watches: Vec::new(),
                 #[cfg(windows)]
@@ -436,11 +429,11 @@ unsafe fn fake_closure(f: *mut sys::zend_internal_function) -> sys::zval {
 }
 
 
-/// The PHP socket stream of the request's keep-alive watcher: a dup of the mio fd (readable
-/// when a registered socket is ready).
+/// The PHP socket stream of the request's keep-alive watcher: a dup of the reactor's fd
+/// (readable when a waited-for socket may be ready).
 #[cfg(unix)]
 unsafe fn keepalive_stream() -> io::Result<*mut sys::php_stream> {
-    let fd = with(|l| std::os::fd::AsRawFd::as_raw_fd(&l.poll))?;
+    let fd = mongo_core::reactor::raw_fd()?;
     let dup = libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0);
     if dup < 0 {
         return Err(io::Error::last_os_error());
@@ -575,8 +568,8 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
         return Err(mongo_core::aio::interrupted());
     }
     unsafe { php_state()? };
-    // a slot, and the sockets registered under its token
-    let token = with(|l| -> io::Result<usize> {
+    // a slot, named as the waiter of the sockets
+    let token = with(|l| -> io::Result<Option<usize>> {
         let t = match l.slots.iter().position(|s| s.state == SlotState::Free) {
             Some(t) => t,
             None => {
@@ -584,33 +577,29 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
                 l.slots.len() - 1
             }
         };
-        #[cfg(unix)]
-        for p in fds.iter() {
-            let mut i = None;
-            if p.events & libc::POLLIN != 0 {
-                i = Some(mio::Interest::READABLE);
-            }
-            if p.events & libc::POLLOUT != 0 {
-                i = Some(i.map_or(mio::Interest::WRITABLE, |x: mio::Interest| x | mio::Interest::WRITABLE));
-            }
-            let i = i.unwrap_or(mio::Interest::READABLE);
-            let reg = l.poll.registry();
-            let mut src = mio::unix::SourceFd(&p.fd);
-            if let Err(e) = reg.register(&mut src, mio::Token(t), i) {
-                if e.kind() != io::ErrorKind::AlreadyExists {
-                    for q in fds.iter().take_while(|q| q.fd != p.fd) {
-                        let _ = reg.deregister(&mut mio::unix::SourceFd(&q.fd));
-                    }
-                    return Err(e);
-                }
-                reg.reregister(&mut src, mio::Token(t), i)?;
-            }
-        }
         let gen = l.slots[t].gen.wrapping_add(1);
+        #[cfg(unix)]
+        if mongo_core::reactor::arm(fds, t, gen)? {
+            // a readiness the reactor already saw: no suspension
+            return Ok(None);
+        }
         l.slots[t] = Slot { gen, state: SlotState::Pending, suspension: None, deadline };
         l.pending += 1;
-        Ok(t)
+        Ok(Some(t))
     })??;
+    let Some(token) = token else {
+        if fds.len() == 1 {
+            // the caller retries its I/O, which tells the rest
+            fds[0].revents = fds[0].events;
+            return Ok(1);
+        }
+        let n = mongo_core::net::poll_fds(fds, Some(Instant::now()))?;
+        if n > 0 {
+            return Ok(n);
+        }
+        // what the reactor saw was consumed meanwhile: a real wait (it now finds nothing known)
+        return wait(fds, deadline, enqueue);
+    };
     let my_gen = with(|l| l.slots[token].gen)?;
     #[cfg(windows)]
     let streams = match unsafe { watch(token, fds) } {
@@ -634,11 +623,9 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     unsafe {
         unwatch(token, my_gen, streams)
     };
+    #[cfg(unix)]
+    mongo_core::reactor::disarm(fds, token);
     let state = with(|l| {
-        #[cfg(unix)]
-        for p in fds.iter() {
-            let _ = l.poll.registry().deregister(&mut mio::unix::SourceFd(&p.fd));
-        }
         // the slot is still this wait's unless the request ended meanwhile (rshutdown)
         if l.slots[token].gen != my_gen {
             return SlotState::Pending;
@@ -873,7 +860,7 @@ unsafe fn resume_all(list: Vec<sys::zval>) {
     }
 }
 
-/// onReadable callback: drains mio, resumes the ready waiters.
+/// onReadable callback: drains the reactor, resumes the ready waiters.
 unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
     zval::write(rv, zval::null());
     #[cfg(windows)]
@@ -891,26 +878,13 @@ unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
     let ready = LOOP.with_borrow_mut(|l| {
         let Some(l) = l.as_mut() else { return Vec::new() };
         let mut out = Vec::new();
-        loop {
-            if l.poll.poll(&mut l.events, Some(Duration::ZERO)).is_err() {
-                break;
-            }
-            let mut n = 0;
-            for e in l.events.iter() {
-                n += 1;
-                if let Some(s) = l.slots.get_mut(e.token().0) {
-                    if s.state == SlotState::Pending {
-                        if let Some(z) = s.suspension.take() {
-                            s.state = SlotState::Ready;
-                            out.push(z);
-                        }
-                    }
-                }
-            }
-            if n < l.events.capacity() {
-                break;
-            }
-        }
+        mongo_core::reactor::drain(&mut |t, gen| {
+            let Some(s) = l.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending) else { return false };
+            let Some(z) = s.suspension.take() else { return false };
+            s.state = SlotState::Ready;
+            out.push(z);
+            true
+        });
         out
     });
     resume_all(ready);

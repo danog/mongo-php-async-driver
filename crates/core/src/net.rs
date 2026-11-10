@@ -150,6 +150,8 @@ impl Write for Stream {
 }
 
 pub struct Conn {
+    /// First, so that it is dropped before the socket closes.
+    _unregister: Unregister,
     stream: Stream,
     /// The server address as the topology names it ("host:port").
     pub addr: String,
@@ -165,6 +167,19 @@ pub struct Conn {
     pub registered: bool,
     /// The negotiated compressor and the zlib level (OP_COMPRESSED), None: uncompressed.
     pub compressor: Option<(u8, i32)>,
+}
+
+/// Forgets the socket's registration with this thread's reactor when its owner drops it
+/// (crate::reactor: a socket that reuses its number must be registered anew). Windows has no
+/// reactor.
+#[cfg_attr(windows, allow(dead_code))]
+struct Unregister(crate::os::RawSock);
+
+impl Drop for Unregister {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        crate::reactor::forget(self.0);
+    }
 }
 
 /// Resolves `host:port` (all addresses, in resolver order, as libmongoc tries them).
@@ -191,6 +206,7 @@ impl Conn {
                     stream.set_nodelay(true).map_err(NetError::Connect)?;
                     let addr = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
                     return Ok(Conn {
+                        _unregister: Unregister(crate::os::raw(&stream)),
                         stream: Stream::Plain(stream),
                         addr,
                         rbuf: Vec::new(),
@@ -240,6 +256,7 @@ impl Conn {
         // keeps one plain-stream type, so the TCP path has no extra branch.
         let stream = unsafe { TcpStream::from_raw_fd(unix.into_raw_fd()) };
         Ok(Conn {
+            _unregister: Unregister(crate::os::raw(&stream)),
             stream: Stream::Plain(stream),
             addr: path.to_owned(),
             rbuf: Vec::new(),
@@ -293,6 +310,7 @@ impl Conn {
         let (stream, _) = crate::os::connect_start(&sa)?;
         stream.set_nodelay(true)?;
         Ok(Conn {
+            _unregister: Unregister(crate::os::raw(&stream)),
             stream: Stream::Plain(stream),
             addr: addr.to_owned(),
             rbuf: Vec::new(),
@@ -394,11 +412,39 @@ impl Conn {
     /// Sends `msg`, blocking up to `timeout` (None or zero: no limit) per write. When the call
     /// may suspend (crate::aio::active), the socket is non-blocking and every wait suspends.
     pub fn send(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<(), NetError> {
-        if crate::aio::active() {
-            return self.send_waiting(msg, timeout.filter(|t| !t.is_zero()));
-        }
-        self.set_blocking()?;
         let t = timeout.filter(|t| !t.is_zero());
+        if crate::aio::active() {
+            return self.send_waiting(msg, t);
+        }
+        self.send_blocking(msg, t)
+    }
+
+    /// Receives one message, blocking up to `timeout` (None or zero: no limit) per read (when
+    /// the call may suspend: suspending, see `send`).
+    pub fn recv(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
+        let t = timeout.filter(|t| !t.is_zero());
+        if crate::aio::active() {
+            return self.recv_waiting(t, false);
+        }
+        self.recv_blocking(t)
+    }
+
+    /// Sends `msg` and receives the reply (blocking, or suspending: see `send`).
+    pub fn roundtrip(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<&[u8], NetError> {
+        let t = timeout.filter(|t| !t.is_zero());
+        if crate::aio::active() {
+            self.send_waiting(msg, t)?;
+            // Unix: the reply cannot be there yet, so the wait comes first (a read now would only
+            // return EAGAIN); over TLS a read may find records rustls already holds
+            return self.recv_waiting(t, cfg!(unix) && matches!(self.stream, Stream::Plain(_)));
+        }
+        self.send_blocking(msg, t)?;
+        self.recv_blocking(t)
+    }
+
+    /// `send` in blocking mode (`t`: SO_SNDTIMEO, None: no limit).
+    fn send_blocking(&mut self, msg: &[u8], t: Option<Duration>) -> Result<(), NetError> {
+        self.set_blocking()?;
         if t != self.write_timeout {
             self.stream.tcp().set_write_timeout(t).map_err(NetError::Io)?;
             self.write_timeout = t;
@@ -406,14 +452,9 @@ impl Conn {
         self.stream.write_all(msg).map_err(io_err)
     }
 
-    /// Receives one message, blocking up to `timeout` (None or zero: no limit) per read (when
-    /// the call may suspend: suspending, see `send`).
-    pub fn recv(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
-        if crate::aio::active() {
-            return self.recv_waiting(timeout.filter(|t| !t.is_zero()));
-        }
+    /// `recv` in blocking mode (`t`: SO_RCVTIMEO, None: no limit).
+    fn recv_blocking(&mut self, t: Option<Duration>) -> Result<&[u8], NetError> {
         self.set_blocking()?;
-        let t = timeout.filter(|t| !t.is_zero());
         if t != self.read_timeout {
             self.stream.tcp().set_read_timeout(t).map_err(NetError::Io)?;
             self.read_timeout = t;
@@ -459,10 +500,14 @@ impl Conn {
         Ok(())
     }
 
-    /// `recv` in non-blocking mode, waiting through crate::aio.
-    fn recv_waiting(&mut self, timeout: Option<Duration>) -> Result<&[u8], NetError> {
+    /// `recv` in non-blocking mode, waiting through crate::aio (`wait_first`: for readiness
+    /// before the first read).
+    fn recv_waiting(&mut self, timeout: Option<Duration>, wait_first: bool) -> Result<&[u8], NetError> {
         self.set_nonblocking()?;
         self.rbuf.clear();
+        if wait_first {
+            self.wait(Interest::Read, timeout)?;
+        }
         loop {
             match self.read_some() {
                 Ok(true) => return Ok(&self.rbuf),
@@ -479,12 +524,6 @@ impl Conn {
                 Err(e) => return Err(e),
             }
         }
-    }
-
-    /// Sends `msg` and receives the reply (blocking).
-    pub fn roundtrip(&mut self, msg: &[u8], timeout: Option<Duration>) -> Result<&[u8], NetError> {
-        self.send(msg, timeout)?;
-        self.recv(timeout)
     }
 
     /// Non-blocking send of `data[*off..]`; Ok(true) once all of it is sent.

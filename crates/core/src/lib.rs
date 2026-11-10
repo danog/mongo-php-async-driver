@@ -33,6 +33,8 @@ pub mod log;
 pub mod net;
 pub mod ocsp;
 pub mod os;
+#[cfg(unix)]
+pub mod reactor;
 pub mod scan;
 pub mod sdam;
 pub mod session;

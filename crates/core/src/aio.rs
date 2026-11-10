@@ -214,6 +214,14 @@ impl WaitStream {
     }
 }
 
+impl Drop for WaitStream {
+    fn drop(&mut self) {
+        // before the socket closes: a socket reusing its number must be registered anew
+        #[cfg(unix)]
+        crate::reactor::forget(crate::os::raw(&self.sock));
+    }
+}
+
 impl io::Read for WaitStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
@@ -240,14 +248,17 @@ impl io::Write for WaitStream {
 }
 
 /// connect(2) to `sa` bounded by `timeout`, waiting through [`wait_fd`]: the connected,
-/// non-blocking socket (TcpStream::connect_timeout's errors: TimedOut, the socket error).
-pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<std::net::TcpStream> {
-    let (s, r) = crate::os::connect_start(sa)?;
+/// non-blocking socket as a [`WaitStream`] with `timeout` (TcpStream::connect_timeout's errors:
+/// TimedOut, the socket error).
+pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<WaitStream> {
+    let (sock, r) = crate::os::connect_start(sa)?;
+    // the WaitStream owns the socket before it waits (it unregisters it when dropped)
+    let s = WaitStream { sock, timeout: Some(timeout) };
     if !r? {
-        if !wait_fd(crate::os::raw(&s), Interest::Write, Some(Instant::now() + timeout))? {
+        if !wait_fd(crate::os::raw(&s.sock), Interest::Write, Some(Instant::now() + timeout))? {
             return Err(io::ErrorKind::TimedOut.into());
         }
-        if let Some(e) = s.take_error()? {
+        if let Some(e) = s.sock.take_error()? {
             return Err(e);
         }
     }
@@ -265,7 +276,7 @@ impl Socket {
     /// TcpStream::connect_timeout, or [`connect`] when [`active`].
     pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<Socket> {
         if active() {
-            return Ok(Socket::Wait(WaitStream { sock: connect(sa, timeout)?, timeout: Some(timeout) }));
+            return Ok(Socket::Wait(connect(sa, timeout)?));
         }
         std::net::TcpStream::connect_timeout(sa, timeout).map(Socket::Plain)
     }

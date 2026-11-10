@@ -105,8 +105,10 @@ for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
   throws a `LogicException`.
 - **No surprise switches:** destructors, the garbage collector and shutdown never suspend.
 
-Under the hood, waits go through one epoll/kqueue poll set (via mio) that a single Revolt
-`onReadable` watcher drives; on Windows each wait watches its sockets with Revolt directly.
+Under the hood, waits go through one epoll/kqueue instance per thread that a single Revolt
+`onReadable` watcher drives; each socket is registered there once, edge-triggered, so the driver
+needs no system call to set up a wait for a reply. On Windows each wait watches its sockets
+with Revolt directly.
 Benchmark: `tools/bench/fibers.php`.
 
 ## fork()
