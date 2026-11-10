@@ -35,13 +35,12 @@ const METHODS: [&CStr; 12] = [
 ];
 
 /// MINIT: the clock of hrtime(true) for this PHP version (zend_hrtime.h): macOS from 8.5 on
-/// CLOCK_UPTIME_RAW; Linux/POSIX from 8.6 on CLOCK_MONOTONIC_RAW when available.
+/// CLOCK_UPTIME_RAW; Linux/POSIX CLOCK_MONOTONIC (PHP 8.6 went back to it from
+/// CLOCK_MONOTONIC_RAW before its release).
 pub fn minit() {
     #[cfg(all(target_vendor = "apple", php85))]
     mongo_core::apm::set_clock(mongo_core::apm::clock_uptime_raw);
-    #[cfg(all(unix, not(target_vendor = "apple"), php86))]
-    mongo_core::apm::set_clock(mongo_core::apm::clock_posix_raw);
-    #[cfg(not(any(all(target_vendor = "apple", php85), all(unix, not(target_vendor = "apple"), php86))))]
+    #[cfg(not(all(target_vendor = "apple", php85)))]
     mongo_core::apm::set_clock(mongo_core::apm::clock_default);
 }
 
