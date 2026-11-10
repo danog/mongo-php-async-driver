@@ -935,10 +935,10 @@ impl Client {
     /// mongoc_topology_select_server_id (single-threaded): a server-selection error ends with
     /// the topology type the selection started with.
     pub fn select_server_id(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
-        let topology_type = format!(". Topology type: {}", self.td().ty.name());
+        let topology_type = self.td().ty;
         self.select_server_id_inner(optype, rp, deprioritized).map_err(|mut e| {
             if e.domain == domain::SERVER_SELECTION {
-                e.append(&topology_type);
+                e.append(&format!(". Topology type: {}", topology_type.name()));
             }
             e
         })

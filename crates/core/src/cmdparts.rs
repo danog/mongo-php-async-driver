@@ -84,12 +84,13 @@ impl From<Error> for Failure {
 }
 
 /// _mongoc_get_command_name
-pub fn command_name(body: &[u8]) -> Option<String> {
+pub fn command_name(body: &[u8]) -> Option<std::borrow::Cow<'_, str>> {
     let mut it = Iter::new(body)?;
     if !it.next() {
         return None;
     }
-    Some(String::from_utf8_lossy(it.key()).into_owned())
+    // borrowed from `body` unless the key is not UTF-8
+    Some(String::from_utf8_lossy(it.key()))
 }
 
 fn has_field(doc: &[u8], k: &[u8]) -> bool {
@@ -238,7 +239,7 @@ impl Client {
             s.append_txn(&mut out, &name);
         }
         Ok(Cmd {
-            name,
+            name: name.into_owned(),
             db: parts.db.to_owned(),
             body: out.finish(),
             is_acknowledged: parts.is_acknowledged,
