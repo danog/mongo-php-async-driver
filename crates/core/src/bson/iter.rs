@@ -447,6 +447,25 @@ impl<'a> Iter<'a> {
     }
 }
 
+/// The values of several keys in one pass over `doc`: for each key the first element with
+/// that name (as `bson_iter_init_find` per key would return it, a scan stopping at corruption
+/// included), or None.
+pub fn find_many<'a, const N: usize>(doc: &'a [u8], keys: [&[u8]; N]) -> [Option<Value<'a>>; N] {
+    let mut out = [None; N];
+    let Some(mut it) = Iter::new(doc) else { return out };
+    let mut left = N;
+    while left > 0 && it.next() {
+        let k = it.key();
+        for (i, want) in keys.iter().enumerate() {
+            if out[i].is_none() && k == *want {
+                out[i] = Some(it.value());
+                left -= 1;
+            }
+        }
+    }
+    out
+}
+
 /// The callbacks of `bson_iter_visit_all`. Returning true stops the visit.
 pub trait Visitor<'a> {
     fn before(&mut self, _key: &'a [u8]) -> bool {

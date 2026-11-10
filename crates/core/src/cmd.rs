@@ -47,19 +47,21 @@ fn parse_error_reply(doc: &[u8], check_wce: bool) -> Option<(u32, String)> {
     let mut code = 0u32;
     let mut msg: Option<&[u8]> = None;
     let mut found = false;
-    if let Some(v) = find(doc, b"code").filter(is_number) {
+    // one pass over the reply instead of one bson_iter_init_find per field
+    let [code_v, errmsg, err, wce] = crate::bson::iter::find_many(doc, [b"code", b"errmsg", b"$err", b"writeConcernError"]);
+    if let Some(v) = code_v.filter(is_number) {
         code = as_i64(&v) as u32;
         found = true;
     }
-    if let Some(Value::Utf8(s)) = find(doc, b"errmsg") {
+    if let Some(Value::Utf8(s)) = errmsg {
         msg = Some(s);
         found = true;
-    } else if let Some(Value::Utf8(s)) = find(doc, b"$err") {
+    } else if let Some(Value::Utf8(s)) = err {
         msg = Some(s);
         found = true;
     }
     if !found && check_wce {
-        if let Some(Value::Document(w)) = find(doc, b"writeConcernError") {
+        if let Some(Value::Document(w)) = wce {
             if let Some(v) = find(w, b"code").filter(is_number) {
                 code = as_i64(&v) as u32;
                 found = true;

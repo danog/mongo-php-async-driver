@@ -106,10 +106,10 @@ unsafe fn writeconcernerror_ce() -> *mut sys::zend_class_entry {
     class::lookup(c"mongodb\\driver\\writeconcernerror")
 }
 
-/// The documents of the array `k` of the reply.
-fn docs<'a>(reply: &'a [u8], k: &[u8]) -> Vec<&'a [u8]> {
+/// The documents of an array field of the reply.
+fn docs(field: Option<Value<'_>>) -> Vec<&[u8]> {
     let mut v = Vec::new();
-    if let Some(Value::Array(a)) = find(reply, k) {
+    if let Some(Value::Array(a)) = field {
         if let Some(mut it) = Iter::new(a) {
             while it.next() {
                 if let Value::Document(d) = it.value() {
@@ -121,17 +121,19 @@ fn docs<'a>(reply: &'a [u8], k: &[u8]) -> Vec<&'a [u8]> {
     v
 }
 
-unsafe fn write_concern_error(w: &WriteResult) -> Option<sys::zval> {
-    match docs(&w.reply, b"writeConcernErrors").first() {
+/// From the reply's writeConcernErrors.
+unsafe fn write_concern_error(field: Option<Value>) -> Option<sys::zval> {
+    match docs(field).first() {
         Some(d) => error_object(writeconcernerror_ce(), d, false, 0),
         None => Some(zval::null()),
     }
 }
 
-unsafe fn write_errors(w: &WriteResult) -> Option<sys::zval> {
+/// From the reply's writeErrors.
+unsafe fn write_errors(field: Option<Value>) -> Option<sys::zval> {
     let ht = hash::new(0);
     let z = zval::arr(ht);
-    for d in docs(&w.reply, b"writeErrors") {
+    for d in docs(field) {
         match error_object(writeerror_ce(), d, true, 0) {
             Some(e) => hash::push(ht, e),
             None => return None,
@@ -140,9 +142,10 @@ unsafe fn write_errors(w: &WriteResult) -> Option<sys::zval> {
     Some(z)
 }
 
-unsafe fn error_replies(w: &WriteResult) -> sys::zval {
+/// From the reply's errorReplies.
+unsafe fn error_replies(field: Option<Value>) -> sys::zval {
     let ht = hash::new(0);
-    for d in docs(&w.reply, b"errorReplies") {
+    for d in docs(field) {
         if let Some(z) = super::to_zval(d, &Default::default()) {
             hash::push(ht, z);
         }
@@ -150,9 +153,10 @@ unsafe fn error_replies(w: &WriteResult) -> sys::zval {
     zval::arr(ht)
 }
 
-unsafe fn upserted_ids(w: &WriteResult) -> sys::zval {
+/// From the reply's upserted.
+unsafe fn upserted_ids(field: Option<Value>) -> sys::zval {
     let ht = hash::new(0);
-    for d in docs(&w.reply, b"upserted") {
+    for d in docs(field) {
         let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
         let mut st = crate::bson::decode::State::new(&tm);
         st.skip_odm = true;
@@ -181,15 +185,23 @@ pub unsafe fn new_writeresult(reply: Vec<u8>, client: ClientRef, server_id: u32,
     let o = obj::alloc(CE, WriteResult { reply, server_id, write_concern: Some(wc), client: Some(client), manager: super::ManagerRef::new(manager) }, addr_of_mut!(H_WR));
     let w = obj::data::<WriteResult>(o);
     let acked = w.acknowledged();
-    for (prop, field) in [("insertedCount", &b"nInserted"[..]), ("matchedCount", b"nMatched"), ("modifiedCount", b"nModified"), ("deletedCount", b"nRemoved"), ("upsertedCount", b"nUpserted")] {
-        let v = if acked { int32(&w.reply, field).map_or_else(zval::null, zval::long) } else { zval::null() };
+    // one pass over the reply for all the fields read here
+    let [n_ins, n_mat, n_mod, n_rem, n_ups, upserted, write_errs, wc_errs, err_replies] = mongo_core::bson::iter::find_many(
+        &w.reply,
+        [b"nInserted", b"nMatched", b"nModified", b"nRemoved", b"nUpserted", b"upserted", b"writeErrors", b"writeConcernErrors", b"errorReplies"],
+    );
+    for (prop, field) in [("insertedCount", n_ins), ("matchedCount", n_mat), ("modifiedCount", n_mod), ("deletedCount", n_rem), ("upsertedCount", n_ups)] {
+        let v = match field {
+            Some(Value::Int32(n)) if acked => zval::long(n as i64),
+            _ => zval::null(),
+        };
         set_prop(CE, o, prop, v);
     }
-    set_prop(CE, o, "upsertedIds", upserted_ids(w));
-    if let Some(e) = write_errors(w) {
+    set_prop(CE, o, "upsertedIds", upserted_ids(upserted));
+    if let Some(e) = write_errors(write_errs) {
         set_prop(CE, o, "writeErrors", e);
     }
-    if let Some(e) = write_concern_error(w) {
+    if let Some(e) = write_concern_error(wc_errs) {
         set_prop(CE, o, "writeConcernError", e);
     }
     let wcz = match &w.write_concern {
@@ -197,7 +209,7 @@ pub unsafe fn new_writeresult(reply: Vec<u8>, client: ClientRef, server_id: u32,
         None => zval::null(),
     };
     set_prop(CE, o, "writeConcern", wcz);
-    set_prop(CE, o, "errorReplies", error_replies(w));
+    set_prop(CE, o, "errorReplies", error_replies(err_replies));
     set_prop(CE, o, "server", server_zval(w));
     zval::obj(o)
 }
@@ -244,23 +256,23 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getUpsertedIds(ex: Ex, r
     if !w.acknowledged() {
         throw(E::Logic, "MongoDB\\Driver\\WriteResult::getUpsertedIds() should not be called for an unacknowledged write result");
     }
-    zval::write(rv, upserted_ids(w));
+    zval::write(rv, upserted_ids(find(&w.reply, b"upserted")));
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteConcernError(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        zval::write(rv, write_concern_error(me(ex)).unwrap_or_else(zval::null));
+        zval::write(rv, write_concern_error(find(&me(ex).reply, b"writeConcernErrors")).unwrap_or_else(zval::null));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteErrors(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        if let Some(z) = write_errors(me(ex)) {
+        if let Some(z) = write_errors(find(&me(ex).reply, b"writeErrors")) {
             zval::write(rv, z);
         }
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getErrorReplies(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        zval::write(rv, error_replies(me(ex)));
+        zval::write(rv, error_replies(find(&me(ex).reply, b"errorReplies")));
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_isAcknowledged(ex: Ex, rv: *mut sys::zval) {
