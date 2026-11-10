@@ -10,12 +10,14 @@ use super::oid;
 use super::utf8;
 use super::writer::Writer;
 use std::borrow::Cow;
+use std::cell::RefCell;
 
 /// jsonsl's level limit (libbson's STACK_MAX).
 const MAX_LEVELS: usize = 100;
 
 /// The parsed tree borrows from the input wherever it can: a string without escapes and every
-/// number token are slices of it (no allocation per value).
+/// number token are slices of it (no allocation per value). The members of arrays and objects
+/// are slices of an `Arena` (no allocation per container either).
 enum J<'a> {
     Str(Cow<'a, [u8]>),
     /// an integer token: negative?, magnitude (None: does not fit u64), text
@@ -23,13 +25,50 @@ enum J<'a> {
     Float(&'a [u8]),
     Bool(bool),
     Null,
-    Arr(Vec<J<'a>>),
-    Obj(Vec<(Cow<'a, [u8]>, J<'a>)>),
+    Arr(&'a [J<'a>]),
+    Obj(&'a [(Cow<'a, [u8]>, J<'a>)]),
+}
+
+/// Append-only storage for the tree's member lists: chunks that are never grown past their
+/// capacity, so the slices handed out stay where they are until the arena is dropped (its
+/// members are dropped with it). No Drop impl: Vec's lets the members borrow from the arena.
+struct Arena<T> {
+    chunks: RefCell<Vec<Vec<T>>>,
+}
+
+impl<T> Arena<T> {
+    fn new() -> Self {
+        Arena { chunks: RefCell::new(Vec::new()) }
+    }
+
+    /// Moves `stack[start..]` into the arena.
+    fn take_from(&self, stack: &mut Vec<T>, start: usize) -> &[T] {
+        let n = stack.len() - start;
+        if n == 0 {
+            return &[];
+        }
+        let mut chunks = self.chunks.borrow_mut();
+        if chunks.last().is_none_or(|c| c.capacity() - c.len() < n) {
+            let cap = chunks.last().map_or(64, |c| c.capacity() * 2).max(n);
+            chunks.push(Vec::with_capacity(cap));
+        }
+        let c = chunks.last_mut().unwrap();
+        let at = c.len();
+        c.extend(stack.drain(start..));
+        // SAFETY: c never reallocates (it is filled only within its capacity) and is dropped
+        // only with the arena, which the returned borrow keeps alive
+        unsafe { std::slice::from_raw_parts(c.as_ptr().add(at), n) }
+    }
 }
 
 struct P<'a> {
     s: &'a [u8],
     i: usize,
+    vals: &'a Arena<J<'a>>,
+    pairs: &'a Arena<(Cow<'a, [u8]>, J<'a>)>,
+    /// the members of the containers being parsed (each container's at the top)
+    val_stack: Vec<J<'a>>,
+    pair_stack: Vec<(Cow<'a, [u8]>, J<'a>)>,
 }
 
 type R<T> = Result<T, String>;
@@ -57,11 +96,11 @@ impl<'a> P<'a> {
                     return Err(self.err("LEVELS_EXCEEDED"));
                 }
                 self.i += 1;
-                let mut v = Vec::new();
+                let start = self.pair_stack.len();
                 self.ws();
                 if self.i < self.s.len() && self.s[self.i] == b'}' {
                     self.i += 1;
-                    return Ok(J::Obj(v));
+                    return Ok(J::Obj(&[]));
                 }
                 loop {
                     self.ws();
@@ -81,7 +120,7 @@ impl<'a> P<'a> {
                     }
                     self.i += 1;
                     let val = self.value(depth + 1)?;
-                    v.push((k, val));
+                    self.pair_stack.push((k, val));
                     self.ws();
                     if self.i >= self.s.len() {
                         return Err("Incomplete JSON".into());
@@ -90,7 +129,7 @@ impl<'a> P<'a> {
                         b',' => self.i += 1,
                         b'}' => {
                             self.i += 1;
-                            return Ok(J::Obj(v));
+                            return Ok(J::Obj(self.pairs.take_from(&mut self.pair_stack, start)));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
                     }
@@ -101,14 +140,15 @@ impl<'a> P<'a> {
                     return Err(self.err("LEVELS_EXCEEDED"));
                 }
                 self.i += 1;
-                let mut v = Vec::new();
+                let start = self.val_stack.len();
                 self.ws();
                 if self.i < self.s.len() && self.s[self.i] == b']' {
                     self.i += 1;
-                    return Ok(J::Arr(v));
+                    return Ok(J::Arr(&[]));
                 }
                 loop {
-                    v.push(self.value(depth + 1)?);
+                    let val = self.value(depth + 1)?;
+                    self.val_stack.push(val);
                     self.ws();
                     if self.i >= self.s.len() {
                         return Err("Incomplete JSON".into());
@@ -117,7 +157,7 @@ impl<'a> P<'a> {
                         b',' => self.i += 1,
                         b']' => {
                             self.i += 1;
-                            return Ok(J::Arr(v));
+                            return Ok(J::Arr(self.vals.take_from(&mut self.val_stack, start)));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
                     }
@@ -292,7 +332,8 @@ fn lossy(b: &[u8]) -> String {
 
 /// `bson_new_from_json`: the document, or the error message.
 pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
-    let mut p = P { s: input, i: 0 };
+    let (vals, pairs) = (Arena::new(), Arena::new());
+    let mut p = P { s: input, i: 0, vals: &vals, pairs: &pairs, val_stack: Vec::new(), pair_stack: Vec::new() };
     p.ws();
     if p.i >= input.len() {
         return Err("Empty JSON string".into());
@@ -313,8 +354,8 @@ pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
     };
     let mut w = Writer::with_capacity(input.len());
     match root {
-        J::Obj(o) => doc(&mut w, &o)?,
-        J::Arr(a) => arr(&mut w, &a)?,
+        J::Obj(o) => doc(&mut w, o)?,
+        J::Arr(a) => arr(&mut w, a)?,
         _ => unreachable!(),
     }
     Ok(w.finish())
@@ -796,7 +837,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                         sp.date = iso8601_parse(s)?;
                     }
                     J::Obj(inner) => {
-                        for (ik, iv) in inner {
+                        for (ik, iv) in inner.iter() {
                             if ik.as_ref() != b"$numberLong" {
                                 return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty)));
                             }
@@ -857,7 +898,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             b"$timestamp" => {
                 check(&mut sp, k, iter::T_TIMESTAMP)?;
                 let J::Obj(inner) = v else { return Err(timestamp_wrong(v)) };
-                for (ik, iv) in inner {
+                for (ik, iv) in inner.iter() {
                     let which = match ik.as_ref() {
                         b"t" => 0,
                         b"i" => 1,
@@ -888,7 +929,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             b"$regularExpression" => {
                 check(&mut sp, k, iter::T_REGEX)?;
                 let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_REGEX_STARTMAP")) };
-                for (ik, iv) in inner {
+                for (ik, iv) in inner.iter() {
                     match ik.as_ref() {
                         b"pattern" => sp.pattern = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
                         b"options" => sp.options = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
