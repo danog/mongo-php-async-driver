@@ -70,7 +70,8 @@ Most of the CPU difference is system calls: a `ping` makes 2 (one send, one rece
 about 9 for ext-mongodb. On a replica set the CPU savings are similar (−31% to −57%).
 
 - **BSON** encoding and decoding: 36% less time on average (geometric mean over 48 cases, faster
-  in 45); decoding large JSON documents (`big/fromJSON`) is 9% slower.
+  in 45). Parsing JSON (`fromJSON`, 1,000 small documents) takes 280 µs against 690 µs for
+  ext-mongodb with relaxed Extended JSON, and 955 µs against 990 µs with canonical.
 - **Connection setup** (new client and first command): −26% CPU over TCP, −72% with TLS
   (374 µs against 1336 µs).
 - **Fibers** (`findOne`, 20,000 operations): sequential calls run at 15.6k operations/s
