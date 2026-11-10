@@ -126,11 +126,12 @@ use function Amp\Future\await;
 
 $manager = new Manager('mongodb://127.0.0.1');
 
-// three queries in flight at once, on three pooled connections
-[$alice, $bob, $carol] = await(array_map(
-    fn (string $name) => async(fn () => $manager->executeQuery('app.users', new Query(['name' => $name]))->toArray()),
-    ['alice', 'bob', 'carol'],
-));
+$futures = [];
+foreach (['alice', 'bob', 'carol'] as $name) {
+    // three queries in flight at once, on three pooled connections
+    $futures[$name] = async(fn () => $manager->executeQuery('app.users', new Query(['name' => $name]))->toArray());
+}
+$users = await($futures); // ['alice' => [...], 'bob' => [...], 'carol' => [...]]
 ```
 
 The example uses [Amp](https://amphp.org) (`composer require amphp/amp`). Any other library built
