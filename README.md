@@ -109,7 +109,9 @@ Under the hood, waits go through one epoll/kqueue instance per thread that a sin
 `onReadable` watcher drives; each socket is registered there once, edge-triggered, so the driver
 needs no system call to set up a wait for a reply. On Windows each wait watches its sockets
 with Revolt directly. The watcher lives on Revolt's current driver: after
-`EventLoop::setDriver()`, the next wait moves it to the new one.
+`EventLoop::setDriver()`, the next wait moves it to the new one. So that a `{main}` wait does not
+make Revolt create a new suspension each time, `{main}`'s suspension is kept by a disabled callback
+on the driver (one more id in `getIdentifiers()`; it never runs nor keeps the loop alive).
 Benchmark: `tools/bench/fibers.php`.
 
 ## fork()

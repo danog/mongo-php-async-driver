@@ -13,7 +13,10 @@
 //!   its sockets, stores `EventLoop::getSuspension()` in the slot and suspends; the callback
 //!   drains the reactor and resumes the ready slots.
 //! - The watcher and the timer belong to the driver of the first wait; a wait after
-//!   EventLoop::setDriver() moves them to the new driver.
+//!   EventLoop::setDriver() moves them to the new driver. Per wait, two Revolt calls are saved
+//!   where its internals are those of revolt/event-loop 1.x (checked once per driver, else
+//!   the public calls): {main}'s suspension is kept between waits (`main_suspension`), and the
+//!   watcher's `referenced` flag is set in place (`InPlace`).
 //! - How (Windows, backend 2: IOCP has no handle a PHP stream could wrap): a wait wraps each of
 //!   its sockets in a PHP socket stream (whose socket handle is reset before the stream goes,
 //!   so PHP never shuts down or closes the driver's socket) and watches it with
@@ -278,6 +281,10 @@ struct Php {
     /// the onReadable callback id, and whether it is referenced
     watcher: sys::zval,
     referenced: bool,
+    /// how `referenced` is set in place (None: through EventLoop::reference()/unreference())
+    in_place: Option<InPlace>,
+    /// {main}'s suspension, kept by the driver between waits (`main_suspension`)
+    main: Option<Kept>,
     /// the deadline timer: its id and due time
     timer: Option<(sys::zval, Instant)>,
     /// Windows: the keep-alive watcher's UDP socket (PHP's stream owns it)
@@ -319,6 +326,9 @@ struct Fns {
     /// the slot of the static property EventLoop::$driver (None: not looked up yet; null: no
     /// such property: EventLoop::getDriver() tells the driver instead)
     driver_slot: Option<*mut sys::zval>,
+    /// DriverSuspension's class and the offset of its $deadMain (None: not looked up yet;
+    /// Some(None): {main}'s suspensions are of another class or layout: not kept)
+    dead_main: Option<Option<(std::ptr::NonNull<sys::zend_class_entry>, u32)>>,
 }
 
 thread_local! {
@@ -408,6 +418,213 @@ unsafe fn driver_now() -> *mut sys::zend_object {
     }
 }
 
+/// `ce` or its ancestor named `name` (null: none).
+unsafe fn ancestor(mut ce: *mut sys::zend_class_entry, name: &[u8]) -> *mut sys::zend_class_entry {
+    while !ce.is_null() && crate::zend::zstr::bytes((*ce).name) != name {
+        ce = (*ce).__bindgen_anon_1.parent;
+    }
+    ce
+}
+
+/// The slot offset of the instance property `name` that `ce` itself declares (no hooks).
+unsafe fn declared_prop(ce: *mut sys::zend_class_entry, name: &[u8]) -> Option<u32> {
+    let z = crate::zend::hash::find(&(*ce).properties_info, name)?;
+    let info = (*z).value.ptr as *const sys::zend_property_info;
+    if (*info).flags & sys::ZEND_ACC_STATIC != 0 || (*info).ce != ce {
+        return None;
+    }
+    #[cfg(php84)]
+    if !(*info).hooks.is_null() {
+        return None;
+    }
+    Some((*info).offset)
+}
+
+/// OBJ_PROP(o, offset), dereferenced.
+#[inline]
+unsafe fn prop(o: *mut sys::zend_object, offset: u32) -> *mut sys::zval {
+    zval::deref(o.cast::<u8>().add(offset as usize).cast())
+}
+
+/// The watcher's `referenced` flag, set in place: the driver is an AbstractDriver whose
+/// reference() and unreference() are AbstractDriver's own, which only set
+/// `$this->callbacks[$id]->referenced` (reference() after checking that the id exists), and
+/// nothing else of the loop reads the flag but its isEmpty() check: the write is what they do,
+/// without their three PHP calls (EventLoop::reference, getDriver, AbstractDriver::reference).
+/// Whatever is not as expected at the time (the watcher gone, another value) goes through
+/// EventLoop::reference()/unreference() as before.
+#[derive(Clone, Copy)]
+struct InPlace {
+    /// offset of AbstractDriver::$callbacks
+    callbacks: u32,
+    /// the class of the watcher's callback object, and the offset of its DriverCallback::$referenced
+    class: *mut sys::zend_class_entry,
+    referenced: u32,
+}
+
+/// `driver`'s InPlace for the watcher `id`, when its layout is revolt/event-loop 1.x's.
+unsafe fn in_place(driver: *mut sys::zend_object, id: &sys::zval) -> Option<InPlace> {
+    let ce = (*driver).ce;
+    let ad = ancestor(ce, b"Revolt\\EventLoop\\Internal\\AbstractDriver");
+    if ad.is_null() {
+        return None;
+    }
+    for m in [&b"reference"[..], b"unreference"] {
+        let f = (*crate::zend::hash::find(&(*ce).function_table, m)?).value.ptr as *mut sys::zend_function;
+        if (*f).common.scope != ad {
+            return None;
+        }
+    }
+    let callbacks = declared_prop(ad, b"callbacks")?;
+    let cb = callback(driver, callbacks, id)?;
+    let class = (*cb).ce;
+    let dc = ancestor(class, b"Revolt\\EventLoop\\Internal\\DriverCallback");
+    if dc.is_null() {
+        return None;
+    }
+    let referenced = declared_prop(dc, b"referenced")?;
+    let r = prop(cb, referenced);
+    (zval::is(r, sys::IS_TRUE) || zval::is(r, sys::IS_FALSE)).then_some(InPlace { callbacks, class, referenced })
+}
+
+/// `$driver->callbacks[$id]` (an object), through the offset of AbstractDriver::$callbacks.
+unsafe fn callback(driver: *mut sys::zend_object, callbacks: u32, id: &sys::zval) -> Option<*mut sys::zend_object> {
+    let cbs = prop(driver, callbacks);
+    if !zval::is(cbs, sys::IS_ARRAY) {
+        return None;
+    }
+    let cb = zval::deref(crate::zend::hash::find((*cbs).value.arr, zval::str_bytes(id))?);
+    zval::is(cb, sys::IS_OBJECT).then(|| (*cb).value.obj)
+}
+
+/// Sets the watcher's `referenced` flag in place; false when that is not possible (the caller
+/// then calls EventLoop::reference()/unreference()).
+unsafe fn set_referenced(php: &Php, on: bool) -> bool {
+    let Some(p) = php.in_place else { return false };
+    let d = php.driver.get();
+    if d.is_null() {
+        return false;
+    }
+    let Some(cb) = callback(d, p.callbacks, &php.watcher) else { return false };
+    if (*cb).ce != p.class {
+        return false;
+    }
+    let r = prop(cb, p.referenced);
+    if !zval::is(r, sys::IS_TRUE) && !zval::is(r, sys::IS_FALSE) {
+        return false;
+    }
+    (*r).u1.type_info = if on { sys::IS_TRUE } else { sys::IS_FALSE };
+    true
+}
+
+/// {main}'s suspension of this wait. Revolt's AbstractDriver::getSuspension() returns the live
+/// suspension of the calling fiber or {main} (a WeakMap of WeakReferences) and makes a new one
+/// when nobody holds it: one per wait, ~1 us of PHP. {main}'s is kept alive between waits
+/// instead, by the driver itself: a disabled defer() callback (never run, never keeps the loop
+/// alive) whose Closure has it as $this, so its lifetime is the driver's as far as the engine
+/// and its cycle collector see (EventLoop::setDriver() frees the old driver, and it, as
+/// before); getSuspension() returns the same object for as long as it lives. Kept only when it
+/// is a DriverSuspension (revolt/event-loop 1.x) on a driver with the InPlace layout; given up
+/// once it is dead ($deadMain: the loop ended without resuming it, by an uncaught exception or
+/// Driver::stop(): Revolt forgets it and makes a new one, so does the next wait here) or once
+/// its keeper is no longer in the driver (cancelled by someone).
+unsafe fn main_suspension() -> io::Result<sys::zval> {
+    let dead_main = FNS.with_borrow(|f| f.dead_main.flatten());
+    if let Some((ce, offset)) = dead_main {
+        let kept = with(|l| {
+            let php = l.php.as_mut()?;
+            let (p, kept) = (php.in_place?, php.main.as_ref()?);
+            let d = php.driver.get();
+            if d.is_null() || callback(d, p.callbacks, &kept.keeper).is_none() {
+                // the keeper is gone, and with it the suspension
+                php.main = None;
+                return None;
+            }
+            let s = kept.suspension;
+            if (*s).ce == ce.as_ptr() && zval::is(prop(s, offset), sys::IS_FALSE) {
+                Some(Ok(zval::copy(&*zval::borrowed_obj(s))))
+            } else {
+                Some(Err(php.main.take().map(|k| k.keeper)))
+            }
+        })?;
+        match kept {
+            Some(Ok(s)) => return Ok(s),
+            Some(Err(Some(keeper))) => {
+                event_loop("cancel", &mut [keeper]);
+            }
+            _ => {}
+        }
+    }
+    let s = event_loop("getSuspension", &mut []);
+    if call::has_exception() || !zval::is(&s, sys::IS_OBJECT) {
+        return Err(mongo_core::aio::interrupted());
+    }
+    let o = s.value.obj;
+    let ce = (*o).ce;
+    let keep = match dead_main {
+        Some((c, _)) => c.as_ptr() == ce,
+        None => FNS.with_borrow_mut(|f| {
+            if f.dead_main.is_none() {
+                let d = if crate::zend::zstr::bytes((*ce).name) == b"Revolt\\EventLoop\\Internal\\DriverSuspension" {
+                    declared_prop(ce, b"deadMain").filter(|&off| zval::is(prop(o, off), sys::IS_FALSE)).map(|off| (std::ptr::NonNull::new(ce).unwrap(), off))
+                } else {
+                    None
+                };
+                f.dead_main = Some(d);
+            }
+            f.dead_main.flatten().is_some_and(|(c, _)| c.as_ptr() == ce)
+        }),
+    } && with(|l| l.php.as_ref().is_some_and(|p| p.in_place.is_some()))?;
+    if !keep {
+        return Ok(s);
+    }
+    // the keeper: its function is scoped (an unscoped internal function gets no $this)
+    let f = funcs();
+    (*f).keep.scope = ce;
+    let refs = (*o).gc.refcount;
+    let mut this = zval::copy(&s);
+    let mut closure = zval::undef();
+    zend_create_fake_closure(&mut closure, (&raw mut (*f).keep).cast(), ce, ce, &mut this);
+    (*f).keep.scope = null_mut();
+    drop(this);
+    if (*o).gc.refcount != refs + 1 {
+        // the Closure does not hold it
+        return Ok(s);
+    }
+    let keeper = event_loop("defer", &mut [closure]);
+    if call::has_exception() || !zval::is(&keeper, sys::IS_STRING) {
+        return Err(mongo_core::aio::interrupted());
+    }
+    event_loop("disable", &mut [zval::copy(&keeper)]);
+    if call::has_exception() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    let unkept = with(|l| {
+        let php = l.php.as_mut()?;
+        let (p, d) = (php.in_place?, php.driver.get());
+        if d.is_null() || callback(d, p.callbacks, &keeper).is_none() {
+            return None;
+        }
+        php.main = Some(Kept { keeper: zval::copy(&keeper), suspension: o });
+        Some(())
+    })?
+    .is_none();
+    if unkept {
+        // not where InPlace finds it: no keeping on this driver
+        event_loop("cancel", &mut [keeper]);
+        let _ = with(|l| l.php.as_mut().map(|p| p.in_place = None));
+    }
+    Ok(s)
+}
+
+/// {main}'s suspension kept by the driver: the id of the disabled defer() callback whose
+/// Closure holds it (as $this), and the object (not referenced from here: alive for as long as
+/// the callback is in the driver's callbacks, `main_suspension` checks that first).
+struct Kept {
+    keeper: sys::zval,
+    suspension: *mut sys::zend_object,
+}
+
 /// `$o-><name>(args...)` (`name` in lower case).
 unsafe fn method(o: &sys::zval, name: &'static [u8], args: &mut [sys::zval]) -> sys::zval {
     let obj = o.value.obj;
@@ -440,6 +657,8 @@ unsafe fn method(o: &sys::zval, name: &'static [u8], args: &mut [sys::zval]) -> 
 struct Closures {
     ready: sys::zend_internal_function,
     timer: sys::zend_internal_function,
+    /// the keeper of {main}'s suspension (never called)
+    keep: sys::zend_internal_function,
     /// Windows: a socket watcher's callback
     #[cfg(windows)]
     socket: sys::zend_internal_function,
@@ -481,11 +700,13 @@ unsafe fn funcs() -> *mut Closures {
             };
             let ready = mk(Some(crate::zh!(on_ready)));
             let timer = mk(Some(crate::zh!(on_timer)));
+            let keep = mk(Some(crate::zh!(on_keep)));
             #[cfg(windows)]
             let socket = mk(Some(crate::zh!(on_socket)));
             Box::new(std::cell::UnsafeCell::new(Closures {
                 ready,
                 timer,
+                keep,
                 #[cfg(windows)]
                 socket,
                 _caches: caches,
@@ -496,6 +717,7 @@ unsafe fn funcs() -> *mut Closures {
     if (*c).ready.function_name != CLOSURE_NAME {
         (*c).ready.function_name = CLOSURE_NAME;
         (*c).timer.function_name = CLOSURE_NAME;
+        (*c).keep.function_name = CLOSURE_NAME;
         #[cfg(windows)]
         {
             (*c).socket.function_name = CLOSURE_NAME;
@@ -584,12 +806,15 @@ unsafe fn php_state() -> io::Result<()> {
     if call::has_exception() || driver.is_null() {
         return Err(mongo_core::aio::interrupted());
     }
+    let in_place = in_place(driver, &id);
     let driver = WeakObj::new(driver);
     with(|l| {
         l.php = Some(Php {
             driver,
             watcher: id,
             referenced: false,
+            in_place,
+            main: None,
             timer: None,
             #[cfg(windows)]
             keepalive,
@@ -599,14 +824,14 @@ unsafe fn php_state() -> io::Result<()> {
 }
 
 /// The PHP state of a driver that is no longer EventLoop's (EventLoop::setDriver(), allowed only
-/// while that driver does not run; it usually frees the old driver, and the watcher and timer
-/// with it): if it is still alive, they are cancelled on it. Waits still
+/// while that driver does not run; it usually frees the old driver, and the watcher, timer and
+/// kept suspension with it): if it is still alive, they are cancelled on it. Waits still
 /// pending on it (fibers suspended on a loop that is gone) stay pending.
 unsafe fn retire(old: Php) {
     let d = old.driver.get();
     if !d.is_null() {
         // still alive (held by someone): what is ours on it goes
-        let ids = [Some(&old.watcher), old.timer.as_ref().map(|t| &t.0)];
+        let ids = [Some(&old.watcher), old.timer.as_ref().map(|t| &t.0), old.main.as_ref().map(|k| &k.keeper)];
         for id in ids.into_iter().flatten() {
             call::method_n(d, b"cancel", &mut [zval::copy(id)]);
         }
@@ -882,14 +1107,20 @@ unsafe extern "C" fn on_socket(ex: *mut sys::zend_execute_data, rv: *mut sys::zv
 /// Stores the suspension in `token`'s slot, references the watcher, arms the deadline timer,
 /// suspends.
 unsafe fn suspend(token: usize, deadline: Option<Instant>) -> io::Result<()> {
-    let s = event_loop("getSuspension", &mut []);
-    if call::has_exception() || !zval::is(&s, sys::IS_OBJECT) {
-        return Err(mongo_core::aio::interrupted());
-    }
+    let main = !in_fiber();
+    let s = if main {
+        main_suspension()?
+    } else {
+        let s = event_loop("getSuspension", &mut []);
+        if call::has_exception() || !zval::is(&s, sys::IS_OBJECT) {
+            return Err(mongo_core::aio::interrupted());
+        }
+        s
+    };
     let (reference, rearm) = with(|l| {
         l.slots[token].suspension = Some(zval::copy(&s));
         let php = l.php.as_mut().expect("php_state");
-        let reference = !php.referenced;
+        let reference = !php.referenced && !set_referenced(php, true);
         php.referenced = true;
         let rearm = deadline.filter(|d| php.timer.as_ref().is_none_or(|(_, at)| d < at));
         (reference.then(|| zval::copy(&php.watcher)), rearm.map(|d| (d, php.timer.take())))
@@ -929,10 +1160,11 @@ unsafe fn arm_timer(at: Instant, old: Option<sys::zval>) {
 unsafe fn after_wait() -> io::Result<()> {
     let id = with(|l| {
         let php = l.php.as_mut()?;
-        (l.pending == 0 && php.referenced).then(|| {
-            php.referenced = false;
-            zval::copy(&php.watcher)
-        })
+        if l.pending != 0 || !php.referenced {
+            return None;
+        }
+        php.referenced = false;
+        (!set_referenced(php, false)).then(|| zval::copy(&php.watcher))
     })?;
     if let Some(id) = id {
         saving_exception(|| event_loop("unreference", &mut [id]));
@@ -1005,6 +1237,11 @@ unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
         out
     });
     resume_all(ready);
+}
+
+/// The keeper of {main}'s suspension: a disabled callback, never run.
+unsafe extern "C" fn on_keep(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
+    zval::write(rv, zval::null());
 }
 
 /// The deadline timer: expired waiters resume (timed out), the next deadline is armed.

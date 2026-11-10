@@ -34,7 +34,8 @@ $runs = function (string $what) {
 var_dump($ping());
 $runs('first driver');
 $old = EventLoop::getDriver();
-// the watcher and the deadline timer
+// the watcher, the deadline timer, the (disabled) keeper of {main}'s suspension (not with
+// REVOLT_DRIVER_DEBUG_TRACE: a TracingDriver is not an AbstractDriver)
 echo "callbacks on the first driver: ", count($old->getIdentifiers()), "\n";
 
 foreach (['{main}', 'fiber'] as $where) {
@@ -74,10 +75,10 @@ echo "the replaced driver is gone: ", var_export($w->get() === null, true), "\n"
 var_dump($ping());
 $runs('last driver');
 ?>
---EXPECT--
+--EXPECTF--
 float(1)
 first driver: run() returned at once: true
-callbacks on the first driver: 2
+callbacks on the first driver: %d
 {main}: the new driver ran during the call: true
 float(1)
 {main}: callbacks left on the old driver: 0
