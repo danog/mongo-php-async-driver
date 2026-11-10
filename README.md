@@ -10,6 +10,11 @@ blocking, so driver calls inside PHP Fibers run concurrently.
   written for ext-mongodb run unchanged. Every difference is listed, with its reason and the test
   that pins it, in [DIVERGENCES.md](DIVERGENCES.md); where mirroring ext-mongodb would be unsafe
   (a crash, an overflow, unbounded allocation, a leaked secret), safety wins.
+- **Fibers, with no code changes:** with `revolt/event-loop` installed, a driver call inside a
+  `Fiber` suspends only that fiber while it waits for the network, so other fibers and Revolt's
+  timers and watchers keep running. Each concurrent operation gets its own pooled connection
+  (`maxPoolSize`). Calls in `{main}` wait through the loop too once Revolt is loaded, unless
+  `mongodb.main_event_loop=0`. See [Fibers](#fibers).
 - **Faster than ext-mongodb:** about half the CPU time per operation (`findOne` 12.1 µs against
   27.1 µs, `insertOne` 12.3 against 28.7), 59% less time encoding and decoding BSON, 72% less CPU
   to set up a TLS connection; with concurrent Fibers, 3.3–4.3× the throughput ext-mongodb reaches
