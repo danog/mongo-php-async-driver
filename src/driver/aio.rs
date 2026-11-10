@@ -290,16 +290,24 @@ struct Loop {
 }
 
 impl Loop {
-    /// A wait suspended on the driver of `epoch` ended. Returns the parked state of that driver
-    /// once nothing waits there any more (the caller retires it).
-    fn done(&mut self, epoch: u32) -> Option<Php> {
+    /// A wait suspended on the driver of `epoch` ended. True when it was the last one on a
+    /// parked driver (the caller then calls `retire_idle`).
+    fn done(&mut self, epoch: u32) -> bool {
         if let Some(p) = self.php.as_mut().filter(|p| p.epoch == epoch) {
             p.here -= 1;
-            return None;
+            return false;
         }
-        let i = self.parked.iter().position(|p| p.epoch == epoch)?;
-        self.parked[i].here -= 1;
-        (self.parked[i].here == 0).then(|| self.parked.swap_remove(i))
+        self.parked.iter_mut().find(|p| p.epoch == epoch).is_some_and(|p| {
+            p.here -= 1;
+            p.here == 0
+        })
+    }
+}
+
+/// Retires the parked drivers' states that nothing waits on any more.
+unsafe fn retire_idle() {
+    while let Ok(Some(p)) = with(|l| l.parked.iter().position(|p| p.here == 0).map(|i| l.parked.swap_remove(i))) {
+        saving_exception(|| retire(p));
     }
 }
 
@@ -310,6 +318,8 @@ struct Php {
     driver: WeakObj,
     /// names this state in the slots of its waits
     epoch: u32,
+    /// the slot of EventLoop::$driver (null: none such), as `Fns::driver_slot`
+    slot: *mut sys::zval,
     /// the waits pending on this driver (the watcher is referenced while there are any)
     here: usize,
     /// the onReadable callback id, and whether it is referenced
@@ -805,6 +815,15 @@ unsafe fn keepalive_stream() -> io::Result<(*mut sys::php_stream, mongo_core::os
 /// The request's keep-alive watcher (created unreferenced on first use, on the current driver):
 /// referenced while waits are pending, so that the loop runs until they end.
 unsafe fn php_state() -> io::Result<()> {
+    // the common case: EventLoop::$driver still holds the watcher's driver
+    if let Some((slot, d)) = with(|l| l.php.as_ref().map(|p| (p.slot, p.driver.get())))? {
+        if !slot.is_null() {
+            let z = zval::deref(slot);
+            if zval::is(z, sys::IS_OBJECT) && (*z).value.obj == d {
+                return Ok(());
+            }
+        }
+    }
     let now = driver_now();
     if call::has_exception() {
         return Err(mongo_core::aio::interrupted());
@@ -863,11 +882,13 @@ unsafe fn php_state() -> io::Result<()> {
     }
     let in_place = in_place(driver, &id);
     let driver = WeakObj::new(driver);
+    let slot = FNS.with_borrow(|f| f.driver_slot.unwrap_or(null_mut()));
     with(|l| {
         l.epochs = l.epochs.wrapping_add(1);
         l.php = Some(Php {
             driver,
             epoch: l.epochs,
+            slot,
             here: 0,
             watcher: id,
             referenced: false,
@@ -1008,15 +1029,15 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     let streams = match unsafe { watch(token, fds) } {
         Ok(s) => s,
         Err(e) => {
-            let retired = with(|l| {
+            let idle = with(|l| {
                 if l.slots[token].gen != my_gen {
-                    return None;
+                    return false;
                 }
                 let s = std::mem::replace(&mut l.slots[token], Slot::free(my_gen));
                 l.done(s.epoch)
             });
-            if let Ok(Some(p)) = retired {
-                unsafe { saving_exception(|| retire(p)) };
+            if idle.unwrap_or(false) {
+                unsafe { retire_idle() };
             }
             unsafe { after_wait()? };
             return Err(e);
@@ -1032,17 +1053,17 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     };
     #[cfg(unix)]
     mongo_core::reactor::disarm(fds, token);
-    let (state, retired) = with(|l| {
+    let (state, idle) = with(|l| {
         // the slot is still this wait's unless the request ended meanwhile (rshutdown)
         if l.slots[token].gen != my_gen {
-            return (SlotState::Pending, None);
+            return (SlotState::Pending, false);
         }
         let s = std::mem::replace(&mut l.slots[token], Slot::free(my_gen));
         (s.state, l.done(s.epoch))
     })?;
-    if let Some(p) = retired {
+    if idle {
         // the last wait on a replaced driver
-        unsafe { saving_exception(|| retire(p)) };
+        unsafe { retire_idle() };
     }
     unsafe { after_wait()? };
     r?;
