@@ -41,7 +41,6 @@ use std::time::{Duration, Instant};
 
 extern "C" {
     fn zend_fiber_switch_blocked() -> bool;
-    fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
     fn zend_internal_run_time_cache_reserved_size() -> usize;
     fn _php_stream_sock_open_from_socket(socket: mongo_core::os::RawSock, persistent_id: *const c_char) -> *mut sys::php_stream;
     fn zend_read_static_property_ex(scope: *mut sys::zend_class_entry, name: *mut sys::zend_string, silent: bool) -> *mut sys::zval;
@@ -87,15 +86,18 @@ impl Drop for WeakObj {
 
 #[cfg(not(php86))]
 extern "C" {
+    fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
     fn zend_exception_save();
     fn zend_exception_restore();
     fn zend_call_known_function(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable);
 }
 
 // PHP 8.6: zend_call_known_function is an inline wrapper of zend_call_known_function_ex (with
-// consumed_args 0), and zend_exception_save/restore (EG(prev_exception)) are gone
+// consumed_args 0), zend_exception_save/restore (EG(prev_exception)) are gone, and a Closure's
+// $this is passed as the object itself (not a zval)
 #[cfg(php86)]
 extern "C" {
+    fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zend_object);
     fn zend_call_known_function_ex(func: *mut sys::zend_function, object: *mut sys::zend_object, called_scope: *mut sys::zend_class_entry, retval: *mut sys::zval, param_count: u32, params: *mut sys::zval, named_params: *mut sys::HashTable, consumed_args: u32);
     fn zend_exception_set_previous(exception: *mut sys::zend_object, add_previous: *mut sys::zend_object);
 }
@@ -627,11 +629,12 @@ unsafe fn main_suspension() -> io::Result<sys::zval> {
     let f = funcs();
     (*f).keep.scope = ce;
     let refs = (*o).gc.refcount;
-    let mut this = zval::copy(&s);
     let mut closure = zval::undef();
-    zend_create_fake_closure(&mut closure, (&raw mut (*f).keep).cast(), ce, ce, &mut this);
+    #[cfg(not(php86))]
+    zend_create_fake_closure(&mut closure, (&raw mut (*f).keep).cast(), ce, ce, &mut *zval::borrowed_obj(o));
+    #[cfg(php86)]
+    zend_create_fake_closure(&mut closure, (&raw mut (*f).keep).cast(), ce, ce, o);
     (*f).keep.scope = null_mut();
-    drop(this);
     if (*o).gc.refcount != refs + 1 {
         // the Closure does not hold it
         return Ok(s);
