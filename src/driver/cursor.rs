@@ -41,6 +41,10 @@ pub struct Cursor {
     /// (getMore, or a bsonUnserialize of its typeMap); usize::MAX: none. Another fiber is
     /// refused meanwhile (its &mut would alias the suspended one's).
     owner: usize,
+    /// inside decode_current: the decoder reads the reply and the typeMap, so user code it runs
+    /// (bsonUnserialize(), an autoloader) must not advance the cursor (a getMore replaces the
+    /// reply) or change its typeMap: exclusive refuses that
+    decoding: bool,
     pub client: Option<ClientRef>,
     pub server_id: u32,
     pub db: String,
@@ -86,6 +90,7 @@ impl Default for Cursor {
     fn default() -> Self {
         Cursor {
             owner: usize::MAX,
+            decoding: false,
             client: None,
             server_id: 0,
             db: String::new(),
@@ -528,7 +533,10 @@ impl Cursor {
 
     unsafe fn decode_current(&mut self) {
         if let Some((a, b)) = self.current_doc {
-            match super::to_zval(&self.reply[a..b], &self.typemap) {
+            self.decoding = true;
+            let r = super::to_zval(&self.reply[a..b], &self.typemap);
+            self.decoding = false;
+            match r {
                 Some(z) => self.zchild = z,
                 None => self.free_current(),
             }
@@ -584,14 +592,18 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut Cursor {
 }
 
 /// Runs `f` on the cursor of a method that may suspend; refused (LogicException) while another
-/// fiber is inside one, or (`advances`) when advancing needs the Session another fiber's
-/// operation holds.
+/// fiber is inside one, while the cursor decodes a document (user code its decoding runs), or
+/// (`advances`) when advancing needs the Session another fiber's operation holds.
 unsafe fn exclusive(ex: Ex, advances: bool, f: impl FnOnce(&mut Cursor)) {
     let fiber = (*crate::zend::eg()).active_fiber as usize;
     let o = call::this(ex);
     let owner = obj::data::<Cursor>(o).owner;
     if owner != usize::MAX && owner != fiber {
         throw(E::Logic, "The cursor is in use by another fiber");
+        return;
+    }
+    if obj::data::<Cursor>(o).decoding {
+        throw(E::Logic, "The cursor cannot be advanced or changed while it decodes a document");
         return;
     }
     // before any state change (a getMore would find the session held)
