@@ -12,6 +12,8 @@
 //!   callback, referenced only while waits are pending. A wait names its slot as the waiter of
 //!   its sockets, stores `EventLoop::getSuspension()` in the slot and suspends; the callback
 //!   drains the reactor and resumes the ready slots.
+//! - The watcher and the timer belong to the driver of the first wait; a wait after
+//!   EventLoop::setDriver() moves them to the new driver.
 //! - How (Windows, backend 2: IOCP has no handle a PHP stream could wrap): a wait wraps each of
 //!   its sockets in a PHP socket stream (whose socket handle is reset before the stream goes,
 //!   so PHP never shuts down or closes the driver's socket) and watches it with
@@ -36,6 +38,45 @@ extern "C" {
     fn zend_create_fake_closure(res: *mut sys::zval, func: *mut sys::zend_function, scope: *mut sys::zend_class_entry, called_scope: *mut sys::zend_class_entry, this_ptr: *mut sys::zval);
     fn zend_internal_run_time_cache_reserved_size() -> usize;
     fn _php_stream_sock_open_from_socket(socket: mongo_core::os::RawSock, persistent_id: *const c_char) -> *mut sys::php_stream;
+    fn zend_read_static_property_ex(scope: *mut sys::zend_class_entry, name: *mut sys::zend_string, silent: bool) -> *mut sys::zval;
+    fn zend_weakrefs_hash_add(ht: *mut sys::HashTable, key: *mut sys::zend_object, data: *mut sys::zval) -> *mut sys::zval;
+    fn zend_weakrefs_hash_del(ht: *mut sys::HashTable, key: *mut sys::zend_object) -> sys::zend_result;
+}
+
+/// A weak reference to an object, without holding it: a table whose one weak key is the object
+/// (zend_weakrefs_hash_add), which the engine empties when the object is freed.
+struct WeakObj {
+    obj: *mut sys::zend_object,
+    ht: *mut sys::HashTable,
+}
+
+impl WeakObj {
+    unsafe fn new(obj: *mut sys::zend_object) -> WeakObj {
+        let ht = crate::zend::hash::new(1);
+        let mut v = zval::null();
+        zend_weakrefs_hash_add(ht, obj, &mut v);
+        WeakObj { obj, ht }
+    }
+
+    /// The object; null once it was freed.
+    fn get(&self) -> *mut sys::zend_object {
+        if unsafe { crate::zend::hash::count(self.ht) } == 1 {
+            self.obj
+        } else {
+            null_mut()
+        }
+    }
+}
+
+impl Drop for WeakObj {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.get().is_null() {
+                zend_weakrefs_hash_del(self.ht, self.obj);
+            }
+            crate::zend::hash::release(self.ht);
+        }
+    }
 }
 
 #[cfg(not(php86))]
@@ -229,8 +270,11 @@ struct Loop {
     php: Option<Php>,
 }
 
-/// The PHP side of the loop in this request.
+/// The PHP side of the loop in this request, on one Revolt driver.
 struct Php {
+    /// the driver the watcher and the timer belong to (EventLoop::setDriver() may replace it
+    /// between waits: the next wait then moves to the new one); not held from here
+    driver: WeakObj,
     /// the onReadable callback id, and whether it is referenced
     watcher: sys::zval,
     referenced: bool,
@@ -272,6 +316,9 @@ struct Fns {
     statics: Vec<(&'static str, *mut sys::zend_function)>,
     suspension: Option<std::ptr::NonNull<sys::zend_class_entry>>,
     methods: Vec<(&'static [u8], *mut sys::zend_function)>,
+    /// the slot of the static property EventLoop::$driver (None: not looked up yet; null: no
+    /// such property: EventLoop::getDriver() tells the driver instead)
+    driver_slot: Option<*mut sys::zval>,
 }
 
 thread_local! {
@@ -325,6 +372,40 @@ unsafe fn event_loop(method: &'static str, args: &mut [sys::zval]) -> sys::zval 
         }
     }
     rv
+}
+
+/// The current Revolt driver (null while there is none yet): the value of EventLoop::$driver
+/// (revolt/event-loop 1.x keeps it there: its slot is looked up once per request, a static
+/// member table lives as long as the request), else what EventLoop::getDriver() returns. The
+/// object is held by EventLoop for as long as it is the driver.
+unsafe fn driver_now() -> *mut sys::zend_object {
+    let (ce, slot) = FNS.with_borrow(|f| (f.event_loop, f.driver_slot));
+    let slot = match (ce, slot) {
+        (_, Some(slot)) => slot,
+        (Some(ce), None) => {
+            let name = zval::string(b"driver");
+            // silent: no error for an uninitialised typed property (EventLoop sets it on first use)
+            let slot = zend_read_static_property_ex(ce.as_ptr(), name.value.str_, true);
+            FNS.with_borrow_mut(|f| f.driver_slot = Some(slot));
+            slot
+        }
+        (None, None) => null_mut(),
+    };
+    if !slot.is_null() {
+        let z = zval::deref(slot);
+        if zval::is(z, sys::IS_OBJECT) {
+            return (*z).value.obj;
+        }
+        if zval::is(z, sys::IS_UNDEF) {
+            return null_mut();
+        }
+    }
+    let d = event_loop("getDriver", &mut []);
+    if zval::is(&d, sys::IS_OBJECT) {
+        d.value.obj
+    } else {
+        null_mut()
+    }
 }
 
 /// `$o-><name>(args...)` (`name` in lower case).
@@ -464,11 +545,23 @@ unsafe fn keepalive_stream() -> io::Result<(*mut sys::php_stream, mongo_core::os
     Ok((stream, raw))
 }
 
-/// The request's keep-alive watcher (created unreferenced on first use): referenced while waits
-/// are pending, so that the loop runs until they end.
+/// The request's keep-alive watcher (created unreferenced on first use, on the current driver):
+/// referenced while waits are pending, so that the loop runs until they end.
 unsafe fn php_state() -> io::Result<()> {
-    if with(|l| l.php.is_some())? {
-        return Ok(());
+    let now = driver_now();
+    if call::has_exception() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    // the watcher's driver is no longer the current one (EventLoop::setDriver()): it moves
+    let old = with(|l| match &l.php {
+        Some(p) if !now.is_null() && p.driver.get() != now => Some(l.php.take()),
+        Some(_) => None,
+        None => Some(None),
+    })?;
+    match old {
+        None => return Ok(()),
+        Some(Some(old)) => retire(old),
+        Some(None) => {}
     }
     #[cfg(unix)]
     let stream = keepalive_stream()?;
@@ -486,8 +579,15 @@ unsafe fn php_state() -> io::Result<()> {
     }
     let mut a = [zval::copy(&id)];
     event_loop("unreference", &mut a);
+    // the driver that has the watcher (onReadable made it if there was none)
+    let driver = driver_now();
+    if call::has_exception() || driver.is_null() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    let driver = WeakObj::new(driver);
     with(|l| {
         l.php = Some(Php {
+            driver,
             watcher: id,
             referenced: false,
             timer: None,
@@ -496,6 +596,22 @@ unsafe fn php_state() -> io::Result<()> {
         })
     })?;
     Ok(())
+}
+
+/// The PHP state of a driver that is no longer EventLoop's (EventLoop::setDriver(), allowed only
+/// while that driver does not run; it usually frees the old driver, and the watcher and timer
+/// with it): if it is still alive, they are cancelled on it. Waits still
+/// pending on it (fibers suspended on a loop that is gone) stay pending.
+unsafe fn retire(old: Php) {
+    let d = old.driver.get();
+    if !d.is_null() {
+        // still alive (held by someone): what is ours on it goes
+        let ids = [Some(&old.watcher), old.timer.as_ref().map(|t| &t.0)];
+        for id in ids.into_iter().flatten() {
+            call::method_n(d, b"cancel", &mut [zval::copy(id)]);
+        }
+    }
+    drop(old);
 }
 
 /// RSHUTDOWN: the request's PHP state goes (waiters left behind belong to destroyed fibers).

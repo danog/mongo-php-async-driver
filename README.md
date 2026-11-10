@@ -108,7 +108,8 @@ for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
 Under the hood, waits go through one epoll/kqueue instance per thread that a single Revolt
 `onReadable` watcher drives; each socket is registered there once, edge-triggered, so the driver
 needs no system call to set up a wait for a reply. On Windows each wait watches its sockets
-with Revolt directly.
+with Revolt directly. The watcher lives on Revolt's current driver: after
+`EventLoop::setDriver()`, the next wait moves it to the new one.
 Benchmark: `tools/bench/fibers.php`.
 
 ## fork()
