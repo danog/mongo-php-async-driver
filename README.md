@@ -121,18 +121,21 @@ The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `fromjson.php`, `hands
 
 ```php
 use MongoDB\Driver\{Manager, Query};
-use Revolt\EventLoop;
+use function Amp\async;
+use function Amp\Future\await;
 
 $manager = new Manager('mongodb://127.0.0.1');
-foreach (['alice', 'bob', 'carol'] as $name) {
-    // three queries in flight at once, on three pooled connections
-    EventLoop::queue(function () use ($manager, $name) {
-        $users = $manager->executeQuery('app.users', new Query(['name' => $name]))->toArray();
-        echo $name, ': ', count($users), "\n";
-    });
-}
-EventLoop::run();
+
+// three queries in flight at once, on three pooled connections
+[$alice, $bob, $carol] = await(array_map(
+    fn (string $name) => async(fn () => $manager->executeQuery('app.users', new Query(['name' => $name]))->toArray()),
+    ['alice', 'bob', 'carol'],
+));
 ```
+
+The example uses [Amp](https://amphp.org) (`composer require amphp/amp`). Any other library built
+on Revolt works the same way, and so does Revolt on its own (`EventLoop::queue()`, a plain `Fiber`):
+the driver only needs Revolt's event loop.
 
 Automatic, with no option: a driver call made inside a `Fiber` suspends that fiber while it waits
 for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
