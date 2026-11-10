@@ -55,8 +55,9 @@ pub struct Enc {
 }
 
 impl Enc {
-    /// phongo_bson_append_object
-    unsafe fn append_object(&mut self, w: &mut Writer, flags: u32, key: &[u8], z: *mut sys::zval) {
+    /// phongo_bson_append_object. `props`: the object's property table, already fetched by the
+    /// caller (passed on so that get_properties is not called again while the table is held).
+    unsafe fn append_object(&mut self, w: &mut Writer, flags: u32, key: &[u8], z: *mut sys::zval, props: *mut sys::HashTable) {
         let c = ce();
         if zval::is(z, sys::IS_OBJECT) {
             let oce = zval::obj_ce(z);
@@ -81,11 +82,11 @@ impl Enc {
                         if persist {
                             w.binary(b"__pclass", 0x80, class_name(oce));
                         }
-                        self.internal(&mut data, flags, w, None);
+                        self.internal(&mut data, flags, w, None, std::ptr::null_mut());
                         w.end(p);
                     } else {
                         let p = w.begin(T_ARRAY, key);
-                        self.internal(&mut data, flags, w, None);
+                        self.internal(&mut data, flags, w, None, std::ptr::null_mut());
                         w.end(p);
                     }
                     return;
@@ -147,7 +148,7 @@ impl Enc {
             }
         }
         let p = w.begin(T_DOCUMENT, key);
-        self.internal(z, flags, w, None);
+        self.internal(z, flags, w, None, props);
         w.end(p);
     }
 
@@ -187,14 +188,21 @@ impl Enc {
                         hash::protect_end(ht);
                         return;
                     }
+                    // user code run below cannot free or change the array (see hash::hold)
+                    let held = hash::hold(ht);
                     let p = w.begin(T_ARRAY, key);
-                    self.internal(z, flags, w, None);
+                    self.internal(z, flags, w, None, ht);
                     self.fp.pop();
                     w.end(p);
                     hash::protect_end(ht);
+                    hash::unhold(ht, held);
                 }
                 sys::IS_ARRAY | sys::IS_OBJECT => {
-                    let ht = hash_of(z);
+                    // user code run below (bsonSerialize(), destructors, ...) can overwrite the
+                    // slot z points to: the value is read once, here, and it and its table are
+                    // held until the end (see hash::hold)
+                    let mut view = std::mem::ManuallyDrop::new(std::ptr::read(z));
+                    let ht = hash_of(&mut *view);
                     if !hash::protect_begin(ht) {
                         throw(E::UnexpectedValue, format!("Detected recursion for field path \"{}\"", self.fp.as_string()));
                         return;
@@ -204,9 +212,16 @@ impl Enc {
                         hash::protect_end(ht);
                         return;
                     }
-                    self.append_object(w, flags, key, z);
+                    let o = if zval::is(&*view, sys::IS_OBJECT) { view.value.obj } else { std::ptr::null_mut() };
+                    let held_o = if o.is_null() { 0 } else { hash::hold_obj(o) };
+                    let held = hash::hold(ht);
+                    self.append_object(w, flags, key, &mut *view, ht);
                     self.fp.pop();
                     hash::protect_end(ht);
+                    hash::unhold(ht, held);
+                    if !o.is_null() {
+                        hash::unhold_obj(o, held_o);
+                    }
                 }
                 sys::IS_REFERENCE => {
                     z = zval::deref(z);
@@ -226,14 +241,18 @@ impl Enc {
         }
     }
 
-    /// phongo_zval_to_bson_internal. `id_out`: receives the _id element (RETURN_ID).
-    pub unsafe fn internal(&mut self, data: *mut sys::zval, mut flags: u32, w: &mut Writer, id_out: Option<&mut Option<Vec<u8>>>) {
+    /// phongo_zval_to_bson_internal. `id_out`: receives the _id element (RETURN_ID). `held`: the
+    /// table of `data` (its array, or the property table of an object) if the caller has fetched
+    /// it and holds it (hash::hold) while this runs, else null.
+    pub unsafe fn internal(&mut self, data: *mut sys::zval, mut flags: u32, w: &mut Writer, id_out: Option<&mut Option<Vec<u8>>>, held: *mut sys::HashTable) {
         let c = ce();
         // bsonSerialize()'s result, when called (released when this returns)
         let mut obj_data: sys::zval;
         let mut from_props = false;
         let mut skip_odm = false;
         let ht: *mut sys::HashTable;
+        // the object ht is the property table of (null: ht is an array's)
+        let mut owner: *mut sys::zend_object = std::ptr::null_mut();
         match zval::type_of(data) as u32 {
             sys::IS_OBJECT => {
                 let oce = zval::obj_ce(data);
@@ -264,10 +283,13 @@ impl Enc {
                         skip_odm = true;
                     }
                     if zval::is(&obj_data, sys::IS_OBJECT) && (obj::instanceof(zval::obj_ce(&obj_data), c.document) || obj::instanceof(zval::obj_ce(&obj_data), c.packedarray)) {
-                        self.internal(&mut obj_data, flags, w, id_out);
+                        self.internal(&mut obj_data, flags, w, id_out, std::ptr::null_mut());
                         return;
                     }
                     ht = hash_of(&mut obj_data);
+                    if zval::is(&obj_data, sys::IS_OBJECT) {
+                        owner = obj_data.value.obj;
+                    }
                 } else if (*oce).ce_flags & sys::ZEND_ACC_ENUM != 0 {
                     throw(E::UnexpectedValue, format!("Enum {} cannot be serialized as a root element", crate::zend::class::name(oce)));
                     return;
@@ -275,8 +297,9 @@ impl Enc {
                     throw(E::UnexpectedValue, format!("{} instance {} cannot be serialized as a root element", crate::zend::class::name(c.type_), crate::zend::class::name(oce)));
                     return;
                 } else {
-                    ht = ((*(*o).handlers).get_properties.unwrap())(o);
+                    ht = if held.is_null() { ((*(*o).handlers).get_properties.unwrap())(o) } else { held };
                     from_props = true;
+                    owner = o;
                 }
             }
             sys::IS_ARRAY => ht = (*data).value.arr,
@@ -284,7 +307,14 @@ impl Enc {
         }
         if !ht.is_null() {
             let mut stop = false;
-            hash::each(ht, true, |k, v| {
+            // append runs user code (bsonSerialize(), destructors, autoloaders), which may change
+            // or free the container: the walk is over a table held for it (PHP separates a held
+            // table instead of changing it: the encoding sees the container as it was when its
+            // encoding started, see DIVERGENCES.md), or over a copy of a custom handler's table
+            let copy = !owner.is_null() && hash::custom_properties(owner);
+            let walk = if copy { hash::dup(ht) } else { ht };
+            let held_here = if copy || ht == held { 0 } else { hash::hold(ht) };
+            hash::each(walk, true, |k, v| {
                 // the key must outlive user code run by append (bsonSerialize() may change the
                 // array): a string key is held by a reference, an integer one is formatted here
                 let mut held: *mut sys::zend_string = std::ptr::null_mut();
@@ -321,6 +351,11 @@ impl Enc {
                 }
                 true
             });
+            if copy {
+                hash::release(walk);
+            } else {
+                hash::unhold(ht, held_here);
+            }
             if stop {
                 return;
             }
@@ -383,7 +418,7 @@ fn copy_elements(src: &[u8], w: &mut Writer) {
 pub unsafe fn to_bson(data: *mut sys::zval, flags: u32) -> Option<Vec<u8>> {
     let mut w = Writer::new();
     let mut e = Enc { fp: FieldPath::default() };
-    e.internal(data, flags, &mut w, None);
+    e.internal(data, flags, &mut w, None, std::ptr::null_mut());
     if call::has_exception() {
         return None;
     }
@@ -395,7 +430,7 @@ pub unsafe fn to_bson_with_id(data: *mut sys::zval, flags: u32) -> Option<(Vec<u
     let mut w = Writer::new();
     let mut e = Enc { fp: FieldPath::default() };
     let mut id = None;
-    e.internal(data, flags, &mut w, Some(&mut id));
+    e.internal(data, flags, &mut w, Some(&mut id), std::ptr::null_mut());
     if call::has_exception() {
         return None;
     }

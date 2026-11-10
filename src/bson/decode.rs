@@ -451,6 +451,9 @@ pub unsafe fn typemap(z: *mut sys::zval, map: &mut TypeMap) -> bool {
         }
     };
     let mut ok = true;
+    // parse_type may run an autoloader, which may change or free the table: it is held (see
+    // hash::hold), the walk sees it as it was when it started
+    let held = hash::hold(fht);
     hash::each(fht, false, |k, _| {
         let hash::Key::Str(s) = k else {
             throw(E::InvalidArgument, "The 'fieldPaths' element is not an associative array");
@@ -487,5 +490,6 @@ pub unsafe fn typemap(z: *mut sys::zval, map: &mut TypeMap) -> bool {
         map.field_paths.push((segs, el));
         true
     });
+    hash::unhold(fht, held);
     ok
 }

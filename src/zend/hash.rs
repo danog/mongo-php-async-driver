@@ -156,6 +156,68 @@ pub unsafe fn each(ht: *const sys::HashTable, ind: bool, mut f: impl FnMut(Key, 
     }
 }
 
+/// Takes a reference on a table that code which may run user code walks (GC_TRY_ADDREF ...
+/// zend_array_release, as zend_std_get_properties_for's callers do): the table cannot be freed
+/// under the walk, and PHP separates a shared table before changing it (copy-on-write for arrays,
+/// zend_array_dup in zend_std_write_property/unset_property for property tables) instead of
+/// changing it in place, so the walk may keep its pointers into it. Returns what `unhold` needs
+/// (0: null or immutable, not counted). Explicit calls, not a Drop guard: cheaper per container.
+#[inline]
+pub unsafe fn hold(ht: *mut sys::HashTable) -> u32 {
+    if ht.is_null() || (*ht).gc.u.type_info & sys::IS_ARRAY_IMMUTABLE != 0 {
+        return 0;
+    }
+    (*ht).gc.refcount += 1;
+    (*ht).gc.refcount
+}
+
+/// Drops the reference `hold` took.
+#[inline]
+pub unsafe fn unhold(ht: *mut sys::HashTable, held: u32) {
+    if held != 0 {
+        release_held(ht.cast(), held, || zval::arr(ht));
+    }
+}
+
+/// `hold` for an object (kept alive: its declared properties are slots of it).
+#[inline]
+pub unsafe fn hold_obj(o: *mut sys::zend_object) -> u32 {
+    (*o).gc.refcount += 1;
+    (*o).gc.refcount
+}
+
+#[inline]
+pub unsafe fn unhold_obj(o: *mut sys::zend_object, held: u32) {
+    release_held(o.cast(), held, || zval::obj(o));
+}
+
+/// A refcount still at what holding it made it (`held`: the other references are as they were)
+/// is just decremented, which leaves the value as it was before (zval_ptr_dtor would also buffer
+/// it as a possible GC root); otherwise it is released as zval_ptr_dtor does (freed when it was
+/// the last reference, else a possible GC root).
+#[inline]
+unsafe fn release_held(c: *mut sys::zend_refcounted_h, held: u32, owned: impl FnOnce() -> sys::zval) {
+    if (*c).refcount == held {
+        (*c).refcount -= 1;
+    } else {
+        drop(owned());
+    }
+}
+
+/// The property table of an object whose get_properties handler is not the standard one
+/// (ArrayObject, SimpleXMLElement, DateInterval, ...): such a handler may change its table in
+/// place even while it is held, so a walk that runs user code walks a copy (zend_array_dup).
+#[inline]
+pub unsafe fn custom_properties(o: *mut sys::zend_object) -> bool {
+    (*(*o).handlers).get_properties.map(|f| f as *const () as usize) != Some(sys::zend_std_get_properties as *const () as usize)
+}
+
+/// zend_array_dup: a copy of `ht` (refcount 1; release with `release`).
+#[inline]
+pub unsafe fn dup(ht: *mut sys::HashTable) -> *mut sys::HashTable {
+    sys::zend_array_dup(ht)
+}
+
 /// zend_array_is_list
 pub unsafe fn is_list(ht: *const sys::HashTable) -> bool {
     if count(ht) == 0 {
