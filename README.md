@@ -28,8 +28,8 @@ pie install danog/mongo-php-async-driver
 It installs as the `mongodb` extension, so it conflicts with the official `mongodb/mongodb-extension`:
 uninstall that first (`pie uninstall mongodb/mongodb-extension`, or remove ext-mongodb's package
 or `extension=mongodb` line). Releases carry pre-built binaries for Linux (x86-64 and arm64,
-glibc and musl), macOS (arm64 and x86-64) and Windows (x86-64), for PHP 8.2 to 8.6, NTS and ZTS.
-Elsewhere, PIE builds from source, which needs Rust (`cargo`) and libclang.
+glibc and musl), macOS (arm64 and x86-64) and Windows (x86-64), for PHP 8.2 to 8.6, NTS and ZTS
+(until PHP 8.6 is released: ZTS only on Linux, none on Windows). Elsewhere, PIE builds from source, which needs Rust (`cargo`) and libclang.
 
 ## Build from source
 

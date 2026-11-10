@@ -98,7 +98,7 @@ jobs:
           PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --release --locked
           cp target/release/libmongodb.dylib mongodb.so
           php -n -d "extension=$PWD/mongodb.so" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
-          test "$(php -n -r 'echo PHP_ZTS;')" = ${{ matrix.ts == 'zts' && 1 || 0 }}
+          test "$(php -n -r 'echo (int) PHP_ZTS;')" = ${{ matrix.ts == 'zts' && 1 || 0 }}
           asset=$(echo "php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-darwin-bsdlibc${{ matrix.ts == 'zts' && '-zts' || '' }}.zip" | tr 'A-Z' 'a-z')
           mkdir dist && zip -j "dist/$asset" mongodb.so
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -115,6 +115,9 @@ jobs:
       matrix:
         php: ["8.2", "8.3", "8.4", "8.5", "8.6"]
         ts: [nts, ts]
+        # no Windows development pack is published for 8.6 before its release
+        exclude:
+          - { php: "8.6" }
     defaults:
       run:
         shell: bash
@@ -145,7 +148,7 @@ jobs:
           # "PHP Extension Build => API20240924,NTS,VS17" (TS builds: ",TS,") -> vs17
           compiler=$(php -i | sed -n 's/^PHP Extension Build => .*,\(VS[0-9]*\)$/\1/p' | tr 'A-Z' 'a-z')
           test -n "$compiler"
-          test "$(php -n -r 'echo PHP_ZTS;')" = ${{ matrix.ts == 'ts' && 1 || 0 }}
+          test "$(php -n -r 'echo (int) PHP_ZTS;')" = ${{ matrix.ts == 'ts' && 1 || 0 }}
           name=php_mongodb-${TAG}-${{ matrix.php }}-${{ matrix.ts }}-${compiler}-x86_64
           cp target/release/mongodb.dll "$name.dll"
           php -n -d "extension=$(cygpath -ml "$PWD/$name.dll")" -r 'echo "mongodb ", phpversion("mongodb"), "\n";'
