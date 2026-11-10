@@ -9,20 +9,21 @@ use mongo_core::topology::{ReadPrefs, SMALLEST_MAX_STALENESS_SECONDS};
 use mongo_core::uri::{ReadMode, NO_MAX_STALENESS};
 use std::ptr::{addr_of_mut, null_mut};
 
-const EMPTY: [u8; 5] = [5, 0, 0, 0, 0];
+pub const EMPTY: [u8; 5] = [5, 0, 0, 0, 0];
 
 #[derive(Clone)]
 pub struct ReadPreference {
     pub mode: ReadMode,
-    /// tag sets as a BSON array (empty document when none)
-    pub tags: Vec<u8>,
+    /// tag sets as a BSON array (empty document when none: borrowed, no allocation per
+    /// operation for the usual read preference)
+    pub tags: std::borrow::Cow<'static, [u8]>,
     pub max_staleness_seconds: i64,
     pub hedge: Option<Vec<u8>>,
 }
 
 impl Default for ReadPreference {
     fn default() -> Self {
-        ReadPreference { mode: ReadMode::Primary, tags: EMPTY.to_vec(), max_staleness_seconds: NO_MAX_STALENESS as i64, hedge: None }
+        ReadPreference { mode: ReadMode::Primary, tags: std::borrow::Cow::Borrowed(&EMPTY), max_staleness_seconds: NO_MAX_STALENESS as i64, hedge: None }
     }
 }
 
@@ -211,7 +212,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference___construct(ex: Ex, _
             throw(E::InvalidArgument, "tagSets may not be used with primary mode");
             return;
         }
-        rp.tags = tags;
+        rp.tags = tags.into();
     }
     if !options.is_null() {
         let oh = (*options).value.arr;
@@ -286,7 +287,7 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
                 throw(E::InvalidArgument, format!("{name} initialization requires \"tags\" array field to not be present with \"primary\" mode"));
                 return false;
             }
-            rp.tags = tags;
+            rp.tags = tags.into();
         } else if !zval::is(t, sys::IS_NULL) {
             throw(E::InvalidArgument, format!("{name} initialization requires \"tags\" field to be array"));
             return false;

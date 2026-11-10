@@ -813,13 +813,19 @@ unsafe fn parse_read_preference(options: *mut sys::HashTable) -> Result<Option<R
     Ok(Some(obj::data::<ReadPreference>((*z).value.obj).clone()))
 }
 
-/// The client's read preference (from the URI).
+/// The client's read preference (from the URI; built per operation, without allocating when the
+/// URI has no tag sets).
 pub fn client_read_preference(uri: &Uri) -> ReadPreference {
-    let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
-    for (i, set) in uri.read_tags.iter().enumerate() {
-        w.document(i.to_string().as_bytes(), set);
-    }
-    ReadPreference { mode: uri.read_mode, tags: w.finish(), max_staleness_seconds: uri.max_staleness_seconds as i64, hedge: None }
+    let tags = if uri.read_tags.is_empty() {
+        std::borrow::Cow::Borrowed(&super::readpref::EMPTY[..])
+    } else {
+        let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
+        for (i, set) in uri.read_tags.iter().enumerate() {
+            w.document(i.to_string().as_bytes(), set);
+        }
+        w.finish().into()
+    };
+    ReadPreference { mode: uri.read_mode, tags, max_staleness_seconds: uri.max_staleness_seconds as i64, hedge: None }
 }
 
 /// _mongoc_parse_wc_err
