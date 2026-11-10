@@ -10,7 +10,7 @@ use super::oid;
 use super::utf8;
 use super::writer::Writer;
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 /// jsonsl's level limit (libbson's STACK_MAX).
 const MAX_LEVELS: usize = 100;
@@ -29,16 +29,22 @@ enum J<'a> {
     Obj(&'a [(Cow<'a, [u8]>, J<'a>)]),
 }
 
+type Pair<'a> = (Cow<'a, [u8]>, J<'a>);
+
 /// Append-only storage for the tree's member lists: chunks that are never grown past their
 /// capacity, so the slices handed out stay where they are until the arena is dropped (its
 /// members are dropped with it). No Drop impl: Vec's lets the members borrow from the arena.
 struct Arena<T> {
-    chunks: RefCell<Vec<Vec<T>>>,
+    /// the chunk being filled
+    cur: RefCell<Vec<T>>,
+    /// the chunks filled before it
+    full: RefCell<Vec<Vec<T>>>,
 }
 
 impl<T> Arena<T> {
-    fn new() -> Self {
-        Arena { chunks: RefCell::new(Vec::new()) }
+    /// `first`: an empty chunk to fill first (a spare one of the thread's previous parse)
+    fn new(first: Vec<T>) -> Self {
+        Arena { cur: RefCell::new(first), full: RefCell::new(Vec::new()) }
     }
 
     /// Moves `stack[start..]` into the arena.
@@ -47,28 +53,67 @@ impl<T> Arena<T> {
         if n == 0 {
             return &[];
         }
-        let mut chunks = self.chunks.borrow_mut();
-        if chunks.last().is_none_or(|c| c.capacity() - c.len() < n) {
-            let cap = chunks.last().map_or(64, |c| c.capacity() * 2).max(n);
-            chunks.push(Vec::with_capacity(cap));
+        let mut c = self.cur.borrow_mut();
+        if c.capacity() - c.len() < n {
+            let cap = (c.capacity() * 2).max(n).max(64);
+            let old = std::mem::replace(&mut *c, Vec::with_capacity(cap));
+            if old.capacity() != 0 {
+                // moving a Vec leaves its elements where they are
+                self.full.borrow_mut().push(old);
+            }
         }
-        let c = chunks.last_mut().unwrap();
         let at = c.len();
         c.extend(stack.drain(start..));
-        // SAFETY: c never reallocates (it is filled only within its capacity) and is dropped
-        // only with the arena, which the returned borrow keeps alive
+        // SAFETY: a chunk never reallocates (it is filled only within its capacity) and is
+        // dropped only with the arena (or by `recycle`), which the returned borrow keeps alive
         unsafe { std::slice::from_raw_parts(c.as_ptr().add(at), n) }
     }
+
+    /// The chunk being filled, emptied, for the next parse.
+    /// SAFETY: no slice `take_from` returned is used afterwards.
+    unsafe fn recycle(&self) -> Vec<T> {
+        let mut c = self.cur.take();
+        c.clear();
+        c
+    }
+}
+
+/// The member stacks and the last arena chunks of the thread's previous parse, empty: a small
+/// document is then parsed without allocating (tree buffers over MAX_SPARE elements are freed).
+#[derive(Default)]
+struct Spare {
+    val_stack: Vec<J<'static>>,
+    pair_stack: Vec<Pair<'static>>,
+    vals: Vec<J<'static>>,
+    pairs: Vec<Pair<'static>>,
+}
+
+/// At most 16 KiB per buffer: keeping larger ones (1024 elements measured) made big documents
+/// faster but unrelated large allocations after them slower.
+const MAX_SPARE: usize = 256;
+
+thread_local! {
+    static SPARE: Cell<Spare> = const { Cell::new(Spare { val_stack: Vec::new(), pair_stack: Vec::new(), vals: Vec::new(), pairs: Vec::new() }) };
+}
+
+/// An emptied Vec as one of another element type with the same layout (here: J of another
+/// lifetime), keeping its allocation (collected in place); dropped if it grew over MAX_SPARE.
+fn respare<T, U>(mut v: Vec<T>) -> Vec<U> {
+    if v.capacity() > MAX_SPARE {
+        return Vec::new();
+    }
+    v.clear();
+    v.into_iter().map(|_| unreachable!()).collect()
 }
 
 struct P<'a> {
     s: &'a [u8],
     i: usize,
     vals: &'a Arena<J<'a>>,
-    pairs: &'a Arena<(Cow<'a, [u8]>, J<'a>)>,
+    pairs: &'a Arena<Pair<'a>>,
     /// the members of the containers being parsed (each container's at the top)
     val_stack: Vec<J<'a>>,
-    pair_stack: Vec<(Cow<'a, [u8]>, J<'a>)>,
+    pair_stack: Vec<Pair<'a>>,
 }
 
 type R<T> = Result<T, String>;
@@ -129,6 +174,10 @@ impl<'a> P<'a> {
                         b',' => self.i += 1,
                         b'}' => {
                             self.i += 1;
+                            if depth == 0 {
+                                // the root's members stay on the stack (see from_json)
+                                return Ok(J::Obj(&[]));
+                            }
                             return Ok(J::Obj(self.pairs.take_from(&mut self.pair_stack, start)));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
@@ -157,6 +206,9 @@ impl<'a> P<'a> {
                         b',' => self.i += 1,
                         b']' => {
                             self.i += 1;
+                            if depth == 0 {
+                                return Ok(J::Arr(&[]));
+                            }
                             return Ok(J::Arr(self.vals.take_from(&mut self.val_stack, start)));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
@@ -332,8 +384,19 @@ fn lossy(b: &[u8]) -> String {
 
 /// `bson_new_from_json`: the document, or the error message.
 pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
-    let (vals, pairs) = (Arena::new(), Arena::new());
-    let mut p = P { s: input, i: 0, vals: &vals, pairs: &pairs, val_stack: Vec::new(), pair_stack: Vec::new() };
+    let sp = SPARE.take();
+    let (vals, pairs) = (Arena::new(respare(sp.vals)), Arena::new(respare(sp.pairs)));
+    let mut p = P { s: input, i: 0, vals: &vals, pairs: &pairs, val_stack: respare(sp.val_stack), pair_stack: respare(sp.pair_stack) };
+    let r = parse(&mut p);
+    let (val_stack, pair_stack) = (respare(p.val_stack), respare(p.pair_stack));
+    // SAFETY: the tree is not used after parse
+    let (vals, pairs) = unsafe { (vals.recycle(), pairs.recycle()) };
+    SPARE.set(Spare { val_stack, pair_stack, vals: respare(vals), pairs: respare(pairs) });
+    r
+}
+
+fn parse(p: &mut P) -> Result<Vec<u8>, String> {
+    let input = p.s;
     p.ws();
     if p.i >= input.len() {
         return Err("Empty JSON string".into());
@@ -353,9 +416,10 @@ pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
         }
     };
     let mut w = Writer::with_capacity(input.len());
+    // the root container's members were left on the stack (all of it: nothing else is open)
     match root {
-        J::Obj(o) => doc(&mut w, o)?,
-        J::Arr(a) => arr(&mut w, a)?,
+        J::Obj(_) => doc(&mut w, &p.pair_stack)?,
+        J::Arr(_) => arr(&mut w, &p.val_stack)?,
         _ => unreachable!(),
     }
     Ok(w.finish())
@@ -1151,4 +1215,18 @@ fn regular_doc(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
     doc(w, o)?;
     w.end(p);
     Ok(())
+}
+
+#[cfg(test)]
+mod spare_tests {
+    #[test]
+    fn respare_keeps_the_allocation() {
+        let mut v: Vec<super::J<'static>> = Vec::with_capacity(64);
+        v.push(super::J::Null);
+        let p = v.as_ptr() as usize;
+        let w: Vec<super::J<'_>> = super::respare(v);
+        assert_eq!((w.as_ptr() as usize, w.capacity(), w.len()), (p, 64, 0));
+        let big: Vec<super::J<'static>> = Vec::with_capacity(super::MAX_SPARE + 1);
+        assert_eq!(super::respare::<_, super::J>(big).capacity(), 0);
+    }
 }
