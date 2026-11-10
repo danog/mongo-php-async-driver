@@ -76,8 +76,9 @@ pub struct WriteResult {
 
 fn array_of(docs: &[Vec<u8>]) -> Vec<u8> {
     let mut w = Writer::with_capacity(docs.iter().map(|d| d.len() + 8).sum::<usize>() + 8);
+    let mut kb = crate::bson::writer::itoa_buf::Buf::default();
     for (i, d) in docs.iter().enumerate() {
-        w.document(i.to_string().as_bytes(), d);
+        w.document(kb.format(i), d);
     }
     w.finish()
 }
@@ -92,8 +93,14 @@ fn int32_of(doc: &[u8], k: &[u8]) -> Option<i32> {
 impl WriteResult {
     /// _mongoc_write_result_merge
     fn merge(&mut self, kind: Kind, reply: &[u8], offset: u32) {
-        let affected = int32_of(reply, b"n").unwrap_or(0);
-        if let Some(Value::Array(a)) = find(reply, b"writeErrors") {
+        // one pass over the reply for the fields read below
+        let [n, write_errors, upserted, n_modified, wc_error, error_labels] =
+            crate::bson::iter::find_many(reply, [b"n", b"writeErrors", b"upserted", b"nModified", b"writeConcernError", b"errorLabels"]);
+        let affected = match n {
+            Some(Value::Int32(v)) => v,
+            _ => 0,
+        };
+        if let Some(Value::Array(a)) = write_errors {
             if Iter::new(a).is_some_and(|mut i| i.next()) {
                 self.failed = true;
             }
@@ -102,7 +109,7 @@ impl WriteResult {
             Kind::Insert => self.n_inserted = self.n_inserted.wrapping_add(affected),
             Kind::Delete => self.n_removed = self.n_removed.wrapping_add(affected),
             Kind::Update => {
-                if let Some(v) = find(reply, b"upserted") {
+                if let Some(v) = upserted {
                     let mut n_upserted = 0;
                     if let Value::Array(a) = v {
                         if let Some(mut ar) = Iter::new(a) {
@@ -125,12 +132,12 @@ impl WriteResult {
                 } else {
                     self.n_matched = self.n_matched.wrapping_add(affected);
                 }
-                if let Some(m) = int32_of(reply, b"nModified") {
+                if let Some(Value::Int32(m)) = n_modified {
                     self.n_modified = self.n_modified.wrapping_add(m);
                 }
             }
         }
-        if let Some(Value::Array(a)) = find(reply, b"writeErrors") {
+        if let Some(Value::Array(a)) = write_errors {
             if let Some(mut ar) = Iter::new(a) {
                 while ar.next() {
                     let Value::Document(d) = ar.value() else { continue };
@@ -151,13 +158,13 @@ impl WriteResult {
                 }
             }
         }
-        if let Some(Value::Document(d)) = find(reply, b"writeConcernError") {
+        if let Some(Value::Document(d)) = wc_error {
             self.write_concern_errors.push(d.to_vec());
         }
         if !reply.is_empty() && crate::cmd::check_ok(reply).is_err() {
             self.error_replies.push(reply.to_vec());
         }
-        if let Some(Value::Array(a)) = find(reply, b"errorLabels") {
+        if let Some(Value::Array(a)) = error_labels {
             if let Some(mut it) = Iter::new(a) {
                 while it.next() {
                     if let Value::Utf8(s) = it.value() {
@@ -277,8 +284,9 @@ fn invalid_arg(m: impl Into<String>) -> Error {
 pub fn is_pipeline(doc: &[u8]) -> bool {
     let Some(mut it) = Iter::new(doc) else { return false };
     let mut i = 0usize;
+    let mut kb = crate::bson::writer::itoa_buf::Buf::default();
     while it.next() {
-        if it.key() != i.to_string().as_bytes() {
+        if it.key() != kb.format(i) {
             return false;
         }
         i += 1;
@@ -360,19 +368,23 @@ impl BulkOperation {
     pub fn insert(&mut self, doc: &[u8]) -> Result<(), Error> {
         validate_empty_keys(doc).map_err(|m| invalid_arg(format!("invalid document for insert: {m}")))?;
         let has_id = Iter::new(doc).is_some_and(|mut it| it.find(b"_id"));
-        let d = if has_id {
-            doc.to_vec()
-        } else {
+        let with_id = || {
             let mut w = Writer::with_capacity(doc.len() + 20);
             w.oid(b"_id", &crate::bson::oid::generate());
             w.concat(doc);
             w.finish()
         };
         if let Some(last) = self.last_of(Kind::Insert) {
-            last.payload.extend_from_slice(&d);
+            // appended to the batch as it is (no intermediate copy)
+            if has_id {
+                last.payload.extend_from_slice(doc);
+            } else {
+                last.payload.extend_from_slice(&with_id());
+            }
             last.n_documents += 1;
             return Ok(());
         }
+        let d = if has_id { doc.to_vec() } else { with_id() };
         let flags = self.flags;
         self.push(Kind::Insert, flags, false, d);
         Ok(())

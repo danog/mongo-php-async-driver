@@ -553,9 +553,10 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_fromJSON(ex: Ex, rv: *mut 
         return;
     };
     let mut expected = 0u32;
+    let mut kb = mongo_core::bson::writer::itoa_buf::Buf::default();
     while it.next() {
         let k = it.key();
-        if k != expected.to_string().as_bytes() {
+        if k != kb.format(expected as usize) {
             throw(E::UnexpectedValue, format!("Received invalid JSON array: expected key {}, but found \"{}\"", expected, super::cstr_lossy(k)));
             return;
         }

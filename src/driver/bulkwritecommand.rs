@@ -164,8 +164,9 @@ unsafe fn parse_array(z: *mut sys::zval, key: &str) -> Option<Vec<u8>> {
     let d = encode::to_bson(z, encode::ALLOW_ROOT_ARRAY)?;
     if let Some(mut it) = Iter::new(&d) {
         let mut i = 0usize;
+        let mut kb = mongo_core::bson::writer::itoa_buf::Buf::default();
         while it.next() {
-            if it.key() != i.to_string().as_bytes() {
+            if it.key() != kb.format(i) {
                 throw(E::InvalidArgument, format!("Expected \"{key}\" option to yield array but got non-sequential keys"));
                 return None;
             }
