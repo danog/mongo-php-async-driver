@@ -52,39 +52,58 @@ PHP='C:\tools\php\php.exe' cargo +nightly build --release
 
 ## Performance
 
-Compared with ext-mongodb 2.5.6 (a standard PECL build) on Linux x86-64: PHP 8.4 CLI pinned to
-one core, a local MongoDB 8.0 server, release builds, alternating rounds (medians; an A/A run of
-two identical builds differed by about 1%). CPU is the client's own CPU time per operation, the
-cleanest measure of the driver; wall time includes the server's work.
+Compared with ext-mongodb 2.5.6 (a standard PECL build), measured on 2026-11-10 at 6b904a5 on
+Linux x86-64: PHP 8.4 CLI pinned to one core, a local MongoDB 8.0 server, release builds,
+alternating rounds, medians. Two identical builds of this driver (an A/A control) differed by
+0.6% or less on average; single cases differed by up to 3% (BSON) and 5% (concurrent fibers).
+CPU is the client's own CPU time per operation, the cleanest measure of the driver; wall time
+includes the server's work.
 
 | Operation (standalone server) | CPU, ext-mongodb → this driver | Wall time |
 |---|---|---|
-| `findOne` | 26.8 → 12.6 µs (−53%) | −17% |
-| `insertOne` | 28.1 → 12.9 µs (−54%) | −18% |
-| `ping` | 22.9 → 10.2 µs (−55%) | −32% |
-| insert of 10 documents | 39.6 → 19.0 µs (−52%) | −18% |
-| find, 100 documents | 88.9 → 60.2 µs (−32%) | −12% |
-| find, 1000 documents in batches of 100 | 812 → 569 µs (−30%) | −16% |
+| `findOne` | 27.1 → 12.1 µs (−55%) | −18% |
+| `insertOne` | 28.7 → 12.3 µs (−57%) | −19% |
+| `ping` | 23.0 → 10.0 µs (−56%) | −32% |
+| insert of 10 documents | 39.9 → 17.2 µs (−57%) | −21% |
+| find, 100 documents | 88.9 → 55.9 µs (−37%) | −14% |
+| find, 1000 documents in batches of 100 | 810 → 518 µs (−36%) | −19% |
 
-Most of the CPU difference is system calls: a `ping` makes 2 (one send, one receive), against
-about 9 for ext-mongodb. On a replica set the CPU savings are similar (−31% to −57%).
+- **Replica set** (3 members): CPU −37% to −59% on the same operations; wall time −14% to −35% for
+  reads and `ping`, equal for writes (both wait about 5 ms for the majority).
+- **BSON** encoding and decoding: 59% less time on average (geometric mean over 48 cases); faster in
+  46, equal in 2 (`text/fromBSON` −0.3%, `Int64` addition +2.0%). `fromPHP` takes 36% to 96% less
+  time, `toPHP` 15% to 96% less, Extended JSON output 54% to 89% less. Parsing JSON
+  (`fromJSON`, 1,000 small documents): 381 µs against 674 µs for ext-mongodb with relaxed
+  Extended JSON, 641 µs against 973 µs with canonical.
+- **Connection setup** (new client and first command): CPU −26% over TCP (162 µs against 220 µs),
+  −72% with TLS (375 µs against 1324 µs); wall time −16% and −39%.
+- **Fibers** (`findOne`, 20,000 operations): sequential calls in `{main}` run at 15.9k operations/s
+  (ext-mongodb: 12.9k). With 50 or 200 concurrent fibers, 43–44k operations/s with
+  `maxPoolSize=4` and 54–56k with 32: 3.3–4.3× what ext-mongodb does one call at a time. The single
+  client core is the limit.
+- **`{main}` with `Revolt\EventLoop` loaded:** every network wait then goes through the event loop.
+  This adds 8 to 12 µs of CPU per small operation: `findOne` takes 23.8 µs with Revolt's default
+  `StreamSelectDriver`, 20.4 µs with `EvDriver` and 20.8 µs with `UvDriver`, against 11.8 µs
+  without the loop and 26.8 µs for ext-mongodb (which never uses the loop). `ping` and
+  `insertOne` behave the same (`ping`: 21.2 / 17.8 / 18.1 µs, against 9.8 µs and 22.6 µs).
+  With `mongodb.main_event_loop=0`, `{main}` calls take the plain synchronous path of the table
+  above (`findOne` 11.9 µs) while fibers keep using the loop. Even through the loop, this driver
+  uses less CPU than ext-mongodb: 7% to 16% less with `StreamSelectDriver`, 21% to 27% less with
+  `EvDriver`. It is also faster in wall time (`findOne` 70 µs against 77 µs).
 
-- **BSON** encoding and decoding: 36% less time on average (geometric mean over 48 cases, faster
-  in 45). Parsing JSON (`fromJSON`, 1,000 small documents) takes 280 µs against 690 µs for
-  ext-mongodb with relaxed Extended JSON, and 955 µs against 990 µs with canonical.
-- **Connection setup** (new client and first command): −26% CPU over TCP, −72% with TLS
-  (374 µs against 1336 µs).
-- **Fibers** (`findOne`, 20,000 operations): sequential calls run at 15.6k operations/s
-  (ext-mongodb: 13.1k); with 50–200 concurrent fibers, 40–50k operations/s, about 3.8× what
-  ext-mongodb can do one call at a time. This was limited by the single client core.
-- **Known weak spot:** in `{main}` with `Revolt\EventLoop` loaded, every network wait goes
-  through the event loop, which adds about 17 µs of CPU per small operation; there this driver uses
-  7–22% more CPU than ext-mongodb on small operations (still less on larger ones, and still
-  faster in wall time). Without Revolt loaded, or with `mongodb.main_event_loop=0`, `{main}`
-  calls are the plain synchronous path of the first table.
+**Why it is faster.** Per `findOne`, this driver makes 2 system calls (one send, one receive);
+ext-mongodb makes 8 (3 receives, 3 `getpid`, a `poll` and a send). An insert of 10 documents
+takes 2 against 17, a find of 1000 documents 22 against 58. In user space, a `findOne` costs
+26,600 instructions and 21,000 cycles against 62,800 and 73,300; in the kernel, 42,400 cycles
+against 66,000, which is now two thirds of this driver's CPU time. Of ext-mongodb's user-space
+instructions per `findOne`, 21,900 run in libbson (9,900 of them stepping from one element to the
+next), 6,400 in `malloc`/`free` and 2,200 in 42 case-insensitive string comparisons. Selecting
+the server costs it 4,400 instructions, plus 3,200 to copy and free two server descriptions. This
+driver spends 5,400 in BSON code, 4,100 in `malloc`/`free`, 300 on the whole server selection and
+none on string comparisons.
 
-The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `handshake.php`, `fibers.php`,
-`scan.php`).
+The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `fromjson.php`, `handshake.php`,
+`fibers.php`, `main.php`, `scan.php`).
 
 ## Fibers
 
