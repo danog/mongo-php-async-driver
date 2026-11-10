@@ -79,8 +79,8 @@ about 9 for ext-mongodb. On a replica set the CPU savings are similar (−31% to
 - **Known weak spot:** in `{main}` with `Revolt\EventLoop` loaded, every network wait goes
   through the event loop, which adds about 17 µs of CPU per small operation; there this driver uses
   7–22% more CPU than ext-mongodb on small operations (still less on larger ones, and still
-  faster in wall time). Without Revolt loaded, `{main}` calls are the plain synchronous path of
-  the first table.
+  faster in wall time). Without Revolt loaded, or with `mongodb.main_event_loop=0`, `{main}`
+  calls are the plain synchronous path of the first table.
 
 The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `handshake.php`, `fibers.php`,
 `scan.php`).
@@ -94,7 +94,9 @@ for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
 
 - **`{main}`:** once `Revolt\EventLoop` is loaded, calls in `{main}` also wait through the loop,
   so timers, watchers and other fibers keep running. Before that, `{main}` calls block exactly as
-  with ext-mongodb.
+  with ext-mongodb. Set `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to
+  keep `{main}` calls blocking even with Revolt loaded: they then take the plain synchronous path
+  (see Performance). Calls inside fibers always go through the loop.
 - **Concurrency:** concurrent operations of one `Manager` each get their own connections, at most
   `maxPoolSize` (default 100) at once; a fiber finding them all in use waits at most
   `serverSelectionTimeoutMS`. Server scans are shared: one runs at a time.

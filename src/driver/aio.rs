@@ -104,9 +104,26 @@ fn class_count() -> u32 {
     unsafe { (*(*crate::zend::eg()).class_table).nNumOfElements }
 }
 
-/// Whether Revolt\EventLoop is loaded (declared; {main} never autoloads it). A miss is
-/// remembered until a class is added.
+/// mongodb.main_event_loop (PHP's INI table: per thread under ZTS).
+fn main_event_loop() -> bool {
+    unsafe { sys::zend_ini_long(c"mongodb.main_event_loop".as_ptr(), 23, 0) != 0 }
+}
+
+/// mongodb.main_event_loop was changed: the remembered "no event loop in {main}" no longer holds.
+pub fn main_event_loop_changed() {
+    mongo_core::aio::set_no_loop_at(u32::MAX);
+}
+
+/// Whether {main}'s waits go through Revolt: mongodb.main_event_loop is On and
+/// Revolt\EventLoop is loaded (declared; {main} never autoloads it). A miss is remembered
+/// until a class is added (or the setting changes).
 fn revolt_loaded() -> bool {
+    if !main_event_loop() {
+        // the synchronous fast path holds until a class is added or the setting changes
+        publish_sync_words();
+        mongo_core::aio::set_no_loop_at(class_count());
+        return false;
+    }
     if REVOLT.get() == 1 {
         return true;
     }
@@ -114,13 +131,7 @@ fn revolt_loaded() -> bool {
     if count == mongo_core::aio::no_loop_at() {
         return false;
     }
-    // EG(active_fiber) and the class-table size of this PHP thread, for mongo_core::aio's
-    // synchronous fast path (EG(class_table) is set per request: published here, in a request,
-    // never at MINIT, and withdrawn at RSHUTDOWN)
-    unsafe {
-        let eg = crate::zend::eg();
-        mongo_core::aio::set_sync_words(addr_of!((*eg).active_fiber).cast(), addr_of!((*(*eg).class_table).nNumOfElements));
-    }
+    publish_sync_words();
     let name = unsafe { zval::string(b"Revolt\\EventLoop") };
     let ce = unsafe { sys::zend_lookup_class_ex(name.value.str_, null_mut(), ZEND_FETCH_CLASS_NO_AUTOLOAD) };
     if ce.is_null() {
@@ -131,6 +142,16 @@ fn revolt_loaded() -> bool {
     REVOLT.set(1);
     mongo_core::aio::set_no_loop_at(u32::MAX);
     true
+}
+
+/// EG(active_fiber) and the class-table size of this PHP thread, for mongo_core::aio's
+/// synchronous fast path (EG(class_table) is set per request: published here, in a request,
+/// never at MINIT, and withdrawn at RSHUTDOWN).
+fn publish_sync_words() {
+    unsafe {
+        let eg = crate::zend::eg();
+        mongo_core::aio::set_sync_words(addr_of!((*eg).active_fiber).cast(), addr_of!((*(*eg).class_table).nNumOfElements));
+    }
 }
 
 /// ZEND_FETCH_CLASS_NO_AUTOLOAD
