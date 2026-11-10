@@ -10,6 +10,10 @@ blocking, so driver calls inside PHP Fibers run concurrently.
   written for ext-mongodb run unchanged. Every difference is listed, with its reason and the test
   that pins it, in [DIVERGENCES.md](DIVERGENCES.md); where mirroring ext-mongodb would be unsafe
   (a crash, an overflow, unbounded allocation, a leaked secret), safety wins.
+- **Faster than ext-mongodb:** about half the CPU time per operation (`findOne` 12.1 µs against
+  27.1 µs, `insertOne` 12.3 against 28.7), 59% less time encoding and decoding BSON, 72% less CPU
+  to set up a TLS connection; with concurrent Fibers, 3.3–4.3× the throughput ext-mongodb reaches
+  one call at a time. See [Performance](#performance).
 - **No C libraries:** no libbson, libmongoc or libmongocrypt, no OpenSSL, zlib or zstd. TLS is
   rustls with the [graviola](https://github.com/ctz/graviola) crypto provider (Rust and assembly);
   compression is flate2/miniz_oxide, ruzstd and snap. The only C is the small `wrapper.c` of
