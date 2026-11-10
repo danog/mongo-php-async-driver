@@ -9,19 +9,22 @@ use super::iter::{self, Iter, Value};
 use super::oid;
 use super::utf8;
 use super::writer::Writer;
+use std::borrow::Cow;
 
 /// jsonsl's level limit (libbson's STACK_MAX).
 const MAX_LEVELS: usize = 100;
 
-enum J {
-    Str(Vec<u8>),
+/// The parsed tree borrows from the input wherever it can: a string without escapes and every
+/// number token are slices of it (no allocation per value).
+enum J<'a> {
+    Str(Cow<'a, [u8]>),
     /// an integer token: negative?, magnitude (None: does not fit u64), text
-    Int(bool, Option<u64>, Vec<u8>),
-    Float(Vec<u8>),
+    Int(bool, Option<u64>, &'a [u8]),
+    Float(&'a [u8]),
     Bool(bool),
     Null,
-    Arr(Vec<J>),
-    Obj(Vec<(Vec<u8>, J)>),
+    Arr(Vec<J<'a>>),
+    Obj(Vec<(Cow<'a, [u8]>, J<'a>)>),
 }
 
 struct P<'a> {
@@ -31,7 +34,7 @@ struct P<'a> {
 
 type R<T> = Result<T, String>;
 
-impl P<'_> {
+impl<'a> P<'a> {
     fn err(&self, what: &str) -> String {
         if self.i >= self.s.len() {
             return "Incomplete JSON".into();
@@ -43,7 +46,7 @@ impl P<'_> {
             self.i += 1;
         }
     }
-    fn value(&mut self, depth: usize) -> R<J> {
+    fn value(&mut self, depth: usize) -> R<J<'a>> {
         self.ws();
         if self.i >= self.s.len() {
             return Err("Incomplete JSON".into());
@@ -128,7 +131,7 @@ impl P<'_> {
             _ => Err(self.err("STRAY_TOKEN")),
         }
     }
-    fn lit(&mut self, w: &[u8], v: J) -> R<J> {
+    fn lit(&mut self, w: &[u8], v: J<'a>) -> R<J<'a>> {
         for &c in w {
             if self.i >= self.s.len() {
                 return Err("Incomplete JSON".into());
@@ -143,7 +146,7 @@ impl P<'_> {
         }
         Ok(v)
     }
-    fn number(&mut self) -> R<J> {
+    fn number(&mut self) -> R<J<'a>> {
         let st = self.i;
         let mut float = false;
         while self.i < self.s.len() {
@@ -157,11 +160,11 @@ impl P<'_> {
         if self.i < self.s.len() && self.s[self.i].is_ascii_alphabetic() {
             return Err(self.err("INVALID_NUMBER"));
         }
-        let t = self.s[st..self.i].to_vec();
+        let t = &self.s[st..self.i];
         if float {
             return Ok(J::Float(t));
         }
-        let (neg, digits) = if t[0] == b'-' { (true, &t[1..]) } else { (false, &t[..]) };
+        let (neg, digits) = if t[0] == b'-' { (true, &t[1..]) } else { (false, t) };
         if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
             self.i = st;
             return Err(self.err("INVALID_NUMBER"));
@@ -185,8 +188,18 @@ impl P<'_> {
             None => Err(self.err("UESCAPE_TOOSHORT")),
         }
     }
-    fn string(&mut self) -> R<Vec<u8>> {
+    fn string(&mut self) -> R<Cow<'a, [u8]>> {
         self.i += 1;
+        // the common case: no escape before the closing quote, the input itself
+        let st = self.i;
+        let mut j = st;
+        while j < self.s.len() && self.s[j] != b'"' && self.s[j] != b'\\' {
+            j += 1;
+        }
+        if j < self.s.len() && self.s[j] == b'"' {
+            self.i = j + 1;
+            return Ok(Cow::Borrowed(&self.s[st..j]));
+        }
         let mut out = Vec::new();
         loop {
             let st = self.i;
@@ -199,7 +212,7 @@ impl P<'_> {
             }
             if self.s[self.i] == b'"' {
                 self.i += 1;
-                return Ok(out);
+                return Ok(Cow::Owned(out));
             }
             self.i += 1;
             if self.i >= self.s.len() {
@@ -312,7 +325,7 @@ pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
     Ok(w.finish())
 }
 
-fn doc(w: &mut Writer, o: &[(Vec<u8>, J)]) -> R<()> {
+fn doc(w: &mut Writer, o: &[(Cow<[u8]>, J)]) -> R<()> {
     for (k, v) in o {
         if !utf8::validate(k, false) {
             return Err("invalid bytes in UTF8 string".into());
@@ -323,10 +336,24 @@ fn doc(w: &mut Writer, o: &[(Vec<u8>, J)]) -> R<()> {
 }
 
 fn arr(w: &mut Writer, a: &[J]) -> R<()> {
+    let mut buf = [0u8; 20];
     for (i, v) in a.iter().enumerate() {
-        value(w, i.to_string().as_bytes(), v)?;
+        value(w, index_key(&mut buf, i), v)?;
     }
     Ok(())
+}
+
+/// The decimal key of array element `i`, written into `buf` (no allocation per element).
+fn index_key(buf: &mut [u8; 20], mut i: usize) -> &[u8] {
+    let mut p = buf.len();
+    loop {
+        p -= 1;
+        buf[p] = b'0' + (i % 10) as u8;
+        i /= 10;
+        if i == 0 {
+            return &buf[p..];
+        }
+    }
 }
 
 fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
@@ -355,7 +382,7 @@ fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
         }
         J::Obj(o) => {
             if let Some((k0, _)) = o.first() {
-                if KNOWN.contains(&k0.as_slice()) {
+                if KNOWN.contains(&k0.as_ref()) {
                     return special(w, k, o);
                 }
             }
@@ -673,7 +700,7 @@ fn str_of<'v>(k: &[u8], v: &'v J, ty: u8, rs: &str, allow_null: bool) -> R<&'v [
     }
 }
 
-fn special(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
+fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
     let mut sp = Spec::default();
     let check = |sp: &mut Spec, k: &[u8], t: u8| -> R<()> {
         if sp.ty != 0 && sp.ty != t {
@@ -690,7 +717,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
         if sp.closed {
             return Err(format!("Invalid read of {} in state {}", kind_of(v), "IN_BSON_TYPE_TIMESTAMP_ENDMAP"));
         }
-        let ks = k.as_slice();
+        let ks: &[u8] = k.as_ref();
         match ks {
             b"$regex" | b"$options" => {
                 check(&mut sp, k, iter::T_REGEX)?;
@@ -774,7 +801,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
                     }
                     J::Obj(inner) => {
                         for (ik, iv) in inner {
-                            if ik.as_slice() != b"$numberLong" {
+                            if ik.as_ref() != b"$numberLong" {
                                 return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty)));
                             }
                             let s = str_of(ik, iv, sp.ty, "IN_BSON_TYPE_DATE_NUMBERLONG", true)?;
@@ -835,7 +862,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
                 check(&mut sp, k, iter::T_TIMESTAMP)?;
                 let J::Obj(inner) = v else { return Err(timestamp_wrong(v)) };
                 for (ik, iv) in inner {
-                    let which = match ik.as_slice() {
+                    let which = match ik.as_ref() {
                         b"t" => 0,
                         b"i" => 1,
                         _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty))),
@@ -866,7 +893,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
                 check(&mut sp, k, iter::T_REGEX)?;
                 let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_REGEX_STARTMAP")) };
                 for (ik, iv) in inner {
-                    match ik.as_slice() {
+                    match ik.as_ref() {
                         b"pattern" => sp.pattern = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
                         b"options" => sp.options = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
                         _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty))),
@@ -1009,10 +1036,10 @@ fn oid_lenient(s: &[u8]) -> [u8; 12] {
 }
 
 /// The canonical `"$binary": {"base64": ..., "subType": ...}` object.
-fn binary_values(sp: &mut Spec, inner: &[(Vec<u8>, J)]) -> R<()> {
+fn binary_values(sp: &mut Spec, inner: &[(Cow<[u8]>, J)]) -> R<()> {
     const RS: &str = "IN_BSON_TYPE_BINARY_VALUES";
     for (k, v) in inner {
-        match k.as_slice() {
+        match k.as_ref() {
             b"base64" => {
                 let s = str_of(k, v, sp.ty, RS, true)?;
                 sp.has_binary = true;
@@ -1082,7 +1109,7 @@ fn parse_uuid(s: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// A wrapper-looking object that turns out to be a regular document (a `$type` query operator).
-fn regular_doc(w: &mut Writer, key: &[u8], o: &[(Vec<u8>, J)]) -> R<()> {
+fn regular_doc(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
     let p = w.begin(iter::T_DOCUMENT, key);
     doc(w, o)?;
     w.end(p);
