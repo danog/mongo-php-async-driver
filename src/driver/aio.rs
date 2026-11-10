@@ -107,7 +107,8 @@ fn class_count() -> u32 {
 
 /// mongodb.main_event_loop (PHP's INI table: per thread under ZTS).
 fn main_event_loop() -> bool {
-    unsafe { sys::zend_ini_long(c"mongodb.main_event_loop".as_ptr(), 23, 0) != 0 }
+    // orig: false (an int before PHP 8.6, a bool since)
+    unsafe { sys::zend_ini_long(c"mongodb.main_event_loop".as_ptr(), 23, Default::default()) != 0 }
 }
 
 /// mongodb.main_event_loop was changed: the remembered "no event loop in {main}" no longer holds.
