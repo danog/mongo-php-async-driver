@@ -78,6 +78,8 @@ pub struct ServerDescription {
     pub ty: ServerType,
     /// last_hello_response, without speculativeAuthenticate (empty document when none)
     pub hello: Vec<u8>,
+    /// `hello` has a $clusterTime (server selection looks it up only then)
+    pub hello_cluster_time: bool,
     pub has_hello_response: bool,
     /// Why the server is Unknown, if a check failed.
     pub error: Option<Error>,
@@ -224,6 +226,7 @@ impl ServerDescription {
             addr: addr.to_owned(),
             ty: ServerType::Unknown,
             hello: EMPTY_DOC.to_vec(),
+            hello_cluster_time: false,
             has_hello_response: false,
             error: None,
             rtt_ms: RTT_UNSET,
@@ -270,6 +273,7 @@ impl ServerDescription {
         self.last_write_date_ms = -1;
         self.hello_ok = false;
         self.hello = EMPTY_DOC.to_vec();
+        self.hello_cluster_time = false;
         self.has_hello_response = false;
         self.last_update_time_usec = monotonic_usec();
         self.hosts.clear();
@@ -421,6 +425,7 @@ impl ServerDescription {
                 _ => {}
             }
         }
+        self.hello_cluster_time = Iter::new(&stored).is_some_and(|mut it| it.find(b"$clusterTime"));
         self.hello = stored.clone();
         if fail.is_some() || auth_fail {
             if fail.is_some() {
