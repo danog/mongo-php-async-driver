@@ -96,16 +96,20 @@ impl<'a> Visitor<'a> for State<'_> {
             }
             Value::Int32(i) => {
                 if mode == Mode::Canonical {
-                    o.extend_from_slice(format!("{{ \"$numberInt\" : \"{}\" }}", i).as_bytes())
+                    o.extend_from_slice(b"{ \"$numberInt\" : \"");
+                    fmt::push_i64(o, i as i64);
+                    o.extend_from_slice(b"\" }");
                 } else {
-                    o.extend_from_slice(i.to_string().as_bytes())
+                    fmt::push_i64(o, i as i64);
                 }
             }
             Value::Int64(i) => {
                 if mode == Mode::Canonical {
-                    o.extend_from_slice(format!("{{ \"$numberLong\" : \"{}\" }}", i).as_bytes())
+                    o.extend_from_slice(b"{ \"$numberLong\" : \"");
+                    fmt::push_i64(o, i);
+                    o.extend_from_slice(b"\" }");
                 } else {
-                    o.extend_from_slice(i.to_string().as_bytes())
+                    fmt::push_i64(o, i);
                 }
             }
             Value::Decimal128(d) => {
@@ -120,25 +124,33 @@ impl<'a> Visitor<'a> for State<'_> {
             Value::Binary(st, data) => {
                 if ext {
                     o.extend_from_slice(b"{ \"$binary\" : { \"base64\" : \"");
-                    o.extend_from_slice(fmt::base64_encode(data).as_bytes());
-                    o.extend_from_slice(format!("\", \"subType\" : \"{:02x}\" }} }}", st).as_bytes());
+                    fmt::base64_encode_into(o, data);
+                    o.extend_from_slice(b"\", \"subType\" : \"");
+                    o.extend_from_slice(&hex2(st));
+                    o.extend_from_slice(b"\" } }");
                 } else {
                     o.extend_from_slice(b"{ \"$binary\" : \"");
-                    o.extend_from_slice(fmt::base64_encode(data).as_bytes());
-                    o.extend_from_slice(format!("\", \"$type\" : \"{:02x}\" }}", st).as_bytes());
+                    fmt::base64_encode_into(o, data);
+                    o.extend_from_slice(b"\", \"$type\" : \"");
+                    o.extend_from_slice(&hex2(st));
+                    o.extend_from_slice(b"\" }");
                 }
             }
             Value::Bool(b) => o.extend_from_slice(if b { b"true" } else { b"false" }),
             Value::DateTime(ms) => {
                 const Y10K: i64 = 253402300800000;
                 if mode == Mode::Canonical || (mode == Mode::Relaxed && !(0..Y10K).contains(&ms)) {
-                    o.extend_from_slice(format!("{{ \"$date\" : {{ \"$numberLong\" : \"{}\" }} }}", ms).as_bytes());
+                    o.extend_from_slice(b"{ \"$date\" : { \"$numberLong\" : \"");
+                    fmt::push_i64(o, ms);
+                    o.extend_from_slice(b"\" } }");
                 } else if mode == Mode::Relaxed {
                     o.extend_from_slice(b"{ \"$date\" : \"");
-                    o.extend_from_slice(fmt::iso8601(ms).as_bytes());
+                    fmt::iso8601_into(o, ms);
                     o.extend_from_slice(b"\" }");
                 } else {
-                    o.extend_from_slice(format!("{{ \"$date\" : {} }}", ms).as_bytes());
+                    o.extend_from_slice(b"{ \"$date\" : ");
+                    fmt::push_i64(o, ms);
+                    o.extend_from_slice(b" }");
                 }
             }
             Value::Regex(p, opts) => {
@@ -154,7 +166,13 @@ impl<'a> Visitor<'a> for State<'_> {
                 }
                 o.extend_from_slice(if ext { b"\" } }" as &[u8] } else { b"\" }" });
             }
-            Value::Timestamp(t, i) => o.extend_from_slice(format!("{{ \"$timestamp\" : {{ \"t\" : {}, \"i\" : {} }} }}", t, i).as_bytes()),
+            Value::Timestamp(t, i) => {
+                o.extend_from_slice(b"{ \"$timestamp\" : { \"t\" : ");
+                fmt::push_u64(o, t as u64);
+                o.extend_from_slice(b", \"i\" : ");
+                fmt::push_u64(o, i as u64);
+                o.extend_from_slice(b" } }");
+            }
             Value::DbPointer(c, id) => {
                 o.extend_from_slice(if ext { b"{ \"$dbPointer\" : { \"$ref\" : \"" as &[u8] } else { b"{ \"$ref\" : \"" });
                 if !escape(o, c, false) {
@@ -217,6 +235,12 @@ impl<'a> Visitor<'a> for State<'_> {
     }
 }
 
+/// `%02x`
+fn hex2(b: u8) -> [u8; 2] {
+    const H: &[u8; 16] = b"0123456789abcdef";
+    [H[(b >> 4) as usize], H[(b & 15) as usize]]
+}
+
 fn append_oid(o: &mut Vec<u8>, id: &[u8; 12]) {
     o.extend_from_slice(b"{ \"$oid\" : \"");
     o.extend_from_slice(&oid::to_hex(id));
@@ -234,9 +258,9 @@ pub fn append_double(o: &mut Vec<u8>, v: f64, mode: Mode) {
     } else if !legacy && v.is_infinite() {
         o.extend_from_slice(if v > 0.0 { b"Infinity" as &[u8] } else { b"-Infinity" });
     } else {
-        let s = fmt::fmt_g(v, 20);
-        o.extend_from_slice(s.as_bytes());
-        if s.bytes().all(|c| c.is_ascii_digit() || c == b'-') {
+        let start = o.len();
+        fmt::fmt_g_into(o, v, 20);
+        if o[start..].iter().all(|&c| c.is_ascii_digit() || c == b'-') {
             o.extend_from_slice(b".0");
         }
     }
