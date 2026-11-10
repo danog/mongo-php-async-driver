@@ -1,6 +1,6 @@
 [package]
 name = "mongo-crypt"
-version = "0.3.0"
+version = "0.1.0"
 edition = "2021"
 publish = false
 license = "Apache-2.0 AND SSPL-1.0"  # SSPL-1.0 only with the default sspl-text-fold feature
