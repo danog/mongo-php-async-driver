@@ -68,7 +68,8 @@ foreach (['back to the first driver', 'fiber destroyed'] as $case) {
     var_dump($ping());
     $runs('new driver');
     echo "new driver: fibers done: $done; fiber still waits: ", var_export($f->isSuspended(), true), "\n";
-    echo "first driver keeps the loop alive for its wait: ", var_export($alive($first) === 1, true), "\n";
+    // one watcher; on Windows, also the wait's socket watchers
+    echo "first driver keeps the loop alive for its wait: ", var_export($alive($first) > 0, true), "\n";
     $second = EventLoop::getDriver();
     if ($case === 'back to the first driver') {
         EventLoop::setDriver($first);

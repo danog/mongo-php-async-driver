@@ -71,7 +71,20 @@ unset($old);
 $w = WeakReference::create(EventLoop::getDriver());
 EventLoop::run();
 EventLoop::setDriver(new StreamSelectDriver);
-echo "the replaced driver is gone: ", var_export($w->get() === null, true), "\n";
+// unless Revolt alone keeps it: with php-src 67decbe81a (8.5.13RC1, 8.6-dev) a suspended Fiber
+// whose callable is bound to an object keeps that object from the cycle collector, here the
+// driver of the loop fiber that a {main} suspension left suspended
+$revoltFrees = (function () {
+    $s = EventLoop::getSuspension();
+    EventLoop::defer(fn () => $s->resume());
+    $s->suspend();
+    unset($s);
+    $w = WeakReference::create(EventLoop::getDriver());
+    EventLoop::run();
+    EventLoop::setDriver(new StreamSelectDriver);
+    return $w->get() === null;
+})();
+echo "the replaced driver is gone: ", var_export($w->get() === null || !$revoltFrees, true), "\n";
 var_dump($ping());
 $runs('last driver');
 ?>
