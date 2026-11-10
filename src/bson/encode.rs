@@ -287,9 +287,12 @@ impl Enc {
             _ => return,
         }
         if !ht.is_null() {
-            let mut kbuf = String::new();
             let mut stop = false;
             hash::each(ht, true, |k, v| {
+                // the key must outlive user code run by append (bsonSerialize() may change the
+                // array): a string key is held by a reference, an integer one is formatted here
+                let mut held: *mut sys::zend_string = std::ptr::null_mut();
+                let mut ibuf = [0u8; 20];
                 let key: &[u8] = match k {
                     hash::Key::Str(s) => {
                         let b = zstr::bytes(s);
@@ -307,12 +310,15 @@ impl Enc {
                         if flags & ADD_ID != 0 && b == b"_id" {
                             flags &= !ADD_ID;
                         }
+                        held = zstr::copy(s);
                         b
                     }
-                    hash::Key::Index(_) => hash::key_bytes(k, &mut kbuf),
+                    hash::Key::Index(i) => index_key(&mut ibuf, i as i64),
                 };
-                let key = key.to_vec();
-                self.append(w, flags & !ADD_ID, &key, v);
+                self.append(w, flags & !ADD_ID, key, v);
+                if !held.is_null() {
+                    zstr::release(held);
+                }
                 if call::has_exception() {
                     stop = true;
                     return false;
@@ -344,6 +350,25 @@ impl Enc {
             }
         }
     }
+}
+
+/// The decimal form of an integer array key, in `buf`.
+fn index_key(buf: &mut [u8; 20], v: i64) -> &[u8] {
+    let mut n = v.unsigned_abs();
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    if v < 0 {
+        i -= 1;
+        buf[i] = b'-';
+    }
+    &buf[i..]
 }
 
 /// phongo_bson_copy_to_noinit
