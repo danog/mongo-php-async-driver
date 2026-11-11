@@ -15,8 +15,10 @@ on:
 permissions:
   contents: read
 
+# a newer push supersedes an older one; a scheduled or manual run gets its own group, so it never
+# cancels the run of a push (and the reverse)
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
