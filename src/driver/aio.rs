@@ -1336,19 +1336,22 @@ unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
         Vec::new()
     };
     #[cfg(unix)]
-    let ready = LOOP.with_borrow_mut(|l| {
-        let Some(l) = l.as_mut() else { return Vec::new() };
-        let mut out = Vec::new();
-        mongo_core::reactor::drain(&mut |t, gen| {
-            let Some(s) = l.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending) else { return false };
-            let Some(z) = s.suspension.take() else { return false };
-            s.state = SlotState::Ready;
-            out.push(z);
-            true
-        });
-        out
-    });
+    let ready = LOOP.with_borrow_mut(|l| l.as_mut().map(drain_ready).unwrap_or_default());
     resume_all(ready);
+}
+
+/// Unix: the reactor's events: the suspensions of the waits they make ready (now Ready).
+#[cfg(unix)]
+fn drain_ready(l: &mut Loop) -> Vec<sys::zval> {
+    let mut out = Vec::new();
+    mongo_core::reactor::drain(&mut |t, gen| {
+        let Some(s) = l.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending) else { return false };
+        let Some(z) = s.suspension.take() else { return false };
+        s.state = SlotState::Ready;
+        out.push(z);
+        true
+    });
+    out
 }
 
 /// The keeper of {main}'s suspension: a disabled callback, never run.
@@ -1356,7 +1359,10 @@ unsafe extern "C" fn on_keep(_ex: *mut sys::zend_execute_data, rv: *mut sys::zva
     zval::write(rv, zval::null());
 }
 
-/// The deadline timer: expired waiters resume (timed out), the next deadline is armed.
+/// The deadline timer: expired waiters resume (timed out), the next deadline is armed. A wait
+/// whose socket is ready resumes as ready even when its deadline passed too: the loop may run
+/// timers before watchers (libuv does), or run only after the deadline (a callback or a
+/// blocking {main} call held the thread); a reply that is there is not a timeout.
 unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
     zval::write(rv, zval::null());
     let now = Instant::now();
@@ -1364,6 +1370,9 @@ unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
         if let Some(php) = l.php.as_mut() {
             php.timer = None;
         }
+        #[cfg(unix)]
+        let mut out = drain_ready(l);
+        #[cfg(windows)]
         let mut out = Vec::new();
         let mut next: Option<Instant> = None;
         for s in &mut l.slots {
