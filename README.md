@@ -5,12 +5,14 @@ the `mongodb` extension (ext-mongodb 2.5.6) whose network waits give control to 
 [Revolt](https://revolt.run) event loop instead of blocking: code written for ext-mongodb runs
 unchanged, and concurrent driver calls run at the same time.
 
-- **Async, with no code changes:** with `revolt/event-loop` installed, a driver call inside a
-  `Fiber` suspends only that fiber while it waits for the network, so other fibers and Revolt's
-  timers and watchers keep running. Each concurrent operation gets its own pooled connection
+- **Async, with no code changes:** a driver call inside a `Fiber` suspends only that fiber while
+  it waits for the network, so other fibers and Revolt's timers and watchers keep running. The
+  Revolt event loop is built in ([revolt-rs](https://github.com/danog/revolt-rs):
+  revolt/event-loop 1.0.9 in Rust), so nothing else is needed; the PHP library or the `revolt`
+  extension work too. Each concurrent operation gets its own pooled connection
   (`maxPoolSize`): 50 to 200 concurrent fibers reach 43–56k operations/s on one core, 3.3–4.3×
   what ext-mongodb does one call at a time. Anything built on Revolt (Amp v3, for one) works.
-  Calls in `{main}` wait through the loop too once Revolt is loaded, unless
+  Calls in `{main}` wait through the loop too once it is in use, unless
   `mongodb.main_event_loop=0`. See [Async](#async).
 - **Same API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
   class, constant, `var_dump()` output, serialization format, exception and message (the
@@ -139,15 +141,38 @@ on Revolt works the same way, and so does Revolt on its own (`EventLoop::queue()
 the driver only needs Revolt's event loop.
 
 Automatic, with no option: a driver call made inside a `Fiber` suspends that fiber while it waits
-for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
-(`composer require revolt/event-loop`); without it, a call inside a fiber throws a
-`RuntimeException`. The extension looks the class up by name and has no dependency on it.
+for the network, and other fibers run meanwhile.
 
-- **`{main}`:** once `Revolt\EventLoop` is loaded, calls in `{main}` also wait through the loop,
-  so timers, watchers and other fibers keep running. Before that, `{main}` calls block exactly as
-  with ext-mongodb. Set `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to
-  keep `{main}` calls blocking even with Revolt loaded: they then take the plain synchronous path
-  (see Performance). Calls inside fibers always go through the loop. Mixing is safe: fibers
+- **The event loop is built in:** the extension embeds
+  [revolt-rs](https://github.com/danog/revolt-rs), revolt/event-loop 1.0.9 implemented natively
+  in Rust. At startup it registers `Revolt\EventLoop` and the other classes of revolt/event-loop
+  (the same API and behaviour), so `composer require revolt/event-loop` is not needed, and Amp or
+  any other Revolt code runs on the native loop. The driver's own waits then call the loop from
+  Rust, without any PHP-level call (see Performance). If the `revolt` extension (revolt-rs as a
+  standalone extension) is loaded too, in either order, the first one registers the classes and
+  both use that one loop: there is one loop per thread.
+- **revolt/event-loop installed anyway** (by Amp, say) stays unused: the classes registered at
+  startup exist before Composer's autoloader would load its files. This package's `composer.json`
+  declares `"provide": {"ext-revolt": "*", "revolt/event-loop": "1.0.9"}`; that only affects
+  projects that require danog/mongo-php-async-driver through Composer (Composer then does not
+  install revolt/event-loop for them). Installed with PIE only, the project's dependencies are
+  resolved as before.
+- **`mongodb.native_event_loop=0`** (php.ini or `-d` only: `PHP_INI_SYSTEM`) turns the embedded
+  loop off: no Revolt classes are registered, and Revolt comes from the revolt/event-loop
+  package (or the `revolt` extension), reached through PHP calls as in earlier versions; without
+  either, a driver call inside a fiber throws a `RuntimeException`. The extension looks the class
+  up by name and has no dependency on the package.
+- **Which driver:** the native path is taken whenever `EventLoop`'s current driver is one of
+  revolt-rs's own (`StreamSelectDriver`, `EvDriver`, `EventDriver`, `UvDriver`); a
+  `TracingDriver`, a user `Driver`, a PHP subclass of one, or the PHP library's drivers are
+  reached through PHP calls.
+- **`{main}`:** once the loop is in use, calls in `{main}` also wait through it, so timers,
+  watchers and other fibers keep running: with the native classes, once `EventLoop` has a
+  driver (any `EventLoop::` call made it); with the PHP library, once its `Revolt\EventLoop` is
+  loaded. Before that, `{main}` calls block exactly as with ext-mongodb. Set
+  `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to keep `{main}` calls
+  blocking even then: they take the plain synchronous path (see Performance). Calls inside
+  fibers always go through the loop. Mixing is safe: fibers
   suspended meanwhile stay suspended until the loop runs again, and a blocking call never waits
   for what such a fiber holds (DIVERGENCES.md has the details).
 - **Concurrency:** concurrent operations of one `Manager` each get their own connections, at most
@@ -162,7 +187,9 @@ Under the hood, waits go through one epoll/kqueue instance per thread that a sin
 needs no system call to set up a wait for a reply. On Windows each wait watches its sockets
 with Revolt directly. The watcher lives on Revolt's current driver: after
 `EventLoop::setDriver()`, the next wait moves it to the new one, while waits already pending on
-the old driver (fibers suspended there) stay on it and keep only its loop alive. So that a `{main}` wait does not
+the old driver (fibers suspended there) stay on it and keep only its loop alive. On a native
+driver, the watcher, the deadline timer, `getSuspension()`, `suspend()` and `resume()` are
+direct calls into revolt-rs. Otherwise they are PHP calls, and so that a `{main}` wait does not
 make Revolt create a new suspension each time, `{main}`'s suspension is kept by a disabled callback
 on the driver (one more id in `getIdentifiers()`; it never runs nor keeps the loop alive).
 Benchmark: `tools/bench/fibers.php`.
@@ -236,6 +263,7 @@ code used by Queryable Encryption string search (`crates/crypt/src/unicode/`), w
 from libmongocrypt under the Server Side Public License v1 (see [LICENSE-SSPL](LICENSE-SSPL)). It
 sits behind the default `sspl-text-fold` cargo feature: build with `--no-default-features` for an
 Apache-2.0-only extension (string search then requires `caseSensitive` and `diacriticSensitive`
-set to true).
+set to true). The event loop compiled in, [revolt-rs](https://github.com/danog/revolt-rs) (a
+Cargo dependency), is under the MIT License: its notice is in [NOTICE](NOTICE).
 
 Written by Daniil Gentili ([@danog](https://github.com/danog)).
