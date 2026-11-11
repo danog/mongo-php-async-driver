@@ -147,7 +147,9 @@ for the network, and other fibers run meanwhile. This needs `revolt/event-loop`
   so timers, watchers and other fibers keep running. Before that, `{main}` calls block exactly as
   with ext-mongodb. Set `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to
   keep `{main}` calls blocking even with Revolt loaded: they then take the plain synchronous path
-  (see Performance). Calls inside fibers always go through the loop.
+  (see Performance). Calls inside fibers always go through the loop. Mixing is safe: fibers
+  suspended meanwhile stay suspended until the loop runs again, and a blocking call never waits
+  for what such a fiber holds (DIVERGENCES.md has the details).
 - **Concurrency:** concurrent operations of one `Manager` each get their own connections, at most
   `maxPoolSize` (default 100) at once; a fiber finding them all in use waits at most
   `serverSelectionTimeoutMS`. Server scans are shared: one runs at a time.
