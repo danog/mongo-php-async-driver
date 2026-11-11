@@ -4,8 +4,8 @@ Fibers: a reply that is there when the deadline timer runs first is not a timeou
 Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). A fiber's reply arrives
 in time, but a blocking {main} call (mongodb.main_event_loop=0) keeps the loop from running until
 after the fiber's deadline (socketTimeoutMS=300). A loop may then run the deadline timer before
-the watcher that reports the reply (libuv runs timers first; here the watcher is disabled for
-that tick, Revolt's StreamSelectDriver runs watchers first): the timer finds the reply and the
+the watcher that reports the reply (Revolt's EvDriver does; here the watcher is disabled for
+that tick, as the StreamSelectDriver runs watchers first): the timer finds the reply and the
 fiber gets it, not a socket timeout. Unix only (the epoll/kqueue backend; on Windows each wait
 has watchers of its own).
 --SKIPIF--

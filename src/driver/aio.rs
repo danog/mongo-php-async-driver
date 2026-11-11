@@ -1361,7 +1361,7 @@ unsafe extern "C" fn on_keep(_ex: *mut sys::zend_execute_data, rv: *mut sys::zva
 
 /// The deadline timer: expired waiters resume (timed out), the next deadline is armed. A wait
 /// whose socket is ready resumes as ready even when its deadline passed too: the loop may run
-/// timers before watchers (libuv does), or run only after the deadline (a callback or a
+/// timers before watchers (Revolt's EvDriver does), or run only after the deadline (a callback or a
 /// blocking {main} call held the thread); a reply that is there is not a timeout.
 unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
     zval::write(rv, zval::null());
