@@ -95,8 +95,9 @@ includes the server's work.
   (ext-mongodb: 12.9k). With 50 or 200 concurrent fibers, 43–44k operations/s with
   `maxPoolSize=4` and 54–56k with 32: 3.3–4.3× what ext-mongodb does one call at a time. The single
   client core is the limit.
-- **`{main}` with `Revolt\EventLoop` loaded:** every network wait then goes through the event loop.
-  This adds 8 to 12 µs of CPU per small operation: `findOne` takes 23.8 µs with Revolt's default
+- **`{main}` with the revolt/event-loop PHP library loaded** (`mongodb.native_event_loop=0`;
+  for the built-in loop, see [Event loops](#event-loops) below): every network wait then goes
+  through the event loop. This adds 8 to 12 µs of CPU per small operation: `findOne` takes 23.8 µs with Revolt's default
   `StreamSelectDriver`, 20.4 µs with `EvDriver` and 20.8 µs with `UvDriver`, against 11.8 µs
   without the loop and 26.8 µs for ext-mongodb (which never uses the loop). `ping` and
   `insertOne` behave the same (`ping`: 21.2 / 17.8 / 18.1 µs, against 9.8 µs and 22.6 µs).
@@ -116,8 +117,58 @@ the server costs it 4,400 instructions, plus 3,200 to copy and free two server d
 driver spends 5,400 in BSON code, 4,100 in `malloc`/`free`, 300 on the whole server selection and
 none on string comparisons.
 
+### Event loops
+
+The built-in loop (revolt-rs), the revolt/event-loop PHP library and no loop at all, measured on
+2026-11-11 at e81a46d with `tools/bench/revolt.sh` on macOS 27 arm64 (Apple M3 Pro, which cannot
+pin a process to a core): PHP 8.4 CLI, MongoDB 8.0 in Docker (host network), release builds. One
+process per measurement (5,000 `{main}` calls, or 20,000 calls shared by the fibers, after a
+warm-up), the configurations alternating with their order rotated every round, 9 rounds, medians
+of the client's CPU time (user + system) per operation. Wall time is dominated by Docker's round
+trip on macOS (about 0.2 ms) and differs by 1–3% or less between configurations, except where
+noted. `findOne` in `{main}` and in one fiber was bimodal on this machine in every configuration
+(each process at about 19 or about 40 µs, whatever its loop); for those rows the table gives the
+lowest of 15 rounds.
+
+`{main}`, CPU per operation (µs):
+
+| Configuration | `ping` | `findOne` | `insertOne` |
+|---|---|---|---|
+| previous version (2002bf0), Revolt not loaded | 18.3 | 19.5 | 19.1 |
+| no Revolt at all (`native_event_loop=0`, no PHP library) | 18.3 | 19.0 | 19.1 |
+| built-in loop registered, not used: the synchronous path | 18.2 | 19.1 | 19.1 |
+| built-in loop in use, `main_event_loop=0` | 18.2 | 19.3 | 19.2 |
+| built-in loop in use (`StreamSelectDriver`) | 23.1 | 24.0 | 23.9 |
+| built-in loop in use, ext-ev loaded (its `EvDriver`) | 23.1 | 23.8 | 23.9 |
+| PHP library, `StreamSelectDriver` | 25.4 | 26.3 | 26.1 |
+| PHP library, `EvDriver` (ext-ev) | 24.0 | 24.8 | 24.7 |
+| PHP library, `main_event_loop=0` | 18.4 | 19.4 | 19.1 |
+
+Fibers (`EventLoop::queue()`, then `EventLoop::run()`; default `maxPoolSize`), CPU per operation
+(µs): built-in loop / PHP library with `StreamSelectDriver` / PHP library with `EvDriver`:
+
+| Fibers | `ping` | `findOne` | `insertOne` |
+|---|---|---|---|
+| 1 | 23.3 / 26.4 / 24.9 | 36.1 / 53.8 / 50.5 (lowest) | 24.1 / 27.1 / 25.7 |
+| 10 | 20.0 / 20.7 / 20.6 | 21.6 / 22.4 / 22.1 | 21.9 / 22.6 / 22.4 |
+| 50 | 14.0 / 15.0 / 14.8 | 14.7 / 15.9 / 15.9 | 15.0 / 15.9 / 15.9 |
+| 200 | 14.0 / 17.4 / 17.7 | 14.9 / 18.1 / 18.1 | 15.4 / 18.1 / 18.0 |
+
+- **No cost when the loop is not used:** with the built-in classes registered but `EventLoop`
+  never touched, and with `main_event_loop=0`, `{main}` calls take the same synchronous path as
+  before, at the same CPU time (within 0.5%).
+- **Through the loop,** `{main}` calls cost 4.8 µs of CPU more than the synchronous path with the
+  built-in loop, against 7.1 µs with the PHP library's `StreamSelectDriver` (a third more) and
+  5.7 µs with its `EvDriver`. Most of what is left is system calls (the loop's poll, the
+  reactor's, a receive that finds nothing yet).
+- **Fibers:** 3–8% less CPU than the PHP library at 10 to 50 fibers, 15–20% less at 200 fibers
+  (where wall time is 7–18% lower too: 14.8 against 17.9 µs per `ping`), 11–12% less in one
+  fiber (`ping`, `insertOne`).
+- With ext-ev loaded, the built-in loop makes its own `EvDriver` the default (as Revolt does), at
+  the same cost as its `StreamSelectDriver`: revolt-rs uses kqueue/epoll for every driver class.
+
 The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `fromjson.php`, `handshake.php`,
-`fibers.php`, `main.php`, `scan.php`).
+`fibers.php`, `main.php`, `scan.php`, `revolt.php` with `revolt.sh`).
 
 ## Async
 
@@ -192,7 +243,7 @@ driver, the watcher, the deadline timer, `getSuspension()`, `suspend()` and `res
 direct calls into revolt-rs. Otherwise they are PHP calls, and so that a `{main}` wait does not
 make Revolt create a new suspension each time, `{main}`'s suspension is kept by a disabled callback
 on the driver (one more id in `getIdentifiers()`; it never runs nor keeps the loop alive).
-Benchmark: `tools/bench/fibers.php`.
+Benchmarks: `tools/bench/fibers.php`, `tools/bench/revolt.sh`.
 
 ## fork()
 
