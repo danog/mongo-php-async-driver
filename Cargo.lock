@@ -525,8 +525,7 @@ dependencies = [
 [[package]]
 name = "ext-php-rs-build"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27fdebdb7e4287ce25231551be917d80281d5befaee335ba9b1b77ffb01a1c6b"
+source = "git+https://github.com/danog/revolt-rs?rev=e609c19815e7b4fc93a2ae4d2d5dc53dcbb2e019#e609c19815e7b4fc93a2ae4d2d5dc53dcbb2e019"
 dependencies = [
  "anyhow",
 ]
@@ -966,6 +965,7 @@ dependencies = [
  "libc",
  "mongo-core",
  "mongo-crypt",
+ "revolt-rs",
 ]
 
 [[package]]
@@ -1255,6 +1255,16 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "revolt-rs"
+version = "0.1.0"
+source = "git+https://github.com/danog/revolt-rs?rev=e609c19815e7b4fc93a2ae4d2d5dc53dcbb2e019#e609c19815e7b4fc93a2ae4d2d5dc53dcbb2e019"
+dependencies = [
+ "ext-php-rs",
+ "libc",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "ring"

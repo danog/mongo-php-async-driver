@@ -49,8 +49,9 @@ unsafe extern "C" fn on_update_main_event_loop(
 }
 
 const PHP_INI_ALL: u8 = 7;
+const PHP_INI_SYSTEM: u8 = 4;
 
-static INI: zend::Static<[sys::zend_ini_entry_def; 3]> = zend::Static([
+static INI: zend::Static<[sys::zend_ini_entry_def; 4]> = zend::Static([
     sys::zend_ini_entry_def {
         name: c"mongodb.debug".as_ptr(),
         on_modify: Some(on_update_debug),
@@ -77,6 +78,22 @@ static INI: zend::Static<[sys::zend_ini_entry_def; 3]> = zend::Static([
         name_length: 23,
         modifiable: PHP_INI_ALL,
     },
+    // whether the embedded revolt-rs (the native Revolt event loop) is used: it registers the
+    // Revolt classes at MINIT (unless another copy did) and the waits on its drivers skip PHP
+    // calls (On); Off: no classes registered, Revolt (the PHP library, or the revolt
+    // extension) is reached through PHP calls only
+    sys::zend_ini_entry_def {
+        name: c"mongodb.native_event_loop".as_ptr(),
+        on_modify: None,
+        mh_arg1: null_mut(),
+        mh_arg2: null_mut(),
+        mh_arg3: null_mut(),
+        value: c"1".as_ptr(),
+        displayer: None,
+        value_length: 1,
+        name_length: 25,
+        modifiable: PHP_INI_SYSTEM,
+    },
     sys::zend_ini_entry_def {
         name: null(),
         on_modify: None,
@@ -100,7 +117,7 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
     crate::zend::obj::init_std();
     crate::gen::api::register_all();
     sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
-    crate::driver::aio::minit();
+    crate::driver::aio::minit(module_number);
     sys::zend_register_string_constant(c"MONGODB_STABILITY".as_ptr(), 17, c"stable".as_ptr(), CONST_PERSISTENT, module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
@@ -109,11 +126,13 @@ unsafe extern "C" fn mshutdown(_type: c_int, module_number: c_int) -> sys::zend_
     // (ZTS: the other threads' clients went at their GSHUTDOWN)
     crate::driver::destroy_persistent_clients();
     crate::driver::log::mshutdown();
+    crate::driver::aio::mshutdown();
     sys::zend_unregister_ini_entries(module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
 unsafe extern "C" fn rinit(_type: c_int, _module_number: c_int) -> sys::zend_result {
+    crate::driver::aio::rinit();
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 

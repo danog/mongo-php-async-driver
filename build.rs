@@ -76,6 +76,11 @@ fn main() {
             }
         }
     }
+    // ELF: the extension's references to its own symbols bind to its own definitions, whatever
+    // else PHP loaded with RTLD_GLOBAL (another copy of revolt-rs exports `revolt_rs_abi_v1` too)
+    if matches!(std::env::var("CARGO_CFG_TARGET_OS").as_deref(), Ok("linux") | Ok("freebsd")) {
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-Bsymbolic");
+    }
     for cfg in cfgs {
         println!("cargo:rustc-cfg={cfg}");
     }

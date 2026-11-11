@@ -30,13 +30,21 @@
 //!   sockets).
 //! - The callbacks are Closures over a static internal function (zend_create_fake_closure):
 //!   nothing new is visible to Reflection.
+//! - Native (`Native`): when the current driver is one of revolt-rs (the copy embedded here,
+//!   which registers the Revolt classes at MINIT unless another copy did, or the `revolt`
+//!   extension's) and mongodb.native_event_loop is on, the same waits use revolt-rs's embedding
+//!   API instead of PHP calls: the watcher (on the reactor fd itself), the timer, getSuspension,
+//!   suspend and resume are Rust calls into the loop. Any other driver (the PHP library's, a
+//!   TracingDriver, a user Driver) is reached through PHP as described above.
 //! - Never across a PHP call: a borrow of the state here (PHP may re-enter).
 
 use crate::zend::{call, sys, zval};
+use revolt_rs::embed::{Abi, NativeLoop};
 use std::cell::{Cell, RefCell};
-use std::ffi::c_char;
+use std::ffi::{c_char, c_void};
 use std::io;
 use std::ptr::{addr_of, null_mut};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 extern "C" {
@@ -116,6 +124,15 @@ thread_local! {
     static REVOLT: Cell<u8> = const { Cell::new(0) };
 }
 
+/// mongodb.native_event_loop (PHP_INI_SYSTEM, read at MINIT): the embedded revolt-rs is in use
+/// (classes registered unless another copy did; waits on native drivers go through its API).
+static NATIVE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the native loop may be used (mongodb.native_event_loop).
+pub fn native_enabled() -> bool {
+    NATIVE.load(Ordering::Relaxed)
+}
+
 pub static BACKEND: mongo_core::aio::Backend = mongo_core::aio::Backend { active, poll, sleep, require, park, unpark, current };
 
 const NO_LOOP: &str = "MongoDB driver calls inside a Fiber need the revolt/event-loop package: the class Revolt\\EventLoop was not found";
@@ -165,13 +182,15 @@ pub fn main_event_loop_changed() {
     mongo_core::aio::set_no_loop_at(u32::MAX);
 }
 
-/// Whether {main}'s waits go through Revolt: mongodb.main_event_loop is On and
-/// Revolt\EventLoop is loaded (declared; {main} never autoloads it). A miss is remembered
-/// until a class is added (or the setting changes).
+/// Whether {main}'s waits go through Revolt: mongodb.main_event_loop is On and Revolt is in
+/// use: Revolt\EventLoop is loaded (declared; {main} never autoloads it), and when it is a
+/// native class (revolt-rs: declared from the start, by this extension or the `revolt` one),
+/// its driver exists (EventLoop was used). A miss is remembered until a class is added, the
+/// native driver is made (or the setting changes).
 fn revolt_loaded() -> bool {
     if !main_event_loop() {
         // the synchronous fast path holds until a class is added or the setting changes
-        publish_sync_words();
+        publish_sync_words(class_count_word());
         mongo_core::aio::set_no_loop_at(class_count());
         return false;
     }
@@ -182,7 +201,7 @@ fn revolt_loaded() -> bool {
     if count == mongo_core::aio::no_loop_at() {
         return false;
     }
-    publish_sync_words();
+    publish_sync_words(class_count_word());
     let name = unsafe { zval::string(b"Revolt\\EventLoop") };
     let ce = unsafe { sys::zend_lookup_class_ex(name.value.str_, null_mut(), ZEND_FETCH_CLASS_NO_AUTOLOAD) };
     if ce.is_null() {
@@ -190,18 +209,35 @@ fn revolt_loaded() -> bool {
         return false;
     }
     found_revolt(ce);
+    // ZEND_INTERNAL_CLASS: revolt-rs keeps EventLoop::$driver unset until the driver is made
+    if unsafe { (*ce).type_ } as u32 == 1 {
+        let slot = unsafe { driver_slot() };
+        if !slot.is_null() && !unsafe { zval::is(slot, sys::IS_OBJECT) } {
+            // the synchronous fast path holds until the slot changes (the driver is made) or
+            // the setting changes: its type word is the counter
+            let word = unsafe { addr_of!((*slot).u1.type_info) };
+            publish_sync_words(word);
+            mongo_core::aio::set_no_loop_at(unsafe { *word });
+            return false;
+        }
+    }
     REVOLT.set(1);
     mongo_core::aio::set_no_loop_at(u32::MAX);
     true
 }
 
-/// EG(active_fiber) and the class-table size of this PHP thread, for mongo_core::aio's
-/// synchronous fast path (EG(class_table) is set per request: published here, in a request,
-/// never at MINIT, and withdrawn at RSHUTDOWN).
-fn publish_sync_words() {
+/// The class-table size's address (the default counter of the synchronous fast path).
+fn class_count_word() -> *const u32 {
+    unsafe { addr_of!((*(*crate::zend::eg()).class_table).nNumOfElements) }
+}
+
+/// EG(active_fiber) and a counter of this PHP thread (the class-table size, or the type of the
+/// native EventLoop::$driver), for mongo_core::aio's synchronous fast path (both are per
+/// request: published here, in a request, never at MINIT, and withdrawn at RSHUTDOWN).
+fn publish_sync_words(counter: *const u32) {
     unsafe {
         let eg = crate::zend::eg();
-        mongo_core::aio::set_sync_words(addr_of!((*eg).active_fiber).cast(), addr_of!((*(*eg).class_table).nNumOfElements));
+        mongo_core::aio::set_sync_words(addr_of!((*eg).active_fiber).cast(), counter);
     }
 }
 
@@ -265,11 +301,14 @@ struct Slot {
     deadline: Option<Instant>,
     /// the `Php::epoch` of the driver the wait suspended on
     epoch: u32,
+    /// how the suspension is resumed: through revolt-rs's table (a native driver), else by a
+    /// PHP call
+    abi: Option<&'static Abi>,
 }
 
 impl Slot {
     fn free(gen: u32) -> Slot {
-        Slot { gen, state: SlotState::Free, suspension: None, deadline: None, epoch: 0 }
+        Slot { gen, state: SlotState::Free, suspension: None, deadline: None, epoch: 0, abi: None }
     }
 }
 
@@ -280,6 +319,9 @@ struct Loop {
     watches: Vec<(sys::zval, usize)>,
     #[cfg(windows)]
     streams: Vec<(usize, *mut sys::php_stream)>,
+    /// Windows: the native watchers of the waits (callback id, slot)
+    #[cfg(windows)]
+    nwatches: Vec<(u64, usize)>,
     slots: Vec<Slot>,
     /// request-level PHP state (reset at request end): on EventLoop's current driver
     php: Option<Php>,
@@ -333,9 +375,22 @@ struct Php {
     main: Option<Kept>,
     /// the deadline timer: its id and due time
     timer: Option<(sys::zval, Instant)>,
-    /// Windows: the keep-alive watcher's UDP socket (PHP's stream owns it)
+    /// Windows: the keep-alive watcher's UDP socket (PHP's stream owns it; none when native)
     #[cfg(windows)]
     keepalive: mongo_core::os::RawSock,
+    /// a native driver's callbacks (then `watcher`, `in_place`, `main` and `timer` are unused):
+    /// the loop is reached through revolt-rs's table, without PHP calls
+    native: Option<Native>,
+}
+
+/// The callbacks on a native (revolt-rs) driver, by id.
+struct Native {
+    abi: &'static Abi,
+    /// Unix: the reactor fd's onReadable callback; Windows: a keep-alive delay() that never
+    /// comes due. Referenced while waits are pending.
+    watcher: u64,
+    /// the deadline timer: its id and due time
+    timer: Option<(u64, Instant)>,
 }
 
 thread_local! {
@@ -350,6 +405,8 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> io::Result<R> {
                 watches: Vec::new(),
                 #[cfg(windows)]
                 streams: Vec::new(),
+                #[cfg(windows)]
+                nwatches: Vec::new(),
                 slots: Vec::new(),
                 php: None,
                 parked: Vec::new(),
@@ -436,18 +493,7 @@ unsafe fn event_loop(method: &'static str, args: &mut [sys::zval]) -> sys::zval 
 /// member table lives as long as the request), else what EventLoop::getDriver() returns. The
 /// object is held by EventLoop for as long as it is the driver.
 unsafe fn driver_now() -> *mut sys::zend_object {
-    let (ce, slot) = FNS.with_borrow(|f| (f.event_loop, f.driver_slot));
-    let slot = match (ce, slot) {
-        (_, Some(slot)) => slot,
-        (Some(ce), None) => {
-            let name = zval::string(b"driver");
-            // silent: no error for an uninitialised typed property (EventLoop sets it on first use)
-            let slot = zend_read_static_property_ex(ce.as_ptr(), name.value.str_, true);
-            FNS.with_borrow_mut(|f| f.driver_slot = Some(slot));
-            slot
-        }
-        (None, None) => null_mut(),
-    };
+    let slot = driver_slot();
     if !slot.is_null() {
         let z = zval::deref(slot);
         if zval::is(z, sys::IS_OBJECT) {
@@ -462,6 +508,23 @@ unsafe fn driver_now() -> *mut sys::zend_object {
         d.value.obj
     } else {
         null_mut()
+    }
+}
+
+/// The slot of the static property EventLoop::$driver (null: none such, or EventLoop not found
+/// yet), looked up once per request. revolt-rs keeps it too (unset until the driver is made).
+unsafe fn driver_slot() -> *mut sys::zval {
+    let (ce, slot) = FNS.with_borrow(|f| (f.event_loop, f.driver_slot));
+    match (ce, slot) {
+        (_, Some(slot)) => slot,
+        (Some(ce), None) => {
+            let name = zval::string(b"driver");
+            // silent: no error for an uninitialised typed property (EventLoop sets it on first use)
+            let slot = zend_read_static_property_ex(ce.as_ptr(), name.value.str_, true);
+            FNS.with_borrow_mut(|f| f.driver_slot = Some(slot));
+            slot
+        }
+        (None, None) => null_mut(),
     }
 }
 
@@ -722,10 +785,32 @@ thread_local! {
     static FUNCS: std::cell::OnceCell<Box<std::cell::UnsafeCell<Closures>>> = const { std::cell::OnceCell::new() };
 }
 
-/// MINIT: the name of the callbacks' functions; installs the backend.
-pub unsafe fn minit() {
+/// MINIT: the name of the callbacks' functions; installs the backend. With
+/// mongodb.native_event_loop on, the embedded revolt-rs starts: it registers the Revolt classes
+/// unless another copy (the `revolt` extension, another embedder) did.
+pub unsafe fn minit(module_number: i32) {
     CLOSURE_NAME = crate::zend::class::interned(c"mongodb_event_loop_callback");
     mongo_core::aio::set_backend(Some(&BACKEND));
+    // PHP_INI_SYSTEM: fixed from here on (an int before PHP 8.6, a bool since)
+    let native = sys::zend_ini_long(c"mongodb.native_event_loop".as_ptr(), 25, Default::default()) != 0;
+    NATIVE.store(native, Ordering::Relaxed);
+    if native {
+        revolt_rs::module::minit(module_number);
+    }
+}
+
+/// RINIT of the embedded revolt-rs.
+pub unsafe fn rinit() {
+    if native_enabled() {
+        revolt_rs::module::rinit();
+    }
+}
+
+/// MSHUTDOWN of the embedded revolt-rs.
+pub unsafe fn mshutdown() {
+    if native_enabled() {
+        revolt_rs::module::mshutdown();
+    }
 }
 
 /// This thread's callback functions (made on first use; they live as long as the thread). An
@@ -828,7 +913,12 @@ unsafe fn php_state() -> io::Result<()> {
             }
         }
     }
-    let now = driver_now();
+    // a native driver (made if there is none yet) is reached through revolt-rs's table
+    let native = if native_enabled() { NativeLoop::current() } else { None };
+    let now = match native {
+        Some(nl) => nl.driver,
+        None => driver_now(),
+    };
     if call::has_exception() {
         return Err(mongo_core::aio::interrupted());
     }
@@ -862,6 +952,9 @@ unsafe fn php_state() -> io::Result<()> {
     }
     if with(|l| l.php.is_some())? {
         return Ok(());
+    }
+    if let Some(nl) = native {
+        return native_state(nl);
     }
     #[cfg(unix)]
     let stream = keepalive_stream()?;
@@ -901,9 +994,45 @@ unsafe fn php_state() -> io::Result<()> {
             timer: None,
             #[cfg(windows)]
             keepalive,
+            native: None,
         })
     })?;
     Ok(())
+}
+
+/// Windows: the keep-alive delay() of a native driver, which never comes due (about 31 years).
+#[cfg(windows)]
+const KEEPALIVE_SECS: f64 = 1e9;
+
+/// `php_state` on a native driver: the watcher of the reactor fd (Windows: the keep-alive
+/// delay), unreferenced.
+unsafe fn native_state(nl: NativeLoop) -> io::Result<()> {
+    #[cfg(unix)]
+    let watcher = nl.on_readable(mongo_core::reactor::raw_fd()? as i64, false, native_ready, null_mut(), None, null_mut());
+    #[cfg(windows)]
+    let watcher = nl.delay(KEEPALIVE_SECS, native_noop, null_mut(), None, null_mut());
+    if watcher == 0 || call::has_exception() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    nl.unreference(watcher);
+    let slot = driver_slot();
+    with(|l| {
+        l.epochs = l.epochs.wrapping_add(1);
+        l.php = Some(Php {
+            driver: WeakObj::new(nl.driver),
+            epoch: l.epochs,
+            slot,
+            here: 0,
+            watcher: zval::null(),
+            referenced: false,
+            in_place: None,
+            main: None,
+            timer: None,
+            #[cfg(windows)]
+            keepalive: !0,
+            native: Some(Native { abi: nl.abi, watcher, timer: None }),
+        })
+    })
 }
 
 /// The PHP state of a driver that is no longer EventLoop's (EventLoop::setDriver(), allowed only
@@ -912,7 +1041,12 @@ unsafe fn php_state() -> io::Result<()> {
 /// on it.
 unsafe fn retire(old: Php) {
     let d = old.driver.get();
-    if !d.is_null() {
+    if let (Some(n), false) = (&old.native, d.is_null()) {
+        (n.abi.cancel)(d, n.watcher);
+        if let Some((id, _)) = n.timer {
+            (n.abi.cancel)(d, id);
+        }
+    } else if !d.is_null() {
         // still alive (held by someone): what is ours on it goes
         let ids = [Some(&old.watcher), old.timer.as_ref().map(|t| &t.0), old.main.as_ref().map(|k| &k.keeper)];
         for id in ids.into_iter().flatten() {
@@ -949,6 +1083,7 @@ pub fn rshutdown() {
                         unsafe { disown(st) };
                     }
                     drop_later.extend(l.watches.drain(..).map(|(id, _)| id));
+                    l.nwatches.clear();
                 }
             }
         }
@@ -960,6 +1095,11 @@ pub fn rshutdown() {
     FNS.with_borrow_mut(|f| *f = Fns::default());
     mongo_core::aio::set_no_loop_at(u32::MAX);
     mongo_core::aio::set_sync_words(std::ptr::null(), std::ptr::null());
+    // the embedded revolt-rs's (the thread's driver goes, if this copy owns the loop): after
+    // the state above, whose callbacks were on it
+    if native_enabled() {
+        unsafe { revolt_rs::module::rshutdown() };
+    }
 }
 
 // ------------------------------------------------------------------ waits
@@ -982,7 +1122,7 @@ fn unpark(id: u64) {
         let s = l.as_mut()?.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending)?;
         let z = s.suspension.take()?;
         s.state = SlotState::Ready;
-        Some(z)
+        Some((z, s.abi))
     });
     if let Some(s) = s {
         // also while an exception is pending (the unparking call was interrupted and is
@@ -1015,7 +1155,7 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
         }
         let php = l.php.as_mut().expect("php_state");
         php.here += 1;
-        l.slots[t] = Slot { gen, state: SlotState::Pending, suspension: None, deadline, epoch: php.epoch };
+        l.slots[t] = Slot { gen, state: SlotState::Pending, suspension: None, deadline, epoch: php.epoch, abi: None };
         Ok(Some(t))
     })??;
     let Some(token) = token else {
@@ -1096,6 +1236,26 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
 /// zval holds the stream's first reference).
 #[cfg(windows)]
 unsafe fn watch(token: usize, fds: &[mongo_core::os::PollFd]) -> io::Result<Vec<(sys::zval, *mut sys::php_stream)>> {
+    // a native driver watches the sockets themselves (no streams)
+    let native = with(|l| l.php.as_ref().and_then(|p| p.native.as_ref().map(|n| (n.abi, p.driver.get()))))?;
+    if let Some((abi, d)) = native {
+        let gen = with(|l| l.slots[token].gen)?;
+        let data = ((token as u64) | ((gen as u64) << 32)) as usize as *mut c_void;
+        for p in fds {
+            for (bit, writable) in [(mongo_core::os::POLLIN, false), (mongo_core::os::POLLOUT, true)] {
+                if p.events & bit == 0 {
+                    continue;
+                }
+                let id = (abi.on_handle)(d, p.fd as i64, true, writable, native_socket, data, None, null_mut());
+                if id == 0 || call::has_exception() {
+                    unwatch(token, gen, Vec::new());
+                    return Err(mongo_core::aio::interrupted());
+                }
+                let _ = with(|l| l.nwatches.push((id, token)));
+            }
+        }
+        return Ok(Vec::new());
+    }
     let mut streams: Vec<(sys::zval, *mut sys::php_stream)> = Vec::with_capacity(fds.len());
     let fail = |streams: Vec<(sys::zval, *mut sys::php_stream)>, e: io::Error| {
         let gen = with(|l| l.slots[token].gen).unwrap_or(0);
@@ -1165,12 +1325,31 @@ unsafe fn unwatch(token: usize, gen: u32, streams: Vec<(sys::zval, *mut sys::php
             }
         }
         l.streams.retain(|(t, _)| *t != token);
-        Some((ids, on))
+        // native watchers: cancelled on their driver, if it is still alive
+        let native = match &l.php {
+            Some(p) if p.epoch == epoch => p.native.as_ref().map(|n| (n.abi, p.driver.get())),
+            _ => l.parked.iter().find(|p| p.epoch == epoch).and_then(|p| p.native.as_ref().map(|n| (n.abi, p.driver.get()))),
+        };
+        let mut nids = Vec::new();
+        let mut i = 0;
+        while i < l.nwatches.len() {
+            if l.nwatches[i].1 == token {
+                nids.push(l.nwatches.swap_remove(i).0);
+            } else {
+                i += 1;
+            }
+        }
+        Some((ids, on, nids, native))
     });
-    let Ok(Some((ids, on))) = ids else {
+    let Ok(Some((ids, on, nids, native))) = ids else {
         std::mem::forget(streams);
         return;
     };
+    if let Some((abi, d)) = native.filter(|&(_, d)| !d.is_null()) {
+        for id in nids {
+            (abi.cancel)(d, id);
+        }
+    }
     saving_exception(|| {
         for id in ids {
             match on {
@@ -1212,7 +1391,24 @@ unsafe extern "C" fn on_socket(ex: *mut sys::zend_execute_data, rv: *mut sys::zv
         let s = l.slots.get_mut(token).filter(|s| s.state == SlotState::Pending)?;
         let z = s.suspension.take()?;
         s.state = SlotState::Ready;
-        Some(z)
+        Some((z, s.abi))
+    });
+    if let Some(s) = s {
+        resume_all(vec![s]);
+    }
+}
+
+/// Windows: a native socket watcher's callback (`data`: the wait's park id, slot and
+/// generation): resumes the slot.
+#[cfg(windows)]
+unsafe extern "C" fn native_socket(data: *mut c_void, _id: u64) {
+    let id = data as usize as u64;
+    let (t, gen) = ((id & 0xffff_ffff) as usize, (id >> 32) as u32);
+    let s = LOOP.with_borrow_mut(|l| {
+        let s = l.as_mut()?.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending)?;
+        let z = s.suspension.take()?;
+        s.state = SlotState::Ready;
+        Some((z, s.abi))
     });
     if let Some(s) = s {
         resume_all(vec![s]);
@@ -1222,6 +1418,9 @@ unsafe extern "C" fn on_socket(ex: *mut sys::zend_execute_data, rv: *mut sys::zv
 /// Stores the suspension in `token`'s slot, references the watcher, arms the deadline timer,
 /// suspends.
 unsafe fn suspend(token: usize, deadline: Option<Instant>) -> io::Result<()> {
+    if let Some((abi, d)) = with(|l| l.php.as_ref().and_then(|p| p.native.as_ref().map(|n| (n.abi, p.driver.get()))))? {
+        return native_suspend(abi, d, token, deadline);
+    }
     let main = !in_fiber();
     let s = if main {
         main_suspension()?
@@ -1253,6 +1452,64 @@ unsafe fn suspend(token: usize, deadline: Option<Instant>) -> io::Result<()> {
     Ok(())
 }
 
+/// `suspend` on a native driver (`d`, alive: EventLoop's current one).
+unsafe fn native_suspend(abi: &'static Abi, d: *mut sys::zend_object, token: usize, deadline: Option<Instant>) -> io::Result<()> {
+    let o = (abi.suspension)(d);
+    if o.is_null() || call::has_exception() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    let s = zval::obj(o);
+    let (reference, rearm) = with(|l| {
+        let slot = &mut l.slots[token];
+        slot.suspension = Some(zval::copy(&s));
+        slot.abi = Some(abi);
+        let php = l.php.as_mut().expect("php_state");
+        let reference = !php.referenced;
+        php.referenced = true;
+        let n = php.native.as_mut().expect("native state");
+        let rearm = deadline.filter(|d| n.timer.as_ref().is_none_or(|(_, at)| d < at));
+        (reference.then_some(n.watcher), rearm.map(|d| (d, n.timer.take())))
+    })?;
+    if let Some(id) = reference {
+        (abi.reference)(d, id);
+    }
+    if let Some((at, old)) = rearm {
+        arm_native_timer(abi, d, at, old.map(|o| o.0));
+    }
+    let mut rv = zval::undef();
+    if !(abi.suspend)(o, &mut rv) || call::has_exception() {
+        return Err(mongo_core::aio::interrupted());
+    }
+    drop(s);
+    Ok(())
+}
+
+/// `arm_timer` on a native driver.
+unsafe fn arm_native_timer(abi: &'static Abi, d: *mut sys::zend_object, at: Instant, old: Option<u64>) {
+    if let Some(id) = old {
+        (abi.cancel)(d, id);
+    }
+    let secs = at.saturating_duration_since(Instant::now()).as_secs_f64();
+    let id = (abi.timer)(d, secs, false, native_timer, null_mut(), None, null_mut());
+    if id != 0 {
+        (abi.unreference)(d, id);
+        let _ = with(|l| {
+            if let Some(n) = l.php.as_mut().and_then(|p| p.native.as_mut()) {
+                n.timer = Some((id, at));
+            }
+        });
+    }
+}
+
+/// The next deadline timer, due at `at`, on the current driver (after the last one fired).
+unsafe fn rearm(at: Instant) {
+    match with(|l| l.php.as_ref().and_then(|p| p.native.as_ref().map(|n| (n.abi, p.driver.get())))) {
+        Ok(Some((abi, d))) if !d.is_null() => arm_native_timer(abi, d, at, None),
+        Ok(Some(_)) => {}
+        _ => arm_timer(at, None),
+    }
+}
+
 /// A deadline timer due at `at` (an unreferenced delay(); `old` cancelled).
 unsafe fn arm_timer(at: Instant, old: Option<sys::zval>) {
     if let Some(id) = old {
@@ -1279,6 +1536,13 @@ unsafe fn after_wait() -> io::Result<()> {
             return None;
         }
         php.referenced = false;
+        if let Some(n) = &php.native {
+            let d = php.driver.get();
+            if !d.is_null() {
+                unsafe { (n.abi.unreference)(d, n.watcher) };
+            }
+            return None;
+        }
         (!set_referenced(php, false)).then(|| zval::copy(&php.watcher))
     })?;
     if let Some(id) = id {
@@ -1317,12 +1581,38 @@ unsafe fn saving_exception<R>(f: impl FnOnce() -> R) -> R {
     }
 }
 
+/// A suspension to resume, and the table of its native driver (None: through PHP).
+type Ready = (sys::zval, Option<&'static Abi>);
+
 /// The ready slots' suspensions are resumed (outside any borrow).
-unsafe fn resume_all(list: Vec<sys::zval>) {
-    for s in list {
-        method(&s, b"resume", &mut []);
+unsafe fn resume_all(list: Vec<Ready>) {
+    for (s, abi) in list {
+        match abi {
+            Some(abi) => {
+                (abi.resume)(s.value.obj, null_mut());
+            }
+            None => {
+                method(&s, b"resume", &mut []);
+            }
+        }
     }
 }
+
+/// Unix: the native watcher of the reactor fd: as `on_ready`.
+#[cfg(unix)]
+unsafe extern "C" fn native_ready(_data: *mut c_void, _id: u64) {
+    let ready = LOOP.with_borrow_mut(|l| l.as_mut().map(drain_ready).unwrap_or_default());
+    resume_all(ready);
+}
+
+/// The native deadline timer: as `on_timer`.
+unsafe extern "C" fn native_timer(_data: *mut c_void, _id: u64) {
+    timer_fired();
+}
+
+/// Windows: the keep-alive delay() (never due).
+#[cfg(windows)]
+unsafe extern "C" fn native_noop(_data: *mut c_void, _id: u64) {}
 
 /// onReadable callback: drains the reactor, resumes the ready waiters.
 unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
@@ -1345,13 +1635,13 @@ unsafe extern "C" fn on_ready(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
 
 /// Unix: the reactor's events: the suspensions of the waits they make ready (now Ready).
 #[cfg(unix)]
-fn drain_ready(l: &mut Loop) -> Vec<sys::zval> {
+fn drain_ready(l: &mut Loop) -> Vec<Ready> {
     let mut out = Vec::new();
     mongo_core::reactor::drain(&mut |t, gen| {
         let Some(s) = l.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending) else { return false };
         let Some(z) = s.suspension.take() else { return false };
         s.state = SlotState::Ready;
-        out.push(z);
+        out.push((z, s.abi));
         true
     });
     out
@@ -1368,10 +1658,18 @@ unsafe extern "C" fn on_keep(_ex: *mut sys::zend_execute_data, rv: *mut sys::zva
 /// blocking {main} call held the thread); a reply that is there is not a timeout.
 unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zval) {
     zval::write(rv, zval::null());
+    timer_fired();
+}
+
+/// The deadline timer fired (`on_timer`, `native_timer`).
+unsafe fn timer_fired() {
     let now = Instant::now();
     let r = with(|l| {
         if let Some(php) = l.php.as_mut() {
             php.timer = None;
+            if let Some(n) = php.native.as_mut() {
+                n.timer = None;
+            }
         }
         #[cfg(unix)]
         let mut out = drain_ready(l);
@@ -1385,7 +1683,7 @@ unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
             match s.deadline {
                 Some(d) if d <= now => {
                     s.state = SlotState::TimedOut;
-                    out.push(s.suspension.take().unwrap());
+                    out.push((s.suspension.take().unwrap(), s.abi));
                 }
                 Some(d) => next = Some(next.map_or(d, |n: Instant| n.min(d))),
                 None => {}
@@ -1395,7 +1693,7 @@ unsafe extern "C" fn on_timer(_ex: *mut sys::zend_execute_data, rv: *mut sys::zv
     });
     if let Ok((out, next)) = r {
         if let Some(at) = next {
-            arm_timer(at, None);
+            rearm(at);
         }
         resume_all(out);
     }
