@@ -1,6 +1,8 @@
 #!/bin/bash
 # Runs the official driver's whole PHPT suite (upstream/driver/tests) against one extension build.
 #   run-phpt.sh <extension file> <MONGODB_URI> <JUnit output>
+# Env: PHPT_TESTS (the tests to run instead), PHPT_EXTRA (more run-tests.php arguments, e.g.
+# "-d mongodb.native_event_loop=0", or "-d extension=<file>" for a second extension, loaded after).
 # Uses php-src's run-tests.php of the running PHP's branch (fetched), one test at a time as the
 # official CI does (tests share server state such as the key vault).
 set -euo pipefail
@@ -18,5 +20,5 @@ export MONGODB_URI=$uri NO_INTERACTION=1 REPORT_EXIT_STATUS=0 TEST_PHP_EXECUTABL
 # list them, and the runner's set of PECL extensions crashes PHP that way even without this one
 # (no upstream test declares --EXTENSIONS--)
 noext=$(win "$(mktemp -d)")
-$php "$(win "$rt")" -n -d "extension=$ext" -d "extension_dir=$noext" -d date.timezone=UTC -j1 -q --no-color --set-timeout 300 \
+$php "$(win "$rt")" -n -d "extension=$ext" -d "extension_dir=$noext" -d date.timezone=UTC ${PHPT_EXTRA:-} -j1 -q --no-color --set-timeout 300 \
   --show-diff -g FAIL,BORK,LEAK,WARN ${PHPT_TESTS:-upstream/driver/tests} || true
