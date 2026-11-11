@@ -1,8 +1,8 @@
 --TEST--
 Fibers: an exception thrown into a fiber or {main} waiting in the driver ends the call with it
 --DESCRIPTION--
-Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). Needs revolt/event-loop:
-REVOLT_AUTOLOAD=<path to a composer vendor/autoload.php that has revolt/event-loop>. The driver
+Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). Needs Revolt: the native classes
+(mongodb.native_event_loop=1), or revolt/event-loop with REVOLT_AUTOLOAD=<path to a composer vendor/autoload.php that has it>. The driver
 waits on the suspension EventLoop::getSuspension() returns (in {main}: the one the driver keeps
 between waits), so a Suspension::throw() by someone holding it (a cancellation), or a
 Fiber::throw(), ends the driver call with that exception. The interrupted operation's
@@ -10,10 +10,10 @@ connection is not reused for a later reply (the next calls get their own results
 reply resumes nothing, and the loop is not kept alive by it.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!getenv('REVOLT_AUTOLOAD') || !is_file(getenv('REVOLT_AUTOLOAD'))) die('skip no REVOLT_AUTOLOAD'); ?>
+<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 --FILE--
 <?php
-require getenv('REVOLT_AUTOLOAD');
+if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $ns = 'mdrop_local.fiber_throw';

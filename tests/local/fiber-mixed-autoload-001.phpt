@@ -9,6 +9,9 @@ and waits through the now loaded loop with the default On (the fiber finishes me
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
 <?php if (!getenv('REVOLT_AUTOLOAD') || !is_file(getenv('REVOLT_AUTOLOAD'))) die('skip no REVOLT_AUTOLOAD'); ?>
+<?php if (extension_loaded('revolt')) die('skip the revolt extension declares Revolt\EventLoop'); ?>
+--INI--
+mongodb.native_event_loop=0
 --FILE--
 <?php
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};

@@ -2,17 +2,17 @@
 Fibers: a Session used while another fiber's operation holds it throws LogicException
 --DESCRIPTION--
 Local test (not upstream; DIVERGENCES "A Cursor or Session used by two fibers at once").
-Needs revolt/event-loop: REVOLT_AUTOLOAD=<path to a composer vendor/autoload.php that has
-revolt/event-loop>. While fiber A's query with a session waits for the server, every use of
+Needs Revolt: the native classes (mongodb.native_event_loop=1), or revolt/event-loop with REVOLT_AUTOLOAD=<path to a
+composer vendor/autoload.php that has it>. While fiber A's query with a session waits for the server, every use of
 that session by another fiber or by {main} throws MongoDB\Driver\Exception\LogicException
 (code 0) without sending anything; a cursor whose getMore is refused that way stays usable.
 Once A's operation ends, the session works again.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!getenv('REVOLT_AUTOLOAD') || !is_file(getenv('REVOLT_AUTOLOAD'))) die('skip no REVOLT_AUTOLOAD'); ?>
+<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 --FILE--
 <?php
-require getenv('REVOLT_AUTOLOAD');
+if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $ns = 'mdrop_local.fiber_session';
