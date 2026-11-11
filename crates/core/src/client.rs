@@ -779,9 +779,12 @@ impl Client {
     ///
     /// One scan runs at a time: a cluster needing one while another cluster's scan runs (fibers)
     /// waits for that scan instead. In pooled mode the scan checks the monitors
-    /// (Shared::monitor), not the cluster's own connections.
+    /// (Shared::monitor), not the cluster's own connections. A call that cannot suspend cannot
+    /// wait for a scan a suspended fiber runs (that fiber cannot go on meanwhile): it scans
+    /// itself, and the other scan still counts as running.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
-        if self.shared.scanning.get() && crate::aio::active() {
+        let running = self.shared.scanning.get();
+        if running && crate::aio::active() {
             return self.wait_for_scan();
         }
         self.shared.scanning.set(true);
@@ -797,7 +800,8 @@ impl Client {
         } else {
             self.scan_nodes(obey_cooldown);
         }
-        self.shared.scanning.set(false);
+        self.shared.scanning.set(running);
+        // the waiters learn from this scan (one that finds no server waits for the next)
         let waiters = std::mem::take(&mut *self.shared.scan_waiters.borrow_mut());
         for id in waiters {
             crate::aio::unpark(id);
