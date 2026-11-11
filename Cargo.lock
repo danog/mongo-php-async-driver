@@ -914,7 +914,7 @@ dependencies = [
 
 [[package]]
 name = "mongo-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes 0.8.4",
  "cbc",
@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "mongo-crypt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes 0.8.4",
  "cbc",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "mongo-php-async-driver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ext-php-rs",
  "libc",
