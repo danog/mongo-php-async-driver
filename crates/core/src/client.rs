@@ -1399,27 +1399,42 @@ pub fn detect_nongenuine_hosts(uri: &Uri) {
 /// so it behaves as libmongoc's single-threaded client. Fibers that run operations at once get
 /// one cluster each, at most maxPoolSize (libmongoc's default 100; 1 in load-balanced mode,
 /// whose cursors and transactions live on one connection); a fiber finding all of them in use
-/// waits for one, at most serverSelectionTimeoutMS.
+/// waits for one, at most serverSelectionTimeoutMS. A call that cannot suspend (a blocking
+/// {main} call while fibers hold all of them) never waits: it uses the spare cluster.
 pub struct ClientPool {
     shared: Rc<Shared>,
     /// boxed: a checkout moves a pointer
     idle: RefCell<Vec<Box<Client>>>,
     /// clusters checked out
     leased: Cell<usize>,
-    /// clusters created (idle + leased, transient ones excluded)
+    /// clusters created (idle + leased, transient and spare ones excluded)
     total: Cell<usize>,
     max: usize,
     /// fibers waiting for a cluster (park ids, FIFO) and the clusters handed to them
     waiters: RefCell<std::collections::VecDeque<u64>>,
     handed: RefCell<Vec<(u64, Box<Client>)>>,
+    /// the cluster of the calls that cannot suspend and find all maxPoolSize clusters in use
+    /// (a fiber holding them cannot run while such a call blocks): outside `total`, never
+    /// handed to a fiber
+    spare: RefCell<Option<Box<Client>>>,
+}
+
+/// Where a leased cluster goes back to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// the pool's idle clusters, or a waiting fiber
+    Pool,
+    /// nowhere: not one of the pool's clusters (its operation fails at once, see Client::fail)
+    Transient,
+    /// `ClientPool::spare` (dropped when another one is there already)
+    Spare,
 }
 
 /// A cluster checked out of a pool, returned when dropped.
 pub struct Lease<'a> {
     pool: &'a ClientPool,
     client: std::mem::ManuallyDrop<Box<Client>>,
-    /// not one of the pool's clusters (its operation fails at once, see Client::fail)
-    transient: bool,
+    kind: Kind,
 }
 
 /// MONGOC_DEFAULT_MAX_POOL_SIZE
@@ -1435,7 +1450,7 @@ impl ClientPool {
                 _ => DEFAULT_MAX_POOL_SIZE,
             }
         };
-        ClientPool { shared: client.shared.clone(), idle: RefCell::new(vec![Box::new(client)]), leased: Cell::new(0), total: Cell::new(1), max, waiters: Default::default(), handed: Default::default() }
+        ClientPool { shared: client.shared.clone(), idle: RefCell::new(vec![Box::new(client)]), leased: Cell::new(0), total: Cell::new(1), max, waiters: Default::default(), handed: Default::default(), spare: RefCell::new(None) }
     }
 
     /// The shared state (no connection is used through it).
@@ -1451,33 +1466,42 @@ impl ClientPool {
     }
 
     #[inline]
-    fn lease(&self, c: Box<Client>, transient: bool) -> Lease<'_> {
+    fn lease(&self, c: Box<Client>, kind: Kind) -> Lease<'_> {
         self.leased.set(self.leased.get() + 1);
-        Lease { pool: self, client: std::mem::ManuallyDrop::new(c), transient }
+        Lease { pool: self, client: std::mem::ManuallyDrop::new(c), kind }
     }
 
     /// A cluster for one operation: an idle one, else a new one; at maxPoolSize (only possible
     /// with fibers), the next one returned, waiting at most serverSelectionTimeoutMS. A wait
-    /// that times out (or is interrupted) yields a cluster whose operation fails at once.
+    /// that times out (or is interrupted) yields a cluster whose operation fails at once. A
+    /// call that cannot suspend gets the spare cluster instead of waiting.
     #[inline]
     pub fn checkout(&self) -> Lease<'_> {
         let c = self.idle.borrow_mut().pop();
         match c {
-            Some(c) => self.lease(c, false),
+            Some(c) => self.lease(c, Kind::Pool),
             None => self.checkout_slow(),
         }
     }
 
     #[cold]
     fn checkout_slow(&self) -> Lease<'_> {
-        if self.total.get() < self.max || !crate::aio::active() {
+        let active = crate::aio::active();
+        if self.total.get() < self.max {
             // a second cluster at once: pooled mode from now on (fibers only; a synchronous
             // re-entrant operation keeps single-threaded semantics)
-            if crate::aio::active() {
+            if active {
                 self.shared.pooled.set(true);
             }
             self.total.set(self.total.get() + 1);
-            return self.lease(Box::new(Client::cluster(self.shared.clone())), false);
+            return self.lease(Box::new(Client::cluster(self.shared.clone())), Kind::Pool);
+        }
+        if !active {
+            // blocking: the fibers holding the clusters cannot run until this call ends, so it
+            // cannot wait for one; the spare (a new one while a re-entrant call has it), kept
+            // for such calls only, so that fibers still use at most maxPoolSize
+            let c = self.spare.borrow_mut().take();
+            return self.lease(c.unwrap_or_else(|| Box::new(Client::cluster(self.shared.clone()))), Kind::Spare);
         }
         let deadline = std::time::Instant::now() + Duration::from_millis(self.shared.settings.server_selection_timeout_ms.max(0) as u64);
         let mut my_id = None;
@@ -1495,7 +1519,7 @@ impl ClientPool {
             h.iter().position(|(w, _)| *w == id).map(|i| h.swap_remove(i).1)
         };
         match (handed, r) {
-            (Some(c), Ok(_)) => self.lease(c, false),
+            (Some(c), Ok(_)) => self.lease(c, Kind::Pool),
             (handed, r) => {
                 // a cluster handed over too late goes to the next waiter
                 if let Some(c) = handed {
@@ -1506,7 +1530,7 @@ impl ClientPool {
                     Err(_) => interrupted_error(),
                     Ok(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Timed out while checking out a connection from connection pool"),
                 });
-                self.lease(t, true)
+                self.lease(t, Kind::Transient)
             }
         }
     }
@@ -1557,7 +1581,7 @@ impl ClientPool {
     /// An idle cluster, if there is one (object destruction: no new connections are made).
     pub fn try_checkout(&self) -> Option<Lease<'_>> {
         let c = self.idle.borrow_mut().pop()?;
-        Some(self.lease(c, false))
+        Some(self.lease(c, Kind::Pool))
     }
 }
 
@@ -1582,8 +1606,17 @@ impl Drop for Lease<'_> {
         // SAFETY: taken once, here; the field is never used again
         let c = unsafe { std::mem::ManuallyDrop::take(&mut self.client) };
         self.pool.leased.set(self.pool.leased.get() - 1);
-        if self.transient {
-            return;
+        match self.kind {
+            Kind::Pool => {}
+            Kind::Transient => return,
+            Kind::Spare => {
+                // a second one (a re-entrant call's) goes, outside the borrow
+                let kept = self.pool.spare.borrow().is_some();
+                if !kept {
+                    *self.pool.spare.borrow_mut() = Some(c);
+                }
+                return;
+            }
         }
         if self.pool.waiters.borrow().is_empty() {
             self.pool.idle.borrow_mut().push(c);
