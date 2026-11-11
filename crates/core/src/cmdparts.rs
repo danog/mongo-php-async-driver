@@ -545,7 +545,9 @@ impl Client {
             if self.td().server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
                 deprioritized.push(cmd.server_id);
             }
-            backoff.wait(is_overload, base_backoff);
+            if !backoff.wait(is_overload, base_backoff) {
+                break;
+            }
             let sel = self.select_for_optype(OpType::Write, None, session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { break };
             // mongoc_cluster_stream_for_writes: no stream for the retry ends it (the previous
@@ -587,7 +589,9 @@ impl Client {
             if self.td().server(cmd.server_id).is_some_and(|s| s.ty == ServerType::Mongos) || (is_overload && self.uri.get_bool("enableoverloadretargeting", false)) {
                 deprioritized.push(cmd.server_id);
             }
-            backoff.wait(is_overload, if is_overload { backoff_base_ms(reply) } else { 0 });
+            if !backoff.wait(is_overload, if is_overload { backoff_base_ms(reply) } else { 0 }) {
+                return r;
+            }
             let prefs = cmd.read_prefs.clone();
             let sel = self.select_for_optype(OpType::Read, prefs.as_ref(), session.as_deref_mut(), &deprioritized);
             let Ok((sid, _)) = sel else { return r };
@@ -767,24 +771,26 @@ fn backoff_base_ms(reply: &[u8]) -> i64 {
 }
 
 /// The exponential backoff of overload retries (mongoc-retry-backoff-generator.c: base
-/// 100 ms or the reply's baseBackoffMS, growth 2, max 10 s, full jitter).
+/// 100 ms or the reply's baseBackoffMS, growth 2, max 10 s, full jitter). Inside a fiber the
+/// pause suspends it (crate::aio::sleep).
 #[derive(Default)]
 struct Backoff {
     attempt: u32,
 }
 
 impl Backoff {
-    /// `base_ms`: the reply's baseBackoffMS (backoff_base_ms)
-    fn wait(&mut self, is_overload: bool, base_ms: i64) {
+    /// `base_ms`: the reply's baseBackoffMS (backoff_base_ms). False: the pause was interrupted
+    /// (crate::aio::Interrupted): no retry.
+    fn wait(&mut self, is_overload: bool, base_ms: i64) -> bool {
         let n = self.attempt;
         self.attempt += 1;
         if !is_overload {
-            return;
+            return true;
         }
         let base = if base_ms > 0 { base_ms as f64 } else { 100.0 };
         let max = (base * 2f64.powi(n as i32)).min(10_000.0);
         let r = u32::from_le_bytes(crate::bson::oid::random_bytes(4)[..4].try_into().unwrap()) as f64 / u32::MAX as f64;
-        std::thread::sleep(std::time::Duration::from_micros((max * r * 1000.0) as u64));
+        crate::aio::sleep(std::time::Duration::from_micros((max * r * 1000.0) as u64)).is_ok()
     }
 }
 
