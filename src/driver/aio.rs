@@ -985,7 +985,10 @@ fn unpark(id: u64) {
         Some(z)
     });
     if let Some(s) = s {
-        unsafe { resume_all(vec![s]) };
+        // also while an exception is pending (the unparking call was interrupted and is
+        // unwinding, giving back what it held): PHP skips any call made then, and the waiter,
+        // its slot already Ready, would never be resumed
+        unsafe { saving_exception(|| resume_all(vec![s])) };
     }
 }
 
