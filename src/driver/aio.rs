@@ -714,7 +714,8 @@ struct Closures {
     _caches: Vec<Box<[u8]>>,
 }
 
-/// The functions' name ("{closure}", interned at MINIT).
+/// The functions' name (interned at MINIT). Not "{closure}": Xdebug takes any closure whose name
+/// ends in '}' for a user one and reads its op_array's file name (NULL in an internal function).
 static mut CLOSURE_NAME: *mut sys::zend_string = null_mut();
 
 thread_local! {
@@ -723,7 +724,7 @@ thread_local! {
 
 /// MINIT: the name of the callbacks' functions; installs the backend.
 pub unsafe fn minit() {
-    CLOSURE_NAME = crate::zend::class::interned(c"{closure}");
+    CLOSURE_NAME = crate::zend::class::interned(c"mongodb_event_loop_callback");
     mongo_core::aio::set_backend(Some(&BACKEND));
 }
 
