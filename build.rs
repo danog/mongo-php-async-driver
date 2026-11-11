@@ -59,7 +59,8 @@ fn main() {
         20230831 => &["php83"],
         20240924 => &["php83", "php84"],
         20250925 => &["php83", "php84", "php85"],
-        20260924 => &["php83", "php84", "php85", "php86"],
+        // 8.6: 20260924 up to RC2, 20261112 since php-src 2c5097cb73
+        20260924 | 20261112 => &["php83", "php84", "php85", "php86"],
         _ => panic!("unsupported PHP {version} (API {api}): supported are 8.2 to 8.6"),
     };
     // the Zend symbols are resolved from the php binary when the extension is loaded
@@ -111,7 +112,8 @@ fn windows_php() {
         20230831 => &["php83"],
         20240924 => &["php83", "php84"],
         20250925 => &["php83", "php84", "php85"],
-        20260924 => &["php83", "php84", "php85", "php86"],
+        // 8.6: 20260924 up to RC2, 20261112 since php-src 2c5097cb73
+        20260924 | 20261112 => &["php83", "php84", "php85", "php86"],
         _ => panic!("unsupported PHP (API {api}): supported are 8.2 to 8.6"),
     };
     if !build_id.starts_with(&format!("API{api},{},", if zts { "TS" } else { "NTS" })) {
