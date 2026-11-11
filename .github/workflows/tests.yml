@@ -96,7 +96,8 @@ jobs:
       - name: libclang (for the Zend Engine bindings)
         run: |
           case "$RUNNER_OS" in
-            Linux)   sudo apt-get install -y -qq libclang-dev ;;
+            # the runner image has clang (and libclang); install it only if it is missing
+            Linux)   ls /usr/lib/llvm-*/lib/libclang.so* >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq libclang-dev; } ;;
             macOS)   echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV" ;;
             Windows) echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV" ;;
           esac
@@ -235,7 +236,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: php-${{ matrix.php }}-${{ matrix.ts }}
-      - run: sudo apt-get install -y -qq libclang-dev
+      # the runner image has clang (and libclang); install it only if it is missing
+      - run: ls /usr/lib/llvm-*/lib/libclang.so* >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq libclang-dev; }
       # the phpize/configure/make path PIE takes when no pre-built binary matches
       - name: pie build
         run: |
