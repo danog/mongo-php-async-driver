@@ -165,7 +165,8 @@ impl Shared {
 
     /// The automatic-encryption state for one hook call (None: it does not apply, see
     /// `auto_crypt_applies`). Held by another fiber's hook (which may suspend): waits for it,
-    /// never skipping the hook; an interrupted wait is an error.
+    /// never skipping the hook; an interrupted wait is an error. A call that cannot suspend
+    /// (a blocking {main} call) cannot wait for a suspended fiber: it fails (a LogicException).
     pub fn take_auto_crypt(&self) -> Result<Option<Box<dyn crate::autocrypt::AutoCrypt>>, Error> {
         loop {
             let ac = self.auto_crypt.borrow_mut().take();
@@ -175,6 +176,9 @@ impl Shared {
             }
             match self.crypt_holder.get() {
                 Some(h) if h != crate::aio::current() => {
+                    if !crate::aio::active() {
+                        return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_IN_USE, "Automatic encryption is in use by another fiber"));
+                    }
                     crate::aio::sleep(Duration::from_millis(1)).map_err(|_| interrupted_error())?;
                 }
                 _ => return Ok(None),

@@ -41,8 +41,8 @@ pub mod code {
     /// RuntimeException with code 0, see [`super::Error::php_code`]; non-zero here because a
     /// zero code means "no error" to the bulk paths)
     pub const CLIENT_NO_EVENT_LOOP: u32 = 0x7fff_0001;
-    /// A Session used while another fiber's operation holds it (this port's: a LogicException
-    /// with code 0)
+    /// A Session (or automatic encryption, from a call that cannot suspend) used while another
+    /// fiber's operation holds it (this port's: a LogicException with code 0)
     pub const CLIENT_SESSION_IN_USE: u32 = 0x7fff_0002;
     pub const CLIENT_TOO_BIG: u32 = 8;
     pub const CLIENT_TOO_SMALL: u32 = 9;
