@@ -119,12 +119,26 @@ fn require_slow() -> Result<(), crate::error::Error> {
     }
 }
 
-/// Suspends until another fiber calls [`unpark`] with the id `enqueue` was given, or until
-/// `deadline` (Ok(false)). Only when [`active`]: never blocks the thread.
-pub fn park(enqueue: &mut dyn FnMut(u64), deadline: Option<Instant>) -> io::Result<bool> {
+/// How a [`park`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Parked {
+    /// another fiber called [`unpark`] with this wait's id
+    Unparked,
+    /// the deadline passed first
+    TimedOut,
+    /// the call cannot suspend (not [`active`]): it did not wait, and `enqueue` was not called.
+    /// What it waits for is held by a fiber that cannot run before this call returns, so the
+    /// caller must not wait for it at all (no blocking retry loop: it would never end).
+    Blocking,
+}
+
+/// The wait for something another fiber holds: suspends until that fiber calls [`unpark`] with
+/// the id `enqueue` was given, or until `deadline`. Decides itself whether the call can suspend
+/// ([`Parked::Blocking`] when not), so a caller cannot wait where it would block the thread.
+pub fn park(enqueue: &mut dyn FnMut(u64), deadline: Option<Instant>) -> io::Result<Parked> {
     match backend() {
-        Some(b) => (b.park)(enqueue, deadline),
-        None => Ok(false),
+        Some(b) if active() => Ok(if (b.park)(enqueue, deadline)? { Parked::Unparked } else { Parked::TimedOut }),
+        _ => Ok(Parked::Blocking),
     }
 }
 

@@ -140,6 +140,8 @@ pub struct Shared {
     pub auto_crypt: RefCell<Option<Box<dyn crate::autocrypt::AutoCrypt>>>,
     /// The fiber (crate::aio::current) whose hook holds `auto_crypt`.
     crypt_holder: Cell<Option<usize>>,
+    /// The fibers waiting for `auto_crypt` (park ids).
+    crypt_waiters: RefCell<Vec<u64>>,
     /// Pooled mode (libmongoc's mongoc_client_pool_t): set for good once two clusters run
     /// operations at once (fibers). Scans then use `monitor`, and a cluster connects only to the
     /// server an operation selected (Client::connect_pooled).
@@ -164,9 +166,10 @@ impl Shared {
     }
 
     /// The automatic-encryption state for one hook call (None: it does not apply, see
-    /// `auto_crypt_applies`). Held by another fiber's hook (which may suspend): waits for it,
-    /// never skipping the hook; an interrupted wait is an error. A call that cannot suspend
-    /// (a blocking {main} call) cannot wait for a suspended fiber: it fails (a LogicException).
+    /// `auto_crypt_applies`). Held by another fiber's hook (which may suspend): waits until it
+    /// is put back (`crypt_waiters`), never skipping the hook; an interrupted wait is an error.
+    /// A call that cannot suspend (a blocking {main} call) cannot wait for a suspended fiber:
+    /// it fails (a LogicException).
     pub fn take_auto_crypt(&self) -> Result<Option<Box<dyn crate::autocrypt::AutoCrypt>>, Error> {
         loop {
             let ac = self.auto_crypt.borrow_mut().take();
@@ -176,20 +179,36 @@ impl Shared {
             }
             match self.crypt_holder.get() {
                 Some(h) if h != crate::aio::current() => {
-                    if !crate::aio::active() {
-                        return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_IN_USE, "Automatic encryption is in use by another fiber"));
+                    let mut my_id = None;
+                    let r = crate::aio::park(
+                        &mut |id| {
+                            my_id = Some(id);
+                            self.crypt_waiters.borrow_mut().push(id);
+                        },
+                        None,
+                    );
+                    if let Some(id) = my_id {
+                        self.crypt_waiters.borrow_mut().retain(|w| *w != id);
                     }
-                    crate::aio::sleep(Duration::from_millis(1)).map_err(|_| interrupted_error())?;
+                    match r {
+                        Ok(crate::aio::Parked::Blocking) => return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_IN_USE, "Automatic encryption is in use by another fiber")),
+                        Ok(_) => {}
+                        Err(_) => return Err(interrupted_error()),
+                    }
                 }
                 _ => return Ok(None),
             }
         }
     }
 
-    /// Returns the state `take_auto_crypt` gave.
+    /// Returns the state `take_auto_crypt` gave (the fibers waiting for it look again).
     pub fn put_auto_crypt(&self, ac: Box<dyn crate::autocrypt::AutoCrypt>) {
         *self.auto_crypt.borrow_mut() = Some(ac);
         self.crypt_holder.set(None);
+        let waiters = std::mem::take(&mut *self.crypt_waiters.borrow_mut());
+        for id in waiters {
+            crate::aio::unpark(id);
+        }
     }
 
     /// The next operation id (mongoc_cluster_t.operation_id after its increment).
@@ -290,6 +309,7 @@ impl Client {
             srv: Cell::new(None),
             auto_crypt: RefCell::new(None),
             crypt_holder: Cell::new(None),
+            crypt_waiters: RefCell::new(Vec::new()),
             pooled: Cell::new(false),
             monitor: RefCell::new(Vec::new()),
             scanning: Cell::new(false),
@@ -788,8 +808,8 @@ impl Client {
     /// itself, and the other scan still counts as running.
     pub fn scan_once(&mut self, obey_cooldown: bool) {
         let running = self.shared.scanning.get();
-        if running && crate::aio::active() {
-            return self.wait_for_scan();
+        if running && self.wait_for_scan() {
+            return;
         }
         self.shared.scanning.set(true);
         if self.shared.pooled.get() {
@@ -813,8 +833,9 @@ impl Client {
     }
 
     /// Waits for the scan another cluster runs (at most serverSelectionTimeoutMS); an
-    /// interrupted wait abandons the operation as an interrupted scan does.
-    fn wait_for_scan(&mut self) {
+    /// interrupted wait abandons the operation as an interrupted scan does. False: the call
+    /// cannot suspend, and did not wait.
+    fn wait_for_scan(&mut self) -> bool {
         let shared = self.shared.clone();
         let deadline = std::time::Instant::now() + Duration::from_millis(shared.settings.server_selection_timeout_ms.max(0) as u64);
         let mut my_id = None;
@@ -828,8 +849,13 @@ impl Client {
         if let Some(id) = my_id {
             shared.scan_waiters.borrow_mut().retain(|w| *w != id);
         }
-        if r.is_err() {
-            self.interrupted = true;
+        match r {
+            Ok(crate::aio::Parked::Blocking) => false,
+            Ok(_) => true,
+            Err(_) => {
+                self.interrupted = true;
+                true
+            }
         }
     }
 
@@ -1494,22 +1520,14 @@ impl ClientPool {
 
     #[cold]
     fn checkout_slow(&self) -> Lease<'_> {
-        let active = crate::aio::active();
         if self.total.get() < self.max {
             // a second cluster at once: pooled mode from now on (fibers only; a synchronous
             // re-entrant operation keeps single-threaded semantics)
-            if active {
+            if crate::aio::active() {
                 self.shared.pooled.set(true);
             }
             self.total.set(self.total.get() + 1);
             return self.lease(Box::new(Client::cluster(self.shared.clone())), Kind::Pool);
-        }
-        if !active {
-            // blocking: the fibers holding the clusters cannot run until this call ends, so it
-            // cannot wait for one; the spare (a new one while a re-entrant call has it), kept
-            // for such calls only, so that fibers still use at most maxPoolSize
-            let c = self.spare.borrow_mut().take();
-            return self.lease(c.unwrap_or_else(|| Box::new(Client::cluster(self.shared.clone()))), Kind::Spare);
         }
         let deadline = std::time::Instant::now() + Duration::from_millis(self.shared.settings.server_selection_timeout_ms.max(0) as u64);
         let mut my_id = None;
@@ -1520,6 +1538,13 @@ impl ClientPool {
             },
             Some(deadline),
         );
+        if let Ok(crate::aio::Parked::Blocking) = r {
+            // blocking: the fibers holding the clusters cannot run until this call ends, so it
+            // cannot wait for one; the spare (a new one while a re-entrant call has it), kept
+            // for such calls only, so that fibers still use at most maxPoolSize
+            let c = self.spare.borrow_mut().take();
+            return self.lease(c.unwrap_or_else(|| Box::new(Client::cluster(self.shared.clone()))), Kind::Spare);
+        }
         let id = my_id.unwrap_or(u64::MAX);
         self.waiters.borrow_mut().retain(|w| *w != id);
         let handed = {
