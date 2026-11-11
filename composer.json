@@ -17,6 +17,10 @@
     "conflict": {
         "mongodb/mongodb-extension": "*"
     },
+    "provide": {
+        "ext-revolt": "*",
+        "revolt/event-loop": "1.0.9"
+    },
     "php-ext": {
         "extension-name": "mongodb",
         "support-zts": true,
