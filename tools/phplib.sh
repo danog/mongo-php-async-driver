@@ -32,6 +32,7 @@ scan=$($PHP -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')
 INI=$WORK/conf.d-$ver
 rm -rf "$INI"; mkdir -p "$INI"
 for f in "$scan"/*.ini; do
+  [ -f "$f" ] || continue  # none (an empty or missing conf.d)
   sed -E 's/^[[:space:]]*(zend_)?extension[[:space:]]*=[[:space:]]*"?[^"]*(mongodb|xdebug)[^"]*"?[[:space:]]*$/; &/' "$f" > "$INI/$(basename "$f")"
 done
 # an ini file rather than -d, so that PHP subprocesses spawned by tests (examples, GridFS) load it too;
