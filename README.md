@@ -225,9 +225,9 @@ for the network, and other fibers run meanwhile.
   `UnsupportedFeatureException`): the loop always runs on its native driver, and the driver's
   sockets live in that driver's own poller (epoll/kqueue, edge-triggered; WSAPoll on Windows),
   next to whatever Amp or other code watches. A `TracingDriver` or a user `Driver` still works
-  when used directly, but never becomes the loop's driver. If a `revolt` extension too old for
-  this (another embedding ABI) registered the classes first, the driver's calls block instead of
-  suspending, with a startup warning.
+  when used directly, but never becomes the loop's driver. If a `revolt` extension of an
+  incompatible embedding ABI (too old for this) is loaded before it, the extension refuses to
+  start, with a warning naming both ABIs.
 - **`{main}`:** once the loop is in use, calls in `{main}` also wait through it, so timers,
   watchers and other fibers keep running: once `EventLoop` has a driver (any `EventLoop::` call
   made it) and has something else to do (a callback, referenced or not, or a fiber waiting in the

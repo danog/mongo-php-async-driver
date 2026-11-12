@@ -23,7 +23,8 @@
 //!   sockets). A wait whose socket is ready resumes as ready even when its deadline passed too:
 //!   the poll's events are taken before the timers run.
 //! - Another copy of revolt-rs registered the classes with an incompatible embedding ABI (an
-//!   older revolt extension, say): no wait can suspend; every call blocks (a warning at MINIT).
+//!   older revolt extension, say), or something that is not revolt-rs did: MINIT fails (the
+//!   extension refuses to start).
 //! - Never across a call into the loop: a borrow of the state here (the loop calls back).
 
 use crate::zend::{call, sys, zval};
@@ -32,7 +33,6 @@ use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::io;
 use std::ptr::{addr_of, null_mut};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 extern "C" {
@@ -44,10 +44,6 @@ thread_local! {
     /// Object destruction and shutdown in progress: waits block.
     static FORBID: Cell<u32> = const { Cell::new(0) };
 }
-
-/// The loop can be driven natively (set at MINIT: false when the classes belong to a revolt-rs
-/// copy of an incompatible ABI).
-static NATIVE: AtomicBool = AtomicBool::new(false);
 
 pub static BACKEND: mongo_core::aio::Backend = mongo_core::aio::Backend { active, poll, sleep, require, park, unpark, current, forget };
 
@@ -156,9 +152,6 @@ fn active() -> bool {
     if FORBID.get() > 0 || shutting_down() || unsafe { zend_fiber_switch_blocked() } {
         return false;
     }
-    if !NATIVE.load(Ordering::Relaxed) {
-        return false;
-    }
     in_fiber() || (loop_in_use() && !main_idle())
 }
 
@@ -185,7 +178,7 @@ fn current() -> usize {
     unsafe { (*crate::zend::eg()).active_fiber as usize }
 }
 
-/// Fibers always have the loop (or block, with an incompatible revolt-rs copy).
+/// Fibers always have the loop (MINIT fails without a compatible one).
 fn require() -> Result<(), &'static str> {
     Ok(())
 }
@@ -269,19 +262,68 @@ fn park_id(t: usize, gen: u32) -> u64 {
 }
 
 /// MINIT: installs the backend; the embedded revolt-rs registers the Revolt classes unless
-/// another copy did. With a copy of an incompatible ABI there, the waits block (warning).
-pub unsafe fn minit(module_number: i32) {
+/// another copy did. False (an E_CORE_WARNING reported: MINIT must fail) when the classes belong
+/// to something whose loop cannot be driven: a revolt-rs copy of an incompatible embedding ABI
+/// (an older revolt extension loaded first), or not revolt-rs at all.
+pub unsafe fn minit(module_number: i32) -> bool {
     mongo_core::aio::set_backend(Some(&BACKEND));
     revolt_rs::module::minit(module_number);
-    let native = revolt_rs::embed::active().is_some();
-    NATIVE.store(native, Ordering::Relaxed);
-    if !native {
-        sys::php_error_docref(
-            null_mut(),
-            sys::E_CORE_WARNING as i32,
-            c"The Revolt classes are registered by a revolt-rs copy whose embedding ABI is incompatible with the one in the mongodb extension (an older revolt extension?): MongoDB driver calls block instead of suspending fibers".as_ptr(),
-        );
+    if revolt_rs::embed::active().is_some() {
+        return true;
     }
+    let (module, found) = owner();
+    let msg = format!(
+        "mongodb cannot start: the Revolt classes belong to an incompatible revolt extension loaded before it ({module}): {found}, mongodb requires {major}.{minor} or a later {major}.x (at least {size} bytes). Load a revolt extension built with a compatible revolt-rs, or none\0",
+        major = revolt_rs::embed::ABI_MAJOR,
+        minor = revolt_rs::embed::ABI_MINOR,
+        size = std::mem::size_of::<Abi>(),
+    );
+    sys::php_error_docref(null_mut(), sys::E_CORE_WARNING as i32, c"%s".as_ptr(), msg.as_ptr());
+    false
+}
+
+/// The extension that registered Revolt\EventLoop ("name" version) and what its revolt-rs
+/// embedding ABI table says, for the error of `minit`.
+unsafe fn owner() -> (String, String) {
+    let unknown = || ("unknown".to_owned(), "it has no revolt-rs embedding ABI table".to_owned());
+    let ct = (*crate::zend::cg()).class_table;
+    let z = sys::zend_hash_str_find(ct, c"revolt\\eventloop".as_ptr(), 16);
+    if z.is_null() {
+        return unknown();
+    }
+    let ce = (*z).value.ptr as *mut sys::zend_class_entry;
+    if (*ce).type_ != ZEND_INTERNAL_CLASS || (*ce).info.internal.module.is_null() {
+        return unknown();
+    }
+    let m = (*ce).info.internal.module;
+    let text = |p: *const std::ffi::c_char| if p.is_null() { String::new() } else { std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() };
+    let module = format!("\"{}\" {}", text((*m).name), text((*m).version));
+    let table = if (*m).handle.is_null() { null_mut() } else { symbol((*m).handle, c"revolt_rs_abi_v1") };
+    if table.is_null() {
+        return (module, "it has no revolt-rs embedding ABI table".to_owned());
+    }
+    // the header (size, major, minor) is the same in every version of the table
+    let t = table as *const Abi;
+    let found = format!("its revolt-rs embedding ABI is {}.{} (a {}-byte table)", (*t).abi_major, (*t).abi_minor, (*t).size);
+    (module, found)
+}
+
+/// zend_class_entry.type of an internal class
+const ZEND_INTERNAL_CLASS: std::ffi::c_char = 1;
+
+/// A symbol of a loaded extension (its zend_module_entry's handle).
+#[cfg(unix)]
+unsafe fn symbol(handle: *mut c_void, name: &std::ffi::CStr) -> *mut c_void {
+    libc::dlsym(handle, name.as_ptr())
+}
+
+#[cfg(windows)]
+unsafe fn symbol(handle: *mut c_void, name: &std::ffi::CStr) -> *mut c_void {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetProcAddress(module: *mut c_void, name: *const std::ffi::c_char) -> *mut c_void;
+    }
+    GetProcAddress(handle, name.as_ptr())
 }
 
 /// RINIT of the embedded revolt-rs.

@@ -141,8 +141,9 @@ jobs:
           PHPT_TESTS="$(echo tests/local/fiber-*.phpt)" tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers.xml"
 
       # on one Linux job: the revolt extension (revolt-rs at the commit Cargo.lock pins) loaded
-      # with this one, in both orders (one loop either way); and revolt/event-loop's own suite
-      # (revolt-rs's copy) against this extension alone
+      # with this one, in both orders (one loop either way); builds of it with an incompatible
+      # embedding ABI loaded first (this extension refuses to start); and revolt/event-loop's own
+      # suite (revolt-rs's copy) against this extension alone
       - name: Revolt modes (revolt extension, revolt/event-loop's suite)
         id: modes
         if: matrix.os == 'ubuntu-24.04' && matrix.php == '8.4' && matrix.topology == 'server' && !matrix.ts
@@ -154,9 +155,14 @@ jobs:
           git clone -q https://github.com/danog/revolt-rs "$RUNNER_TEMP/revolt-rs"
           git -C "$RUNNER_TEMP/revolt-rs" checkout -q "$rev"
           (cd "$RUNNER_TEMP/revolt-rs" && PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --locked --profile fast -p revolt-ext)
+          for f in major size; do
+            (cd "$RUNNER_TEMP/revolt-rs" && CARGO_TARGET_DIR=target/abi-$f PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --locked --profile fast -p revolt-ext --features revolt-rs/test-abi-$f-mismatch)
+          done
           rext=$RUNNER_TEMP/revolt-rs/target/fast/librevolt.so
           PHPT_TESTS=$fibers PHPT_EXTRA="-d extension=$rext" tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers-revolt-after.xml"
           PHPT_TESTS=$fibers PHPT_EXTRA="-d extension=$EXT" tools/ci/run-phpt.sh "$rext" "$CLUSTER_URI" "$PWD/fibers-revolt-before.xml"
+          REVOLT_EXT_ABI_MAJOR=$RUNNER_TEMP/revolt-rs/target/abi-major/fast/librevolt.so REVOLT_EXT_ABI_SIZE=$RUNNER_TEMP/revolt-rs/target/abi-size/fast/librevolt.so \
+            PHPT_TESTS=tests/local/revolt-abi-mismatch-001.phpt tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/revolt-abi.xml"
           (cd "$RUNNER_TEMP/revolt-rs/tests" && composer install --no-interaction --no-progress -q)
           (cd "$RUNNER_TEMP/revolt-rs" && EXT=$EXT PHP=php REVOLT_TEST_SCAN_DIR=1 tools/test.sh --log-junit "$GITHUB_WORKSPACE/revolt-suite.xml") || true
 
@@ -170,6 +176,7 @@ jobs:
           if [ "${{ steps.modes.outcome }}" != skipped ]; then
             suites+=("Fibers, revolt extension loaded after" fibers-revolt-after.xml
               "Fibers, revolt extension loaded before" fibers-revolt-before.xml
+              "Incompatible revolt extension loaded before" revolt-abi.xml
               "revolt/event-loop's suite against this extension" revolt-suite.xml)
           fi
           python3 tools/ci/junit-summary.py "${suites[@]}"
@@ -182,6 +189,7 @@ jobs:
             phpt.xml
             phplib.xml
             fibers*.xml
+            revolt-abi.xml
             revolt-suite.xml
           if-no-files-found: ignore
 

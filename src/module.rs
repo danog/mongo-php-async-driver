@@ -102,7 +102,10 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
     crate::zend::obj::init_std();
     crate::gen::api::register_all();
     sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
-    crate::driver::aio::minit(module_number);
+    if !crate::driver::aio::minit(module_number) {
+        // PHP reports "Unable to start mongodb module" and does not start
+        return sys::ZEND_RESULT_CODE_FAILURE;
+    }
     sys::zend_register_string_constant(c"MONGODB_STABILITY".as_ptr(), 17, c"stable".as_ptr(), CONST_PERSISTENT, module_number);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
