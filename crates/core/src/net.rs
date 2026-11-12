@@ -169,16 +169,13 @@ pub struct Conn {
     pub compressor: Option<(u8, i32)>,
 }
 
-/// Forgets the socket's registration with this thread's reactor when its owner drops it
-/// (crate::reactor: a socket that reuses its number must be registered anew). Windows has no
-/// reactor.
-#[cfg_attr(windows, allow(dead_code))]
+/// Tells the event-loop backend that the socket closes when its owner drops it
+/// (crate::aio::forget: a socket that reuses its number must be registered anew).
 struct Unregister(crate::os::RawSock);
 
 impl Drop for Unregister {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        crate::reactor::forget(self.0);
+        crate::aio::forget(self.0);
     }
 }
 

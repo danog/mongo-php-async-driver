@@ -30,6 +30,9 @@ pub struct Backend {
     pub unpark: fn(u64),
     /// The current fiber's identity (0: {main}).
     pub current: fn() -> usize,
+    /// A socket the waits may have watched is about to be closed (its registration must go: a
+    /// socket that reuses its number is a new one).
+    pub forget: fn(crate::os::RawSock),
 }
 
 static BACKEND: AtomicPtr<Backend> = AtomicPtr::new(std::ptr::null_mut());
@@ -147,6 +150,15 @@ pub fn current() -> usize {
     backend().map_or(0, |b| (b.current)())
 }
 
+/// A socket of the driver is about to be closed: the backend forgets what it registered for it.
+/// Every owner of a socket the waits may watch calls it before closing it (net::Conn,
+/// [`WaitStream`]).
+pub fn forget(fd: crate::os::RawSock) {
+    if let Some(b) = backend() {
+        (b.forget)(fd);
+    }
+}
+
 /// Resumes a [`park`]ed caller.
 pub fn unpark(id: u64) {
     if let Some(b) = backend() {
@@ -231,8 +243,7 @@ impl WaitStream {
 impl Drop for WaitStream {
     fn drop(&mut self) {
         // before the socket closes: a socket reusing its number must be registered anew
-        #[cfg(unix)]
-        crate::reactor::forget(crate::os::raw(&self.sock));
+        forget(crate::os::raw(&self.sock));
     }
 }
 
@@ -325,5 +336,83 @@ impl io::Write for Socket {
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    thread_local! {
+        static FORGOTTEN: std::cell::RefCell<Vec<crate::os::RawSock>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    fn no() -> bool {
+        false
+    }
+
+    /// A backend that never suspends and records the sockets it is told about.
+    static RECORDING: Backend = Backend {
+        active: no,
+        poll: |fds, d| crate::net::poll_fds(fds, d),
+        sleep: |d| {
+            std::thread::sleep(d);
+            Ok(())
+        },
+        require: || Ok(()),
+        park: |_, _| Ok(false),
+        unpark: |_| {},
+        current: || 0,
+        forget: |fd| FORGOTTEN.with_borrow_mut(|f| f.push(fd)),
+    };
+
+    fn forgotten(fd: crate::os::RawSock) -> bool {
+        FORGOTTEN.with_borrow_mut(|f| std::mem::take(f)).contains(&fd)
+    }
+
+    /// Every socket owner of the driver tells the backend before it closes its socket: a socket
+    /// that gets the number of a closed, registered one must be registered anew, or it never
+    /// reports.
+    #[test]
+    fn closed_sockets_are_forgotten() {
+        set_backend(Some(&RECORDING));
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        // a blocking connection (net::Conn::connect)
+        let c = crate::net::Conn::connect("127.0.0.1", addr.port(), Some(Duration::from_secs(5))).unwrap();
+        let fd = c.raw_fd();
+        drop(c);
+        assert!(forgotten(fd), "Conn::connect");
+        // a server check's connection (net::Conn::connect_nonblocking), also over TLS
+        let c = crate::net::Conn::connect_nonblocking(addr, "x").unwrap();
+        let fd = c.raw_fd();
+        drop(c);
+        assert!(forgotten(fd), "Conn::connect_nonblocking");
+        let c = crate::net::Conn::connect_nonblocking(addr, "x").unwrap();
+        let fd = c.raw_fd();
+        let config = std::sync::Arc::new(rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(rustls_graviola::default_provider())).with_safe_default_protocol_versions().unwrap().with_root_certificates(rustls::RootCertStore::empty()).with_no_client_auth());
+        let c = c.tls_begin(config, rustls::pki_types::ServerName::try_from("localhost").unwrap()).unwrap();
+        assert!(!forgotten(fd));
+        drop(c);
+        assert!(forgotten(fd), "Conn::tls_begin");
+        // a UNIX domain socket connection (net::Conn::connect_unix)
+        #[cfg(unix)]
+        {
+            let dir = std::env::temp_dir().join(format!("mdrop-aio-{}", std::process::id()));
+            let _ = std::fs::remove_file(&dir);
+            let ul = std::os::unix::net::UnixListener::bind(&dir).unwrap();
+            let c = crate::net::Conn::connect_unix(dir.to_str().unwrap()).unwrap();
+            let fd = c.raw_fd();
+            drop(c);
+            assert!(forgotten(fd), "Conn::connect_unix");
+            drop(ul);
+            let _ = std::fs::remove_file(&dir);
+        }
+        // the KMS / HTTP sockets (WaitStream; connect wraps the socket before it waits)
+        let w = connect(&addr, Duration::from_secs(5)).unwrap();
+        let fd = crate::os::raw(&w.sock);
+        drop(w);
+        assert!(forgotten(fd), "aio::WaitStream");
     }
 }

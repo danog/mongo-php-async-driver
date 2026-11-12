@@ -51,9 +51,8 @@ unsafe extern "C" fn on_update_main_event_loop(
 }
 
 const PHP_INI_ALL: u8 = 7;
-const PHP_INI_SYSTEM: u8 = 4;
 
-static INI: zend::Static<[sys::zend_ini_entry_def; 4]> = zend::Static([
+static INI: zend::Static<[sys::zend_ini_entry_def; 3]> = zend::Static([
     sys::zend_ini_entry_def {
         name: c"mongodb.debug".as_ptr(),
         on_modify: Some(on_update_debug),
@@ -79,22 +78,6 @@ static INI: zend::Static<[sys::zend_ini_entry_def; 4]> = zend::Static([
         value_length: 1,
         name_length: 23,
         modifiable: PHP_INI_ALL,
-    },
-    // whether the embedded revolt-rs (the native Revolt event loop) is used: it registers the
-    // Revolt classes at MINIT (unless another copy did) and the waits on its drivers skip PHP
-    // calls (On); Off: no classes registered, Revolt (the PHP library, or the revolt
-    // extension) is reached through PHP calls only
-    sys::zend_ini_entry_def {
-        name: c"mongodb.native_event_loop".as_ptr(),
-        on_modify: None,
-        mh_arg1: null_mut(),
-        mh_arg2: null_mut(),
-        mh_arg3: null_mut(),
-        value: c"1".as_ptr(),
-        displayer: None,
-        value_length: 1,
-        name_length: 25,
-        modifiable: PHP_INI_SYSTEM,
     },
     sys::zend_ini_entry_def {
         name: null(),
