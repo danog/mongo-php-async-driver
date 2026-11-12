@@ -95,12 +95,13 @@ includes the server's work.
   (ext-mongodb: 12.9k). With 50 or 200 concurrent fibers, 43–44k operations/s with
   `maxPoolSize=4` and 54–56k with 32: 3.3–4.3× what ext-mongodb does one call at a time. The single
   client core is the limit.
-- **`{main}` through the event loop:** once the loop is in use, every network wait of a `{main}`
-  call goes through it (see [Event loops](#event-loops) below). With the built-in loop this adds
-  0.4–0.6 µs of CPU per small operation on macOS and 0.6–1.3 µs on Linux: one `kevent()` /
-  `epoll_wait()` on the loop's own poller, where the driver's sockets are registered, before the
-  receive. With `mongodb.main_event_loop=0`, `{main}` calls take the plain synchronous path of the
-  table above while fibers keep using the loop.
+- **`{main}` through the event loop:** once the loop is in use and has something else to do (a
+  timer, a watcher, a fiber waiting), every network wait of a `{main}` call goes through it (see
+  [Event loops](#event-loops) below). With the built-in loop this adds 0.4–0.7 µs of CPU per small
+  operation on macOS and 1.3 µs on Linux: one `kevent()` / `epoll_wait()` on the loop's own
+  poller, where the driver's sockets are registered, before the receive. On an idle loop, or with
+  `mongodb.main_event_loop=0`, `{main}` calls take the plain synchronous path of the table above
+  (fibers keep using the loop).
 
 **Why it is faster.** Per `findOne`, this driver makes 2 system calls (one send, one receive);
 ext-mongodb makes 8 (3 receives, 3 `getpid`, a `poll` and a send). An insert of 10 documents
@@ -118,7 +119,7 @@ none on string comparisons.
 The built-in loop (revolt-rs) against the previous version (338845e, whose loop watched a
 separate epoll/kqueue instance of the driver's) and against the revolt/event-loop PHP library
 (the previous version with `mongodb.native_event_loop=0`, which this version no longer has),
-measured on 2026-11-12 at 7dd7223 with `tools/bench/revolt.sh`: PHP 8.4 CLI, release builds, one
+measured on 2026-11-12 at 6277cd7 with `tools/bench/revolt.sh`: PHP 8.4 CLI, release builds, one
 process per measurement (5,000 `{main}` calls, or 20,000 calls shared by the fibers, after a
 warm-up), the configurations alternating with their order rotated every round, 9 rounds, medians
 of the client's CPU time (user + system) per operation.
@@ -132,48 +133,51 @@ of the client's CPU time (user + system) per operation.
 
 | Configuration | `ping` | `findOne` | `insertOne` |
 |---|---|---|---|
-| Revolt not used (`EventLoop` untouched): the synchronous path | 9.7 / 19.6 | 11.9 / 20.3 | 11.7 / 20.2 |
-| loop in use, `main_event_loop=0`: the synchronous path | 9.8 / 19.4 | 11.9 / 20.2 | 11.8 / 20.2 |
-| loop in use: through the loop | **10.6 / 19.8** | **13.2 / 20.8** | **12.4 / 20.7** |
-| previous version, Revolt not used | 9.6 / 19.2 | 12.0 / 20.3 | 11.3 / 20.1 |
-| previous version, through its loop | 12.1 / 20.8 | 15.1 / 21.5 | 13.7 / 21.3 |
-| PHP library (`StreamSelectDriver`), through the loop | 21.2 / 26.2 | 24.3 / 27.0 | 23.9 / 26.7 |
+| Revolt not used (`EventLoop` untouched): the synchronous path | 9.5 / 18.8 | 11.9 / 19.9 | 11.7 / 19.7 |
+| loop in use, `main_event_loop=0`: the synchronous path | 9.7 / 18.8 | 11.8 / 19.9 | 11.7 / 19.7 |
+| loop in use, idle: the synchronous path | **9.7 / 19.0** | **12.1 / 19.9** | **12.0 / 19.7** |
+| loop in use with other work (an unreferenced timer): through the loop | **11.0 / 19.5** | **13.1 / 20.4** | **13.1 / 20.1** |
+| previous version, Revolt not used | 9.7 / 19.1 | 12.2 / 19.9 | 11.7 / 19.7 |
+| previous version, loop in use (idle or not): through the loop | 12.2 / 20.4 | 14.7 / 21.3 | 14.1 / 20.9 |
+| PHP library (`StreamSelectDriver`), through the loop | 21.7 / 25.8 | 24.8 / 26.4 | 24.6 / 26.2 |
 
 Fibers (`EventLoop::queue()`, then `EventLoop::run()`; default `maxPoolSize`), CPU per operation
 (µs): built-in loop / previous version / PHP library, Linux:
 
 | Fibers | `ping` | `findOne` | `insertOne` |
 |---|---|---|---|
-| 1 | 11.8 / 12.6 / 24.5 | 14.5 / 15.6 / 27.5 | 13.9 / 14.7 / 26.8 |
-| 10 | 9.7 / 8.4 / 11.6 | 13.3 / 13.6 / 15.4 | 13.5 / 13.2 / 14.4 |
-| 50 | 8.9 / 8.8 / 11.1 | 11.9 / 12.2 / 14.7 | 12.1 / 12.4 / 15.5 |
-| 200 | 10.4 / 10.8 / 14.7 | 13.8 / 14.0 / 18.4 | 13.8 / 14.2 / 18.3 |
+| 1 | 12.1 / 13.0 / 24.3 | 14.5 / 15.7 / 27.3 | 14.2 / 15.4 / 26.6 |
+| 10 | 9.4 / 10.1 / 12.3 | 12.8 / 10.2 / 14.2 | 13.2 / 13.6 / 17.8 |
+| 50 | 8.8 / 9.5 / 11.4 | 11.5 / 12.6 / 15.4 | 12.1 / 11.8 / 14.9 |
+| 200 | 10.4 / 10.7 / 15.0 | 14.0 / 14.4 / 18.9 | 13.8 / 14.0 / 18.5 |
 
 macOS:
 
 | Fibers | `ping` | `findOne` | `insertOne` |
 |---|---|---|---|
-| 1 | 20.3 / 20.9 / 27.3 | 21.2 / 21.7 / 28.2 | 21.1 / 21.6 / 27.7 |
-| 10 | 17.5 / 17.7 / 19.9 | 19.0 / 19.1 / 21.2 | 19.2 / 19.3 / 21.2 |
-| 50 | 14.6 / 14.9 / 15.7 | 15.5 / 15.5 / 16.7 | 15.6 / 15.6 / 16.9 |
-| 200 | 15.5 / 15.4 / 18.7 | 16.5 / 16.4 / 19.7 | 15.9 / 16.2 / 19.2 |
+| 1 | 19.9 / 20.5 / 26.6 | 21.0 / 21.4 / 27.6 | 20.8 / 21.4 / 27.4 |
+| 10 | 17.3 / 17.7 / 19.6 | 18.9 / 19.0 / 21.1 | 19.0 / 19.2 / 21.1 |
+| 50 | 14.4 / 14.7 / 15.6 | 15.2 / 15.3 / 16.7 | 15.1 / 15.3 / 16.6 |
+| 200 | 15.1 / 15.3 / 18.1 | 15.5 / 15.8 / 18.4 | 15.5 / 15.6 / 18.4 |
 
 - **The driver's sockets live in the loop's poller:** registered edge-triggered once (at their
   first wait, per request), handed to the driver in one batch per poll. A `{main}` `ping` through
-  the loop makes 3 system calls on Linux (send, `epoll_wait`, receive; the previous version 4: its
-  own epoll instance was drained after the loop's poll) against 2 on the synchronous path; with 50
-  or 200 fibers, fewer than 0.2 `epoll_wait` per operation.
-- **No cost when the loop is not used,** or with `main_event_loop=0`: the same synchronous path as
-  before (differences of 1–3% either way between rounds).
-- **Through the loop,** `{main}` calls cost 0.6–1.3 µs of CPU more than the synchronous path on
-  Linux (the previous version: 2.4–3.1 µs) and 0.4–0.6 µs on macOS (1.2–1.6 µs); the PHP library
-  costs 12 µs and 6.5–7 µs more.
-- **Fibers:** 5–7% less CPU than the previous version in one fiber on Linux, 2–3% on macOS; at 10
-  to 200 fibers the same within 1%, or less (10 fibers on Linux: each process runs at one of two
-  speeds whatever the build, 7.6–10.5 µs per `ping`, so single medians move by ±15%; there the
-  instructions per operation, user and kernel, are 1–2% fewer than the previous version's). On
-  macOS the wall time at 200 fibers is 3–4% higher than the previous version's (CPU the same).
-  Against the PHP library: 19–29% less CPU on Linux and 7–17% on macOS from 50 fibers on.
+  a loop with other work makes 3 system calls on Linux (send, `epoll_wait`, receive; the previous
+  version 4: its own epoll instance was drained after the loop's poll); with 50 or 200 fibers,
+  fewer than 0.2 `epoll_wait` per operation.
+- **An idle loop costs nothing:** while the loop has nothing else to do (no enabled callback,
+  referenced or not, nothing queued, no other wait of the driver), a `{main}` call blocks in its
+  own send and receive, as without a loop: 2 system calls per `ping`, the same CPU time within
+  noise. So does a call before the loop is used, or with `main_event_loop=0`.
+- **Through a loop with work,** `{main}` calls cost 1.3 µs of CPU more than the synchronous path on
+  Linux (the previous version: 2.2–3.0 µs) and 0.4–0.7 µs on macOS (1.3–1.5 µs); the PHP library
+  costs 12–13 µs and 6.5 µs more.
+- **Fibers:** 7–8% less CPU than the previous version in one fiber on Linux, 2–3% on macOS; at 10
+  to 200 fibers the same or less (on Linux each process with 10 fibers runs at one of two speeds
+  whatever the build, so single medians move by up to ±25%, as `findOne` here; there, and for the
+  `insertOne` row at 50, the instructions per operation are 1–2% fewer than the previous
+  version's). Against the PHP library: 19–31% less CPU on Linux and 8–16% on macOS from 50 fibers
+  on.
 - `EventLoop::setDriver()` is refused, so these are always the numbers of the built-in loop.
 
 The scripts are in `tools/bench/` (`rtt.php`, `bson.php`, `fromjson.php`, `handshake.php`,
@@ -226,7 +230,8 @@ for the network, and other fibers run meanwhile.
   suspending, with a startup warning.
 - **`{main}`:** once the loop is in use, calls in `{main}` also wait through it, so timers,
   watchers and other fibers keep running: once `EventLoop` has a driver (any `EventLoop::` call
-  made it). Before that, `{main}` calls block exactly as with ext-mongodb. Set
+  made it) and has something else to do (a callback, referenced or not, or a fiber waiting in the
+  driver); on an idle loop they block as without one, at the same cost. Before that, `{main}` calls block exactly as with ext-mongodb. Set
   `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to keep `{main}` calls
   blocking even then: they take the plain synchronous path (see Performance). Calls inside
   fibers always go through the loop. Mixing is safe: fibers
