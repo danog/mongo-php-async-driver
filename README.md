@@ -8,8 +8,8 @@ unchanged, and concurrent driver calls run at the same time.
 - **Async, with no code changes:** a driver call inside a `Fiber` suspends only that fiber while
   it waits for the network, so other fibers and Revolt's timers and watchers keep running. The
   Revolt event loop is built in ([revolt-rs](https://github.com/danog/revolt-rs):
-  revolt/event-loop 1.0.9 in Rust), so nothing else is needed; the PHP library or the `revolt`
-  extension work too. Each concurrent operation gets its own pooled connection
+  revolt/event-loop 1.0.9 in Rust), so nothing else is needed; with the `revolt` extension
+  loaded too, both share one loop. The driver's sockets live in that loop's own poller. Each concurrent operation gets its own pooled connection
   (`maxPoolSize`): 50 to 200 concurrent fibers reach 43–56k operations/s on one core, 3.3–4.3×
   what ext-mongodb does one call at a time. Anything built on Revolt (Amp v3, for one) works.
   Calls in `{main}` wait through the loop too once it is in use, unless
@@ -208,19 +208,16 @@ for the network, and other fibers run meanwhile.
   projects that require danog/mongo-php-async-driver through Composer (Composer then does not
   install revolt/event-loop for them). Installed with PIE only, the project's dependencies are
   resolved as before.
-- **`mongodb.native_event_loop=0`** (php.ini or `-d` only: `PHP_INI_SYSTEM`) turns the embedded
-  loop off: no Revolt classes are registered, and Revolt comes from the revolt/event-loop
-  package (or the `revolt` extension), reached through PHP calls as in earlier versions; without
-  either, a driver call inside a fiber throws a `RuntimeException`. The extension looks the class
-  up by name and has no dependency on the package.
-- **Which driver:** the native path is taken whenever `EventLoop`'s current driver is one of
-  revolt-rs's own (`StreamSelectDriver`, `EvDriver`, `EventDriver`, `UvDriver`); a
-  `TracingDriver`, a user `Driver`, a PHP subclass of one, or the PHP library's drivers are
-  reached through PHP calls.
+- **One native loop:** `EventLoop::setDriver()` is refused (revolt-rs throws an
+  `UnsupportedFeatureException`): the loop always runs on its native driver, and the driver's
+  sockets live in that driver's own poller (epoll/kqueue, edge-triggered; WSAPoll on Windows),
+  next to whatever Amp or other code watches. A `TracingDriver` or a user `Driver` still works
+  when used directly, but never becomes the loop's driver. If a `revolt` extension too old for
+  this (another embedding ABI) registered the classes first, the driver's calls block instead of
+  suspending, with a startup warning.
 - **`{main}`:** once the loop is in use, calls in `{main}` also wait through it, so timers,
-  watchers and other fibers keep running: with the native classes, once `EventLoop` has a
-  driver (any `EventLoop::` call made it); with the PHP library, once its `Revolt\EventLoop` is
-  loaded. Before that, `{main}` calls block exactly as with ext-mongodb. Set
+  watchers and other fibers keep running: once `EventLoop` has a driver (any `EventLoop::` call
+  made it). Before that, `{main}` calls block exactly as with ext-mongodb. Set
   `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to keep `{main}` calls
   blocking even then: they take the plain synchronous path (see Performance). Calls inside
   fibers always go through the loop. Mixing is safe: fibers
