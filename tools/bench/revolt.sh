@@ -1,44 +1,44 @@
 #!/bin/bash
 # The event loops compared (README, Performance): tools/bench/revolt.php in several configurations,
 # alternating (the order rotates every round), many rounds; prints the medians per configuration.
-#   revolt.sh <uri> <rounds> <new .so> [old .so]
-# Env: PHP (default php), REVOLT_AUTOLOAD (revolt/event-loop's vendor/autoload.php: the PHP
-# library configurations), EV (ev.so: the EvDriver configurations), MAIN_OPS (default 5000),
-# FIBER_OPS (default 20000), CASES (default "ping findOne insertOne"), OUT (raw results, default
-# revolt-bench.jsonl).
+#   revolt.sh <uri> <rounds> <new .so> [old .so] [library .so]
+# Env: PHP (default php), REVOLT_AUTOLOAD (revolt/event-loop's vendor/autoload.php: the library
+# configurations), EV (ev.so: the EvDriver configuration), MAIN_OPS (default 5000), FIBER_OPS
+# (default 20000), CASES (default "ping findOne insertOne"), FIBERS (default "1 10 50 200"), OUT
+# (raw results, default revolt-bench.jsonl).
 # Configurations ({main}: every one; fibers: those that have a loop):
-#   old        [old .so] Revolt not loaded: its synchronous path
-#   sync       mongodb.native_event_loop=0, no Revolt at all: the synchronous path
-#   idle       the embedded loop registered but never used (EventLoop untouched): synchronous
-#   native     the embedded loop in use
-#   native-m0  the embedded loop in use, mongodb.main_event_loop=0
-#   native-ev  the embedded loop in use, ext-ev loaded
-#   lib        mongodb.native_event_loop=0 and revolt/event-loop (StreamSelectDriver)
+#   idle       the built-in loop registered but never used (EventLoop untouched): synchronous
+#   native     the built-in loop in use
+#   native-m0  the built-in loop in use, mongodb.main_event_loop=0
+#   native-ev  the built-in loop in use, ext-ev loaded
+#   old-*      the same with [old .so] (an earlier build, to compare with)
+#   lib        [library .so] (a build that still has mongodb.native_event_loop, e.g. 0.1.2) with
+#              mongodb.native_event_loop=0 and revolt/event-loop (StreamSelectDriver)
 #   lib-m0     the same, mongodb.main_event_loop=0
-#   lib-ev     mongodb.native_event_loop=0 and revolt/event-loop with ext-ev (EvDriver)
 set -e
-uri=$1; rounds=$2; new=$3; old=${4:-}
+uri=$1; rounds=$2; new=$3; old=${4:-}; lib=${5:-}
 PHP=${PHP:-php}
 OUT=${OUT:-revolt-bench.jsonl}
 DIR=$(cd "$(dirname "$0")" && pwd)
 : > "$OUT"
 args() { # config -> php arguments (and the <loop> argument last)
   case $1 in
-    old) echo "-d extension=$old none" ;;
-    sync) echo "-d extension=$new -d mongodb.native_event_loop=0 none" ;;
     idle) echo "-d extension=$new none" ;;
     native) echo "-d extension=$new used" ;;
     native-m0) echo "-d extension=$new -d mongodb.main_event_loop=0 used" ;;
     native-ev) echo "-d extension=$new -d extension=$EV used" ;;
-    lib) echo "-d extension=$new -d mongodb.native_event_loop=0 used" ;;
-    lib-m0) echo "-d extension=$new -d mongodb.native_event_loop=0 -d mongodb.main_event_loop=0 used" ;;
-    lib-ev) echo "-d extension=$new -d mongodb.native_event_loop=0 -d extension=$EV used" ;;
+    old-idle) echo "-d extension=$old none" ;;
+    old-native) echo "-d extension=$old used" ;;
+    old-m0) echo "-d extension=$old -d mongodb.main_event_loop=0 used" ;;
+    lib) echo "-d extension=$lib -d mongodb.native_event_loop=0 used" ;;
+    lib-m0) echo "-d extension=$lib -d mongodb.native_event_loop=0 -d mongodb.main_event_loop=0 used" ;;
   esac
 }
-main_cfgs=(sync idle native native-m0 lib lib-m0)
-fiber_cfgs=(native lib)
-[ -n "$old" ] && main_cfgs=(old "${main_cfgs[@]}")
-[ -n "$EV" ] && { main_cfgs+=(native-ev lib-ev); fiber_cfgs+=(native-ev lib-ev); }
+main_cfgs=(idle native native-m0)
+fiber_cfgs=(native)
+[ -n "$old" ] && { main_cfgs+=(old-idle old-native old-m0); fiber_cfgs+=(old-native); }
+[ -n "$lib" ] && { main_cfgs+=(lib lib-m0); fiber_cfgs+=(lib); }
+[ -n "$EV" ] && { main_cfgs+=(native-ev); fiber_cfgs+=(native-ev); }
 run() { # round config case fibers ops
   local a; a=($(args "$2"))
   local loop=${a[${#a[@]}-1]}; unset 'a[${#a[@]}-1]'
@@ -52,7 +52,7 @@ rotate() { # round, list... -> the list rotated by round
 for ((round = 0; round < rounds; round++)); do
   for c in ${CASES:-ping findOne insertOne}; do
     for cfg in $(rotate $round "${main_cfgs[@]}"); do run $round "$cfg" $c 0 "${MAIN_OPS:-5000}"; done
-    for f in 1 10 50 200; do
+    for f in ${FIBERS:-1 10 50 200}; do
       for cfg in $(rotate $round "${fiber_cfgs[@]}"); do run $round "$cfg" $c $f "${FIBER_OPS:-20000}"; done
     done
   done
@@ -65,6 +65,6 @@ groups = {}
 for r in rows:
     groups.setdefault((r['fibers'], r['case'], r['config']), []).append(r)
 print('%-8s %-10s %-10s %-18s %12s %12s' % ('fibers', 'case', 'config', 'driver', 'CPU ns/op', 'wall ns/op'))
-for (f, c, cfg), rs in sorted(groups.items(), key=lambda kv: (kv[0][0], ['ping', 'findOne', 'insertOne'].index(kv[0][1]))):
+for (f, c, cfg), rs in sorted(groups.items(), key=lambda kv: (kv[0][0], ['ping', 'findOne', 'insertOne'].index(kv[0][1]), kv[0][2])):
     print('%-8s %-10s %-10s %-18s %12d %12d' % (f or '{main}', c, cfg, rs[0]['driver'], statistics.median(r['cpu_ns_per_op'] for r in rs), statistics.median(r['ns_per_op'] for r in rs)))
 PY

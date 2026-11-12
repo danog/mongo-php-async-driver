@@ -1,10 +1,11 @@
 <?php
 // The event loops compared: one measurement per process, so that each runs with its own INI and
 // Revolt (tools/bench/revolt.sh runs them alternately, many rounds).
-//   php -n -d extension=<so> [-d mongodb.native_event_loop=0] [-d mongodb.main_event_loop=0]
-//       [-d extension=ev.so] tools/bench/revolt.php <uri> <loop> <case> <fibers> <ops>
-// <loop>: "used" (EventLoop::getDriver() first: the loop is in use; with mongodb.native_event_loop=0
-// the PHP library from REVOLT_AUTOLOAD), or "none" (Revolt not touched: no PHP library loaded).
+//   php -n -d extension=<so> [-d mongodb.main_event_loop=0] [-d extension=ev.so]
+//       tools/bench/revolt.php <uri> <loop> <case> <fibers> <ops>
+// <loop>: "used" (EventLoop::getDriver() first: the loop is in use; an older build without the
+// built-in classes (mongodb.native_event_loop=0) gets the PHP library from REVOLT_AUTOLOAD), or
+// "none" (Revolt not touched).
 // <case>: ping, findOne or insertOne. <fibers>: 0 = sequential calls in {main}, else that many
 // fibers sharing the <ops> calls (EventLoop::queue(), then EventLoop::run()).
 // One JSON line: the Revolt driver, wall and CPU (user + system) ns per operation.
