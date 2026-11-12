@@ -3,19 +3,15 @@
 # alternating (the order rotates every round), many rounds; prints the medians per configuration.
 #   revolt.sh <uri> <rounds> <new .so> [old .so] [library .so]
 # Env: PHP (default php), REVOLT_AUTOLOAD (revolt/event-loop's vendor/autoload.php: the library
-# configurations), EV (ev.so: the EvDriver configuration), MAIN_OPS (default 5000), FIBER_OPS
-# (default 20000), CASES (default "ping findOne insertOne"), FIBERS (default "1 10 50 200"), OUT
-# (raw results, default revolt-bench.jsonl).
+# configuration), MAIN_OPS (default 5000), FIBER_OPS (default 20000), CASES (default "ping findOne
+# insertOne"), FIBERS (default "1 10 50 200"), OUT (raw results, default revolt-bench.jsonl).
 # Configurations ({main}: every one; fibers: those that have a loop):
 #   idle       the built-in loop registered but never used (EventLoop untouched): synchronous
 #   native     the built-in loop in use, idle otherwise ({main} blocks as without a loop)
 #   busy       the built-in loop in use with other work (an unreferenced timer): {main} through it
-#   native-ev  the built-in loop in use, ext-ev loaded
-#   old-*      the same with [old .so] (an earlier build, to compare with); old-m0: the loop in use
-#              with mongodb.main_event_loop=0, for a build that still has that setting
+#   old-*      the same with [old .so] (an earlier build, to compare with)
 #   lib        [library .so] (a build that still has mongodb.native_event_loop, e.g. 0.1.2) with
 #              mongodb.native_event_loop=0 and revolt/event-loop (StreamSelectDriver)
-#   lib-m0     the same, mongodb.main_event_loop=0 (that build's setting)
 set -e
 uri=$1; rounds=$2; new=$3; old=${4:-}; lib=${5:-}
 PHP=${PHP:-php}
@@ -27,20 +23,16 @@ args() { # config -> php arguments (and the <loop> argument last)
     idle) echo "-d extension=$new none" ;;
     native) echo "-d extension=$new used" ;;
     busy) echo "-d extension=$new busy" ;;
-    native-ev) echo "-d extension=$new -d extension=$EV used" ;;
     old-idle) echo "-d extension=$old none" ;;
     old-native) echo "-d extension=$old used" ;;
     old-busy) echo "-d extension=$old busy" ;;
-    old-m0) echo "-d extension=$old -d mongodb.main_event_loop=0 used" ;;
     lib) echo "-d extension=$lib -d mongodb.native_event_loop=0 used" ;;
-    lib-m0) echo "-d extension=$lib -d mongodb.native_event_loop=0 -d mongodb.main_event_loop=0 used" ;;
   esac
 }
 main_cfgs=(idle native busy)
 fiber_cfgs=(native)
-[ -n "$old" ] && { main_cfgs+=(old-idle old-native old-busy old-m0); fiber_cfgs+=(old-native); }
-[ -n "$lib" ] && { main_cfgs+=(lib lib-m0); fiber_cfgs+=(lib); }
-[ -n "$EV" ] && { main_cfgs+=(native-ev); fiber_cfgs+=(native-ev); }
+[ -n "$old" ] && { main_cfgs+=(old-idle old-native old-busy); fiber_cfgs+=(old-native); }
+[ -n "$lib" ] && { main_cfgs+=(lib); fiber_cfgs+=(lib); }
 run() { # round config case fibers ops
   local a; a=($(args "$2"))
   local loop=${a[${#a[@]}-1]}; unset 'a[${#a[@]}-1]'

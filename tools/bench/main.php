@@ -1,6 +1,6 @@
 <?php
 // Sequential operations in {main}, with or without Revolt loaded.
-// [RTT_REVOLT=<revolt autoload.php>] php -n -d extension=<so> [-d extension=ev.so|uv.so] main.php <uri> <n> <rounds> <case>
+// [RTT_REVOLT=<revolt autoload.php>] php -n -d extension=<so> main.php <uri> <n> <rounds> <case>
 // One JSON line: Revolt driver, best-round wall ns/op, user and sys CPU ns/op (of the lowest-CPU round).
 [$uri, $n, $rounds, $case] = [$argv[1], (int) $argv[2], (int) $argv[3], $argv[4]];
 $rv = (string) getenv("RTT_REVOLT");
