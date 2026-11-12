@@ -171,14 +171,21 @@ fn class_count() -> u32 {
     unsafe { (*(*crate::zend::eg()).class_table).nNumOfElements }
 }
 
-/// mongodb.main_event_loop (PHP's INI table: per thread under ZTS).
-fn main_event_loop() -> bool {
-    // orig: false (an int before PHP 8.6, a bool since)
-    unsafe { sys::zend_ini_long(c"mongodb.main_event_loop".as_ptr(), 23, Default::default()) != 0 }
+thread_local! {
+    /// mongodb.main_event_loop, as its INI handler last set it on this thread (PHP calls it at
+    /// startup, for every new ZTS thread, and at every change)
+    static MAIN_EVENT_LOOP: Cell<bool> = const { Cell::new(true) };
 }
 
-/// mongodb.main_event_loop was changed: the remembered "no event loop in {main}" no longer holds.
-pub fn main_event_loop_changed() {
+/// mongodb.main_event_loop (read at every {main} wait: no INI table lookup).
+fn main_event_loop() -> bool {
+    MAIN_EVENT_LOOP.get()
+}
+
+/// mongodb.main_event_loop was set to `on`: the remembered "no event loop in {main}" no longer
+/// holds.
+pub fn main_event_loop_changed(on: bool) {
+    MAIN_EVENT_LOOP.set(on);
     mongo_core::aio::set_no_loop_at(u32::MAX);
 }
 

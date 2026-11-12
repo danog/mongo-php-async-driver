@@ -38,13 +38,15 @@ unsafe extern "C" fn on_update_debug(
 /// mongodb.main_event_loop changed: {main}'s synchronous fast path is re-evaluated at once.
 unsafe extern "C" fn on_update_main_event_loop(
     _entry: *mut sys::zend_ini_entry,
-    _new_value: *mut sys::zend_string,
+    new_value: *mut sys::zend_string,
     _a1: *mut c_void,
     _a2: *mut c_void,
     _a3: *mut c_void,
     _stage: c_int,
 ) -> sys::zend_result {
-    crate::driver::aio::main_event_loop_changed();
+    // zend_ini_long()'s reading of the value (ZEND_STRTOL, base 0)
+    let on = !new_value.is_null() && libc::strtoll((*new_value).val.as_ptr(), null_mut(), 0) != 0;
+    crate::driver::aio::main_event_loop_changed(on);
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
