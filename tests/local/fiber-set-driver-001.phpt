@@ -12,7 +12,7 @@ of the driver keeps the loop alive.
 <?php
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
-use Revolt\EventLoop\Driver\StreamSelectDriver;
+use Revolt\EventLoop\Driver\NativeDriver;
 use Revolt\EventLoop\UnsupportedFeatureException;
 $ns = 'mdrop_local.fiber_set_driver';
 $m = new Manager(getenv('MONGODB_URI'));
@@ -24,7 +24,7 @@ $ping = fn () => $m->executeCommand('admin', new Command(['ping' => 1]))->toArra
 $driver = EventLoop::getDriver();
 $swap = function (string $when) use ($driver) {
     try {
-        EventLoop::setDriver(new StreamSelectDriver);
+        EventLoop::setDriver(new NativeDriver);
         echo "$when: swapped\n";
     } catch (UnsupportedFeatureException $e) {
         echo "$when: refused, same driver: ", var_export(EventLoop::getDriver() === $driver, true), "\n";

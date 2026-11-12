@@ -4,7 +4,7 @@ Fibers: the native Revolt event loop (revolt-rs, embedded or the revolt extensio
 Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). The extension registers
 the Revolt classes at MINIT (revolt-rs, revolt/event-loop 1.0.9) unless another copy of
 revolt-rs (the revolt extension) did: either way there is one loop per thread, the one
-Revolt\EventLoop shows, always on its native driver (setDriver() is refused). The classes exist
+Revolt\EventLoop shows, always on its native driver (a NativeDriver; setDriver() is refused). The classes exist
 from the start, so {main} calls wait through the loop once it is in use (its driver exists)
 and has something else to do, and block before (or while it is idle). The driver's sockets are sources of that driver (no Revolt callback): only
 the deadline timer of a wait shows.
@@ -56,6 +56,7 @@ try {
 } catch (Revolt\EventLoop\UnsupportedFeatureException $e) {
     echo get_class($e), "\n";
 }
+echo get_class(EventLoop::getDriver()), "\n";
 $done = 0;
 for ($i = 0; $i < 3; $i++) {
     EventLoop::queue(function () use ($ping, &$done) {
@@ -80,6 +81,7 @@ timer ran during the {main} call: true
 fibers done during the {main} call: 4
 run() returned at once: true
 Revolt\EventLoop\UnsupportedFeatureException
+Revolt\EventLoop\Driver\NativeDriver
 float(1)
 fibers done after the refused swap: 3
 run() returned at once: true

@@ -25,7 +25,7 @@ ext-php-rs = { version = "=0.16.4", default-features = false, features = ["runti
 libc = "0.2"
 # the native Revolt event loop (revolt/event-loop 1.0.9 in Rust, MIT): registers the Revolt classes
 # at MINIT unless another copy did, and drives the driver's waits without PHP-level calls
-revolt-rs = { git = "https://github.com/danog/revolt-rs", rev = "ed382999a3284062f71a05e5d5185d214be51e4b" }
+revolt-rs = { git = "https://github.com/danog/revolt-rs", rev = "2b6f678923cb74c1232472d4ec4d40c443ff0ba1" }
 
 [workspace]
 members = ["crates/core", "crates/crypt"]
@@ -40,7 +40,7 @@ debug = 1
 # ext-php-rs-build accepting PHP 8.6's API number 20261112, as revolt-rs patches it (Cargo applies
 # only the root workspace's patches; see revolt-rs's patches/README.md)
 [patch.crates-io]
-ext-php-rs-build = { git = "https://github.com/danog/revolt-rs", rev = "ed382999a3284062f71a05e5d5185d214be51e4b" }
+ext-php-rs-build = { git = "https://github.com/danog/revolt-rs", rev = "2b6f678923cb74c1232472d4ec4d40c443ff0ba1" }
 
 # quicker builds for test iterations (target/fast/libmongodb.so)
 [profile.fast]
