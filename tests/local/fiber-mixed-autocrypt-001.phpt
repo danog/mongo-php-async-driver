@@ -4,10 +4,10 @@ Fibers: a blocking {main} call while a suspended fiber holds the client's automa
 Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). A client with automatic
 decryption (bypassAutoEncryption): a fiber's reply has a ciphertext, and its decryption suspends
 the fiber in the key vault read (held 400 ms by a failpoint), holding the client's encryption
-state. Another fiber, or {main} waiting through the loop, waits for it. A {main} call with
-mongodb.main_event_loop=0 cannot (that fiber cannot run while it blocks; it used to wait forever):
-it throws a LogicException before sending anything. The fiber then decrypts its reply, and the
-client works in {main} again.
+state. Another fiber, or {main} waiting through the loop, waits for it. A blocking {main} call
+(made where PHP forbids fiber switches: a tick function) cannot (that fiber cannot run while it
+blocks; it used to wait forever): it throws a LogicException before sending anything. The fiber
+then decrypts its reply, and the client works in {main} again.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
 <?php
@@ -25,6 +25,24 @@ all
 use MongoDB\Driver\{Manager, Command, BulkWrite, ClientEncryption};
 use MongoDB\BSON\Binary;
 use Revolt\EventLoop;
+// $f() where PHP forbids fiber switches (in a tick function): {main}'s driver calls block there,
+// while fibers wait in the driver (elsewhere such calls wait through the busy loop)
+function blocked(callable $f): mixed {
+    $result = null;
+    $done = false;
+    $tick = function () use ($f, &$result, &$done) {
+        if (!$done) {
+            $done = true;
+            $result = $f();
+        }
+    };
+    register_tick_function($tick);
+    declare(ticks=1) {
+        $done = $done;
+    }
+    unregister_tick_function($tick);
+    return $result;
+}
 $uri = getenv('MONGODB_URI');
 $kms = ['local' => ['key' => new Binary(str_repeat("\x01", 96), Binary::TYPE_GENERIC)]];
 $kv = 'mdrop_local.fiber_mixed_autocrypt_keys';
@@ -39,10 +57,10 @@ $admin->executeBulkWrite('mdrop_local.fiber_mixed_autocrypt', $bw);
 $read = fn (Manager $m) => $m->executeCommand('mdrop_local', new Command(['aggregate' => 'fiber_mixed_autocrypt', 'pipeline' => [], 'cursor' => new stdClass]))->toArray()[0]->s;
 $ping = fn (Manager $m) => $m->executeCommand('admin', new Command(['ping' => 1]))->toArray()[0]->ok;
 
-foreach (['0', '1'] as $setting) {
-    ini_set('mongodb.main_event_loop', $setting);
-    echo "main_event_loop=$setting\n";
-    $app = "fiber-mixed-autocrypt-$setting";
+foreach (['blocking', 'loop'] as $mode) {
+    echo "{main} $mode\n";
+    $call = $mode === 'blocking' ? blocked(...) : fn (callable $f) => $f();
+    $app = "fiber-mixed-autocrypt-$mode";
     // a new client each time: no data key cached yet
     $m = new Manager($uri, ['appname' => $app], ['disableClientPersistence' => true, 'autoEncryption' => ['keyVaultNamespace' => $kv, 'kmsProviders' => $kms, 'bypassAutoEncryption' => true]]);
     $ping($m);
@@ -55,7 +73,7 @@ foreach (['0', '1'] as $setting) {
     $s->suspend();
     echo "fiber suspended: ", var_export($f->isSuspended(), true), "\n";
     try {
-        $r = $ping($m);
+        $r = $call(fn () => $ping($m));
     } catch (Exception $e) {
         $r = get_class($e) . ' ' . $e->getCode() . ': ' . $e->getMessage();
     }
@@ -67,12 +85,12 @@ foreach (['0', '1'] as $setting) {
 $admin->executeCommand('admin', new Command(['configureFailPoint' => 'failCommand', 'mode' => 'off']));
 ?>
 --EXPECT--
-main_event_loop=0
+{main} blocking
 fiber suspended: true
 {main}: MongoDB\Driver\Exception\LogicException 0: Automatic encryption is in use by another fiber
 fiber: secret
 {main} afterwards: 1 secret
-main_event_loop=1
+{main} loop
 fiber suspended: true
 {main}: 1
 fiber: secret

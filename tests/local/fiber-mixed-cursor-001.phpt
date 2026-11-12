@@ -5,7 +5,8 @@ Local test (not upstream; DIVERGENCES "A Cursor or Session used by two fibers at
 "Driver calls inside a Fiber"). A fiber iterates a cursor (a getMore in flight) and runs a query
 with a session; meanwhile {main} iterates its own cursor and runs commands with its own session,
 and touches the fiber's cursor and session: those throw the LogicException before anything is
-sent (with mongodb.main_event_loop=0 as with the default On), and the fiber's iteration and query
+sent (in blocking {main} calls, made where PHP forbids fiber switches: a tick function, as in
+those through the loop), and the fiber's iteration and query
 end with the right results; the session works again afterwards.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
@@ -13,6 +14,24 @@ end with the right results; the session works again afterwards.
 <?php
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
+// $f() where PHP forbids fiber switches (in a tick function): {main}'s driver calls block there,
+// while fibers wait in the driver (elsewhere such calls wait through the busy loop)
+function blocked(callable $f): mixed {
+    $result = null;
+    $done = false;
+    $tick = function () use ($f, &$result, &$done) {
+        if (!$done) {
+            $done = true;
+            $result = $f();
+        }
+    };
+    register_tick_function($tick);
+    declare(ticks=1) {
+        $done = $done;
+    }
+    unregister_tick_function($tick);
+    return $result;
+}
 $uri = getenv('MONGODB_URI');
 $ns = 'mdrop_local.fiber_mixed_cursor';
 $m = new Manager($uri);
@@ -38,9 +57,9 @@ $ids = function ($cursor): string {
     return implode(',', $ids);
 };
 
-foreach (['0', '1'] as $setting) {
-    ini_set('mongodb.main_event_loop', $setting);
-    echo "main_event_loop=$setting\n";
+foreach (['blocking', 'loop'] as $mode) {
+    echo "{main} $mode\n";
+    $call = $mode === 'blocking' ? blocked(...) : fn (callable $f) => $f();
     // the fiber's cursor: batches of 2, each getMore takes 200 ms (the first batch is in {main})
     $fc = $m->executeQuery($ns, new Query(['$where' => 'this._id < 2 || sleep(100) || true'], ['batchSize' => 2]));
     $cursorFiber = new Fiber(fn () => $ids($fc));
@@ -50,14 +69,16 @@ foreach (['0', '1'] as $setting) {
     $sessionFiber->start();
     echo "fibers suspended: ", var_export($cursorFiber->isSuspended() && $sessionFiber->isSuspended(), true), "\n";
 
-    $try('{main} iterates the fiber\'s cursor', function () use ($fc) { foreach ($fc as $d) {} });
-    $try('{main} toArray() of the fiber\'s cursor', fn () => $fc->toArray());
-    $try('{main} query with the fiber\'s session', fn () => $m->executeQuery($ns, new Query(['_id' => 2]), ['session' => $s])->toArray());
-    $try('{main} startTransaction() of the fiber\'s session', fn () => $s->startTransaction());
-    echo "{main} cursor: ", $ids($m->executeQuery($ns, new Query([], ['batchSize' => 3]))), "\n";
-    $own = $m->startSession();
-    echo "{main} command with its own session: ", $m->executeCommand('admin', new Command(['ping' => 1]), ['session' => $own])->toArray()[0]->ok, "\n";
-    echo "{main} cursor with its own session: ", $ids($m->executeQuery($ns, new Query(['_id' => ['$gte' => 7]], ['batchSize' => 1]), ['session' => $own])), "\n";
+    $call(function () use ($try, $ids, $fc, $m, $ns, $s) {
+        $try('{main} iterates the fiber\'s cursor', function () use ($fc) { foreach ($fc as $d) {} });
+        $try('{main} toArray() of the fiber\'s cursor', fn () => $fc->toArray());
+        $try('{main} query with the fiber\'s session', fn () => $m->executeQuery($ns, new Query(['_id' => 2]), ['session' => $s])->toArray());
+        $try('{main} startTransaction() of the fiber\'s session', fn () => $s->startTransaction());
+        echo "{main} cursor: ", $ids($m->executeQuery($ns, new Query([], ['batchSize' => 3]))), "\n";
+        $own = $m->startSession();
+        echo "{main} command with its own session: ", $m->executeCommand('admin', new Command(['ping' => 1]), ['session' => $own])->toArray()[0]->ok, "\n";
+        echo "{main} cursor with its own session: ", $ids($m->executeQuery($ns, new Query(['_id' => ['$gte' => 7]], ['batchSize' => 1]), ['session' => $own])), "\n";
+    });
 
     EventLoop::run();
     echo "fiber's cursor: ", $cursorFiber->getReturn(), "\n";
@@ -66,7 +87,7 @@ foreach (['0', '1'] as $setting) {
 }
 ?>
 --EXPECT--
-main_event_loop=0
+{main} blocking
 fibers suspended: true
 {main} iterates the fiber's cursor: MongoDB\Driver\Exception\LogicException: The cursor is in use by another fiber
 {main} toArray() of the fiber's cursor: MongoDB\Driver\Exception\LogicException: The cursor is in use by another fiber
@@ -78,7 +99,7 @@ fibers suspended: true
 fiber's cursor: 0,1,2,3,4,5,6,7,8,9
 fiber's query with the session: 1
 the session afterwards: 3
-main_event_loop=1
+{main} loop
 fibers suspended: true
 {main} iterates the fiber's cursor: MongoDB\Driver\Exception\LogicException: The cursor is in use by another fiber
 {main} toArray() of the fiber's cursor: MongoDB\Driver\Exception\LogicException: The cursor is in use by another fiber

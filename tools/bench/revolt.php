@@ -1,7 +1,7 @@
 <?php
 // The event loops compared: one measurement per process, so that each runs with its own INI and
 // Revolt (tools/bench/revolt.sh runs them alternately, many rounds).
-//   php -n -d extension=<so> [-d mongodb.main_event_loop=0] [-d extension=ev.so]
+//   php -n -d extension=<so> [-d extension=ev.so]
 //       tools/bench/revolt.php <uri> <loop> <case> <fibers> <ops>
 // <loop>: "used" (EventLoop::getDriver() first: the loop is in use; an older build without the
 // built-in classes (mongodb.native_event_loop=0) gets the PHP library from REVOLT_AUTOLOAD), or

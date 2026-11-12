@@ -35,24 +35,9 @@ unsafe extern "C" fn on_update_debug(
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
-/// mongodb.main_event_loop changed: {main}'s synchronous fast path is re-evaluated at once.
-unsafe extern "C" fn on_update_main_event_loop(
-    _entry: *mut sys::zend_ini_entry,
-    new_value: *mut sys::zend_string,
-    _a1: *mut c_void,
-    _a2: *mut c_void,
-    _a3: *mut c_void,
-    _stage: c_int,
-) -> sys::zend_result {
-    // zend_ini_long()'s reading of the value (ZEND_STRTOL, base 0)
-    let on = !new_value.is_null() && libc::strtoll((*new_value).val.as_ptr(), null_mut(), 0) != 0;
-    crate::driver::aio::main_event_loop_changed(on);
-    sys::ZEND_RESULT_CODE_SUCCESS
-}
-
 const PHP_INI_ALL: u8 = 7;
 
-static INI: zend::Static<[sys::zend_ini_entry_def; 3]> = zend::Static([
+static INI: zend::Static<[sys::zend_ini_entry_def; 2]> = zend::Static([
     sys::zend_ini_entry_def {
         name: c"mongodb.debug".as_ptr(),
         on_modify: Some(on_update_debug),
@@ -63,20 +48,6 @@ static INI: zend::Static<[sys::zend_ini_entry_def; 3]> = zend::Static([
         displayer: None,
         value_length: 0,
         name_length: 13,
-        modifiable: PHP_INI_ALL,
-    },
-    // whether {main} calls wait through Revolt\EventLoop when it is loaded (On) or block as
-    // ext-mongodb does (Off); calls inside fibers always do
-    sys::zend_ini_entry_def {
-        name: c"mongodb.main_event_loop".as_ptr(),
-        on_modify: Some(on_update_main_event_loop),
-        mh_arg1: null_mut(),
-        mh_arg2: null_mut(),
-        mh_arg3: null_mut(),
-        value: c"1".as_ptr(),
-        displayer: None,
-        value_length: 1,
-        name_length: 23,
         modifiable: PHP_INI_ALL,
     },
     sys::zend_ini_entry_def {

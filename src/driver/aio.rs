@@ -7,9 +7,9 @@
 //! table of whichever copy registered the classes) without PHP calls.
 //!
 //! - When: a call inside a fiber (EG(active_fiber)) waits by suspending; a call in {main} does so
-//!   once the loop is in use (its driver exists: something called EventLoop) and
-//!   mongodb.main_event_loop is on (the {main} suspension runs the loop meanwhile), unless the
-//!   loop has nothing else to do (`main_idle`: then it blocks as without a loop); otherwise,
+//!   once the loop is in use (its driver exists: something called EventLoop; the {main}
+//!   suspension runs the loop meanwhile), unless the loop has nothing else to do (`main_idle`:
+//!   then it blocks as without a loop); otherwise,
 //!   and wherever a fiber may not switch (object destruction, shutdown,
 //!   zend_fiber_switch_blocked()), the plain blocking waits are used.
 //! - How: the driver's sockets are *sources* of the loop's driver (revolt-rs's poller itself):
@@ -58,43 +58,16 @@ fn shutting_down() -> bool {
     unsafe { (*crate::zend::eg()).flags & 1 != 0 }
 }
 
-/// The class-table size (the counter of mongo_core::aio's synchronous fast path).
-fn class_count() -> u32 {
-    unsafe { (*(*crate::zend::eg()).class_table).nNumOfElements }
-}
-
 thread_local! {
-    /// mongodb.main_event_loop, as its INI handler last set it on this thread (PHP calls it at
-    /// startup, for every new ZTS thread, and at every change)
-    static MAIN_EVENT_LOOP: Cell<bool> = const { Cell::new(true) };
     /// the slot of the static property EventLoop::$driver (looked up once per request; null:
     /// not yet)
     static DRIVER_SLOT: Cell<*mut sys::zval> = const { Cell::new(null_mut()) };
 }
 
-/// mongodb.main_event_loop (read at every {main} wait: no INI table lookup).
-fn main_event_loop() -> bool {
-    MAIN_EVENT_LOOP.get()
-}
-
-/// mongodb.main_event_loop was set to `on`: the remembered "no event loop in {main}" no longer
-/// holds.
-pub fn main_event_loop_changed(on: bool) {
-    MAIN_EVENT_LOOP.set(on);
-    mongo_core::aio::set_no_loop_at(u32::MAX);
-}
-
-/// Whether {main}'s waits go through the loop: mongodb.main_event_loop is On and the loop is in
-/// use (EventLoop's driver exists; revolt-rs keeps EventLoop::$driver unset until it is made). A
-/// miss is remembered until the driver is made (or the setting changes): the type word of that
+/// Whether the loop is in use (EventLoop's driver exists; revolt-rs keeps EventLoop::$driver
+/// unset until it is made). A miss is remembered until the driver is made: the type word of that
 /// static property is the fast path's counter.
 fn loop_in_use() -> bool {
-    if !main_event_loop() {
-        // the synchronous fast path holds until a class is added or the setting changes
-        publish_sync_words(class_count_word());
-        mongo_core::aio::set_no_loop_at(class_count());
-        return false;
-    }
     let slot = unsafe { driver_slot() };
     if slot.is_null() {
         return false;
@@ -131,13 +104,7 @@ unsafe fn driver_slot() -> *mut sys::zval {
 /// ZEND_FETCH_CLASS_NO_AUTOLOAD
 const ZEND_FETCH_CLASS_NO_AUTOLOAD: u32 = 0x80;
 
-/// The class-table size's address (the default counter of the synchronous fast path).
-fn class_count_word() -> *const u32 {
-    unsafe { addr_of!((*(*crate::zend::eg()).class_table).nNumOfElements) }
-}
-
-/// EG(active_fiber) and a counter of this PHP thread (the class-table size, or the type of
-/// EventLoop::$driver), for mongo_core::aio's synchronous fast path (both are per request:
+/// EG(active_fiber) and a counter of this PHP thread (the type of EventLoop::$driver), for mongo_core::aio's synchronous fast path (both are per request:
 /// published here, in a request, never at MINIT, and withdrawn at RSHUTDOWN).
 fn publish_sync_words(counter: *const u32) {
     unsafe {

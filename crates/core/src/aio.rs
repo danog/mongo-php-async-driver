@@ -42,8 +42,8 @@ static BACKEND: AtomicPtr<Backend> = AtomicPtr::new(std::ptr::null_mut());
 /// - `fiber`: the address of a pointer that is null while no fiber runs (the extension's
 ///   &EG(active_fiber)); null: unknown (every call asks the backend);
 /// - `classes`: the address of a counter that changes whenever the event loop may have become
-///   available (the extension's class-table size: Revolt\EventLoop can only appear with a new
-///   class);
+///   available (the extension's: the type word of Revolt\EventLoop::$driver, which changes when
+///   the loop's driver is made);
 /// - `no_loop_at`: the counter's value when the backend last found no event loop in {main}
 ///   (u32::MAX: not known, or an event loop is there). Maintained by the backend.
 struct SyncWords {

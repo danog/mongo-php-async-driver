@@ -1,21 +1,39 @@
 --TEST--
-Fibers: blocking {main} calls (mongodb.main_event_loop=0) while fibers wait for their replies
+Fibers: blocking {main} calls (where fibers cannot switch) while fibers wait for their replies
 --DESCRIPTION--
-Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). With the setting Off, a
-{main} call takes the plain blocking path even though Revolt is loaded, while fibers still wait
-through the loop. Here fibers (a plain Fiber, and one the loop started) are suspended waiting for
-a reply that arrives while {main} blocks in calls on the same Manager and on another one; the
-loop is not running then, so the fibers stay suspended, and once it runs they get their replies.
-The blocking waits never take the readiness the loop's poller reports for the fibers'
-sockets (each round's clusters are the previous round's, so {main} also uses sockets fibers waited
-on before). With the setting On (the default), the same {main} calls wait through the loop and
-the fibers finish during them.
+Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). Made where PHP forbids
+fiber switches (a tick function), a {main} call takes the plain blocking path even though the
+loop is in use, while fibers still wait through the loop. Here fibers (a plain Fiber, and one
+the loop started) are suspended waiting for a reply that arrives while {main} blocks in calls on
+the same Manager and on another one; the loop is not running then, so the fibers stay suspended,
+and once it runs they get their replies. The blocking waits never take the readiness the loop's
+poller reports for the fibers' sockets (each round's clusters are the previous round's, so
+{main} also uses sockets fibers waited on before). Made anywhere else, the same {main} calls
+wait through the loop and the fibers finish during them.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
 --FILE--
 <?php
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
+// $f() where PHP forbids fiber switches (in a tick function): {main}'s driver calls block there,
+// while fibers wait in the driver (elsewhere such calls wait through the busy loop)
+function blocked(callable $f): mixed {
+    $result = null;
+    $done = false;
+    $tick = function () use ($f, &$result, &$done) {
+        if (!$done) {
+            $done = true;
+            $result = $f();
+        }
+    };
+    register_tick_function($tick);
+    declare(ticks=1) {
+        $done = $done;
+    }
+    unregister_tick_function($tick);
+    return $result;
+}
 $uri = getenv('MONGODB_URI');
 $ns = 'mdrop_local.fiber_mixed_main';
 $m = new Manager($uri);
@@ -28,9 +46,9 @@ $other = new Manager($uri, ['appname' => 'fiber-mixed-main']);
 $slow = fn (int $ms, int $id) => new Query(['$where' => "sleep($ms) || true", '_id' => $id]);
 $x = fn ($cursor) => $cursor->toArray()[0]->x;
 
-foreach (['0', '1'] as $setting) {
-    ini_set('mongodb.main_event_loop', $setting);
-    echo "main_event_loop=$setting\n";
+foreach (['blocking', 'loop'] as $mode) {
+    echo "{main} $mode\n";
+    $call = $mode === 'blocking' ? blocked(...) : fn (callable $f) => $f();
     for ($round = 0; $round < 3; $round++) {
         // a plain Fiber, suspended in its wait for the reply (200 ms)
         $plain = new Fiber(fn () => $x($m->executeQuery($ns, $slow(200, 1))));
@@ -48,8 +66,11 @@ foreach (['0', '1'] as $setting) {
         $ticks = 0;
         $timer = EventLoop::repeat(0.02, function () use (&$ticks) { $ticks++; });
         // the fibers' replies arrive during these calls
-        $main = [$x($m->executeQuery($ns, $slow(400, 2))), $x($other->executeQuery($ns, new Query(['_id' => 2])))];
-        $main[] = $m->executeCommand('admin', new Command(['ping' => 1]))->toArray()[0]->ok;
+        $main = $call(fn () => [
+            $x($m->executeQuery($ns, $slow(400, 2))),
+            $x($other->executeQuery($ns, new Query(['_id' => 2]))),
+            $m->executeCommand('admin', new Command(['ping' => 1]))->toArray()[0]->ok,
+        ]);
         EventLoop::cancel($timer);
         $during = $plain->isTerminated() && $queued !== null;
         if ($round === 0) {
@@ -66,7 +87,7 @@ foreach (['0', '1'] as $setting) {
 }
 ?>
 --EXPECT--
-main_event_loop=0
+{main} blocking
 fibers suspended before the {main} calls: true
 the loop ran during the {main} calls: false
 fibers done during the {main} calls: false
@@ -74,7 +95,7 @@ fibers done during the {main} calls: false
 round 0: fiber fiber
 round 1: fiber fiber
 round 2: fiber fiber
-main_event_loop=1
+{main} loop
 fibers suspended before the {main} calls: true
 the loop ran during the {main} calls: true
 fibers done during the {main} calls: true

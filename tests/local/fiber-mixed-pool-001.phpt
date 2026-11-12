@@ -2,18 +2,37 @@
 Fibers: a blocking {main} call while fibers hold all maxPoolSize clusters uses the spare one
 --DESCRIPTION--
 Local test (not upstream; DIVERGENCES "Concurrent operations in fibers"). maxPoolSize=1 and 2:
-fibers hold every cluster with an operation in flight and one more fiber waits for a cluster.
-With mongodb.main_event_loop=0 a {main} call cannot wait for one (the fibers holding them cannot
-run while it blocks): it uses the client's spare cluster at once, kept for such calls (a second
-{main} call reuses its connection), and never handed to a fiber: the waiting fiber still waits
-for a fiber's cluster, and later fibers still run at most maxPoolSize operations at once.
-With the setting On, {main} waits for a cluster as a fiber does (after the fiber already waiting).
+fibers hold every cluster with an operation in flight and one more fiber waits for a cluster. A
+blocking {main} call (made where PHP forbids fiber switches: a tick function) cannot wait for
+one (the fibers holding them cannot run while it blocks): it uses the client's spare cluster at
+once, kept for such calls (a second {main} call reuses its connection), and never handed to a
+fiber: the waiting fiber still waits for a fiber's cluster, and later fibers still run at most
+maxPoolSize operations at once. Made anywhere else, {main} waits for a cluster through the loop
+as a fiber does (after the fiber already waiting).
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
 --FILE--
 <?php
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
+// $f() where PHP forbids fiber switches (in a tick function): {main}'s driver calls block there,
+// while fibers wait in the driver (elsewhere such calls wait through the busy loop)
+function blocked(callable $f): mixed {
+    $result = null;
+    $done = false;
+    $tick = function () use ($f, &$result, &$done) {
+        if (!$done) {
+            $done = true;
+            $result = $f();
+        }
+    };
+    register_tick_function($tick);
+    declare(ticks=1) {
+        $done = $done;
+    }
+    unregister_tick_function($tick);
+    return $result;
+}
 $uri = getenv('MONGODB_URI');
 $ns = 'mdrop_local.fiber_mixed_pool';
 $admin = new Manager($uri);
@@ -41,23 +60,25 @@ $start = function (Manager $m, int $n) use ($ns): array {
     return $fibers;
 };
 
-foreach (['0', '1'] as $setting) {
-    ini_set('mongodb.main_event_loop', $setting);
-    echo "main_event_loop=$setting\n";
+foreach (['blocking', 'loop'] as $mode) {
+    echo "{main} $mode\n";
+    $call = $mode === 'blocking' ? blocked(...) : fn (callable $f) => $f();
     foreach ([1, 2] as $max) {
-        $app = "fiber-mixed-pool-$setting-$max";
+        $app = "fiber-mixed-pool-$mode-$max";
         $m = new Manager($uri, ['maxPoolSize' => $max, 'appname' => $app], ['disableClientPersistence' => true]);
         $m->executeCommand('admin', new Command(['ping' => 1]));
         $t = hrtime(true);
         $fibers = $start($m, $max + 1);
         $t1 = hrtime(true);
-        $main = $m->executeQuery($ns, new Query(['_id' => 2]))->toArray()[0]->x;
+        $main = $call(fn () => $m->executeQuery($ns, new Query(['_id' => 2]))->toArray()[0]->x);
         $mainMs = $ms($t1);
         $same = null;
-        if ($setting === '0') {
-            $before = $conns($app);
-            $m->executeCommand('admin', new Command(['ping' => 1]));
-            $same = $conns($app) === $before;
+        if ($mode === 'blocking') {
+            $same = blocked(function () use ($conns, $app, $m) {
+                $before = $conns($app);
+                $m->executeCommand('admin', new Command(['ping' => 1]));
+                return $conns($app) === $before;
+            });
         }
         EventLoop::run();
         $all = $ms($t);
@@ -74,7 +95,7 @@ foreach (['0', '1'] as $setting) {
 }
 ?>
 --EXPECT--
-main_event_loop=0
+{main} blocking
 maxPoolSize=1: {main} main, at once, fibers fiber fiber
   a second {main} call reuses the spare's connection: true
   the last fiber waited for a fiber's cluster: true
@@ -83,7 +104,7 @@ maxPoolSize=2: {main} main, at once, fibers fiber fiber fiber
   a second {main} call reuses the spare's connection: true
   the last fiber waited for a fiber's cluster: true
   then 3 fibers at once still take two rounds: true
-main_event_loop=1
+{main} loop
 maxPoolSize=1: {main} main, after waiting for a cluster, fibers fiber fiber
   the last fiber waited for a fiber's cluster: true
   then 2 fibers at once still take two rounds: true

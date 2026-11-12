@@ -2,21 +2,39 @@
 Fibers: a blocking {main} call while a suspended fiber runs the client's first scan
 --DESCRIPTION--
 Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber", "Concurrent operations in
-fibers"). A fresh client: the first fiber's operation starts the scan and suspends in it (connect
-or hello), a second fiber waits for that scan. Server scans are shared, one at a time, but a
-{main} call with mongodb.main_event_loop=0 cannot wait for a scan whose fiber cannot run while it
-blocks: it scans on its own (no deadlock) and succeeds, and the fibers' scan still counts as
-running: a third fiber needing a scan afterwards (heartbeatFrequencyMS=500 passed meanwhile)
-waits for it instead of starting another one. Once the loop runs, every fiber
-succeeds. Heartbeats: the first fiber's scan and {main}'s, one per server each.
-With the setting On, {main} waits for the fibers' scan through the loop, and the third fiber
-scans.
+fibers"). A fresh client: the first fiber's operation starts the scan and suspends in it
+(connect or hello), a second fiber waits for that scan. Server scans are shared, one at a time,
+but a blocking {main} call (made where PHP forbids fiber switches: a tick function) cannot wait
+for a scan whose fiber cannot run while it blocks: it scans on its own (no deadlock) and
+succeeds, and the fibers' scan still counts as running: a third fiber needing a scan afterwards
+(heartbeatFrequencyMS=500 passed meanwhile) waits for it instead of starting another one. Once
+the loop runs, every fiber succeeds. Heartbeats: the first fiber's scan and {main}'s, one per
+server each. Made anywhere else, {main} waits for the fibers' scan through the loop, and the
+third fiber scans.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
 --FILE--
 <?php
 use MongoDB\Driver\{Manager, Command};
 use Revolt\EventLoop;
+// $f() where PHP forbids fiber switches (in a tick function): {main}'s driver calls block there,
+// while fibers wait in the driver (elsewhere such calls wait through the busy loop)
+function blocked(callable $f): mixed {
+    $result = null;
+    $done = false;
+    $tick = function () use ($f, &$result, &$done) {
+        if (!$done) {
+            $done = true;
+            $result = $f();
+        }
+    };
+    register_tick_function($tick);
+    declare(ticks=1) {
+        $done = $done;
+    }
+    unregister_tick_function($tick);
+    return $result;
+}
 $uri = getenv('MONGODB_URI');
 $sep = str_contains($uri, '?') ? '&' : (str_ends_with($uri, '/') ? '?' : '/?');
 $servers = count((new Manager($uri))->selectServer()->getInfo()['hosts'] ?? [0]);
@@ -34,11 +52,11 @@ $sub = new class implements MongoDB\Driver\Monitoring\SDAMSubscriber {
 };
 $ping = fn (Manager $m) => $m->executeCommand('admin', new Command(['ping' => 1]))->toArray()[0]->ok;
 
-foreach (['0', '1'] as $setting) {
-    ini_set('mongodb.main_event_loop', $setting);
-    echo "main_event_loop=$setting\n";
+foreach (['blocking', 'loop'] as $mode) {
+    echo "{main} $mode\n";
+    $call = $mode === 'blocking' ? blocked(...) : fn (callable $f) => $f();
     $sub->hb = 0;
-    $m = new Manager($uri . $sep . 'heartbeatFrequencyMS=500', ['appname' => "fiber-mixed-scan-$setting"], ['disableClientPersistence' => true]);
+    $m = new Manager($uri . $sep . 'heartbeatFrequencyMS=500', ['appname' => "fiber-mixed-scan-$mode"], ['disableClientPersistence' => true]);
     $m->addSubscriber($sub);
     $fibers = [];
     for ($i = 0; $i < 2; $i++) {
@@ -46,7 +64,7 @@ foreach (['0', '1'] as $setting) {
         $fibers[$i]->start();
     }
     echo "fibers suspended: ", var_export($fibers[0]->isSuspended() && $fibers[1]->isSuspended(), true), "\n";
-    echo "{main}: ", $ping($m), "\n";
+    echo "{main}: ", $call(fn () => $ping($m)), "\n";
     // {main} goes on without the loop until the topology is stale
     usleep(600_000);
     $fibers[2] = new Fiber(fn () => $ping($m));
@@ -60,7 +78,7 @@ foreach (['0', '1'] as $setting) {
 }
 ?>
 --EXPECT--
-main_event_loop=0
+{main} blocking
 fibers suspended: true
 {main}: 1
 fiber 0: 1
@@ -68,7 +86,7 @@ fiber 1: 1
 fiber 2: 1
 {main} after: 1
 scans: 2
-main_event_loop=1
+{main} loop
 fibers suspended: true
 {main}: 1
 fiber 0: 1

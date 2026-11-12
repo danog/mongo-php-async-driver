@@ -12,8 +12,8 @@ unchanged, and concurrent driver calls run at the same time.
   loaded too, both share one loop. The driver's sockets live in that loop's own poller. Each concurrent operation gets its own pooled connection
   (`maxPoolSize`): 50 to 200 concurrent fibers reach 43–56k operations/s on one core, 3.3–4.3×
   what ext-mongodb does one call at a time. Anything built on Revolt (Amp v3, for one) works.
-  Calls in `{main}` wait through the loop too once it is in use, unless
-  `mongodb.main_event_loop=0`. See [Async](#async).
+  Calls in `{main}` wait through the loop too while it has other work; otherwise they block as with
+  ext-mongodb, at no extra cost. See [Async](#async).
 - **Same API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
   class, constant, `var_dump()` output, serialization format, exception and message (the
   Reflection dump is identical). [PHPLIB](https://github.com/mongodb/mongo-php-library) and code
@@ -99,9 +99,9 @@ includes the server's work.
   timer, a watcher, a fiber waiting), every network wait of a `{main}` call goes through it (see
   [Event loops](#event-loops) below). With the built-in loop this adds 0.4–0.7 µs of CPU per small
   operation on macOS and 1.3 µs on Linux: one `kevent()` / `epoll_wait()` on the loop's own
-  poller, where the driver's sockets are registered, before the receive. On an idle loop, or with
-  `mongodb.main_event_loop=0`, `{main}` calls take the plain synchronous path of the table above
-  (fibers keep using the loop).
+  poller, where the driver's sockets are registered, before the receive. On an idle loop, or before the
+  loop is used, `{main}` calls take the plain synchronous path of the table above (fibers keep
+  using the loop).
 
 **Why it is faster.** Per `findOne`, this driver makes 2 system calls (one send, one receive);
 ext-mongodb makes 8 (3 receives, 3 `getpid`, a `poll` and a send). An insert of 10 documents
@@ -134,7 +134,6 @@ of the client's CPU time (user + system) per operation.
 | Configuration | `ping` | `findOne` | `insertOne` |
 |---|---|---|---|
 | Revolt not used (`EventLoop` untouched): the synchronous path | 9.5 / 18.8 | 11.9 / 19.9 | 11.7 / 19.7 |
-| loop in use, `main_event_loop=0`: the synchronous path | 9.7 / 18.8 | 11.8 / 19.9 | 11.7 / 19.7 |
 | loop in use, idle: the synchronous path | **9.7 / 19.0** | **12.1 / 19.9** | **12.0 / 19.7** |
 | loop in use with other work (an unreferenced timer): through the loop | **11.0 / 19.5** | **13.1 / 20.4** | **13.1 / 20.1** |
 | previous version, Revolt not used | 9.7 / 19.1 | 12.2 / 19.9 | 11.7 / 19.7 |
@@ -168,7 +167,7 @@ macOS:
 - **An idle loop costs nothing:** while the loop has nothing else to do (no enabled callback,
   referenced or not, nothing queued, no other wait of the driver), a `{main}` call blocks in its
   own send and receive, as without a loop: 2 system calls per `ping`, the same CPU time within
-  noise. So does a call before the loop is used, or with `main_event_loop=0`.
+  noise. So does a call before the loop is used.
 - **Through a loop with work,** `{main}` calls cost 1.3 µs of CPU more than the synchronous path on
   Linux (the previous version: 2.2–3.0 µs) and 0.4–0.7 µs on macOS (1.3–1.5 µs); the PHP library
   costs 12–13 µs and 6.5 µs more.
@@ -231,9 +230,7 @@ for the network, and other fibers run meanwhile.
 - **`{main}`:** once the loop is in use, calls in `{main}` also wait through it, so timers,
   watchers and other fibers keep running: once `EventLoop` has a driver (any `EventLoop::` call
   made it) and has something else to do (a callback, referenced or not, or a fiber waiting in the
-  driver); on an idle loop they block as without one, at the same cost. Before that, `{main}` calls block exactly as with ext-mongodb. Set
-  `mongodb.main_event_loop=0` (php.ini, or `ini_set()` at run time) to keep `{main}` calls
-  blocking even then: they take the plain synchronous path (see Performance). Calls inside
+  driver); on an idle loop they block as without one, at the same cost. Before that, `{main}` calls block exactly as with ext-mongodb. Calls inside
   fibers always go through the loop. Mixing is safe: fibers
   suspended meanwhile stay suspended until the loop runs again, and a blocking call never waits
   for what such a fiber holds (DIVERGENCES.md has the details).

@@ -10,12 +10,12 @@
 #   idle       the built-in loop registered but never used (EventLoop untouched): synchronous
 #   native     the built-in loop in use, idle otherwise ({main} blocks as without a loop)
 #   busy       the built-in loop in use with other work (an unreferenced timer): {main} through it
-#   native-m0  the built-in loop in use, mongodb.main_event_loop=0
 #   native-ev  the built-in loop in use, ext-ev loaded
-#   old-*      the same with [old .so] (an earlier build, to compare with)
+#   old-*      the same with [old .so] (an earlier build, to compare with); old-m0: the loop in use
+#              with mongodb.main_event_loop=0, for a build that still has that setting
 #   lib        [library .so] (a build that still has mongodb.native_event_loop, e.g. 0.1.2) with
 #              mongodb.native_event_loop=0 and revolt/event-loop (StreamSelectDriver)
-#   lib-m0     the same, mongodb.main_event_loop=0
+#   lib-m0     the same, mongodb.main_event_loop=0 (that build's setting)
 set -e
 uri=$1; rounds=$2; new=$3; old=${4:-}; lib=${5:-}
 PHP=${PHP:-php}
@@ -27,7 +27,6 @@ args() { # config -> php arguments (and the <loop> argument last)
     idle) echo "-d extension=$new none" ;;
     native) echo "-d extension=$new used" ;;
     busy) echo "-d extension=$new busy" ;;
-    native-m0) echo "-d extension=$new -d mongodb.main_event_loop=0 used" ;;
     native-ev) echo "-d extension=$new -d extension=$EV used" ;;
     old-idle) echo "-d extension=$old none" ;;
     old-native) echo "-d extension=$old used" ;;
@@ -37,7 +36,7 @@ args() { # config -> php arguments (and the <loop> argument last)
     lib-m0) echo "-d extension=$lib -d mongodb.native_event_loop=0 -d mongodb.main_event_loop=0 used" ;;
   esac
 }
-main_cfgs=(idle native busy native-m0)
+main_cfgs=(idle native busy)
 fiber_cfgs=(native)
 [ -n "$old" ] && { main_cfgs+=(old-idle old-native old-busy old-m0); fiber_cfgs+=(old-native); }
 [ -n "$lib" ] && { main_cfgs+=(lib lib-m0); fiber_cfgs+=(lib); }
