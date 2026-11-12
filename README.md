@@ -209,11 +209,12 @@ for the network, and other fibers run meanwhile.
 - **The event loop is built in:** the extension embeds
   [revolt-rs](https://github.com/danog/revolt-rs), revolt/event-loop 1.0.9 implemented natively
   in Rust. At startup it registers `Revolt\EventLoop` and the other classes of revolt/event-loop
-  (the same API and behaviour), so `composer require revolt/event-loop` is not needed, and Amp or
-  any other Revolt code runs on the native loop. The driver's own waits then call the loop from
-  Rust, without any PHP-level call (see Performance). If the `revolt` extension (revolt-rs as a
-  standalone extension) is loaded too, in either order, the first one registers the classes and
-  both use that one loop: there is one loop per thread.
+  (the same API and behaviour, but one driver class, `Driver\NativeDriver`, instead of
+  `StreamSelectDriver`, `EvDriver`, `EventDriver` and `UvDriver`), so `composer require
+  revolt/event-loop` is not needed, and Amp or any other Revolt code runs on the native loop. The
+  driver's own waits then call the loop from Rust, without any PHP-level call (see Performance).
+  If the `revolt` extension (revolt-rs as a standalone extension) is loaded too, in either order,
+  the first one registers the classes and both use that one loop: there is one loop per thread.
 - **revolt/event-loop installed anyway** (by Amp, say) stays unused: the classes registered at
   startup exist before Composer's autoloader would load its files. This package's `composer.json`
   declares `"provide": {"ext-revolt": "*", "revolt/event-loop": "1.0.9"}`; that only affects
@@ -221,7 +222,7 @@ for the network, and other fibers run meanwhile.
   install revolt/event-loop for them). Installed with PIE only, the project's dependencies are
   resolved as before.
 - **One native loop:** `EventLoop::setDriver()` is refused (revolt-rs throws an
-  `UnsupportedFeatureException`): the loop always runs on its native driver, and the driver's
+  `UnsupportedFeatureException`): the loop always runs on its `NativeDriver`, and the driver's
   sockets live in that driver's own poller (epoll/kqueue, edge-triggered; WSAPoll on Windows),
   next to whatever Amp or other code watches. A `TracingDriver` or a user `Driver` still works
   when used directly, but never becomes the loop's driver. If a `revolt` extension of an
@@ -241,16 +242,10 @@ for the network, and other fibers run meanwhile.
   throws a `LogicException`.
 - **No surprise switches:** destructors, the garbage collector and shutdown never suspend.
 
-Under the hood, waits go through one epoll/kqueue instance per thread that a single Revolt
-`onReadable` watcher drives; each socket is registered there once, edge-triggered, so the driver
-needs no system call to set up a wait for a reply. On Windows each wait watches its sockets
-with Revolt directly. The watcher lives on Revolt's current driver: after
-`EventLoop::setDriver()`, the next wait moves it to the new one, while waits already pending on
-the old driver (fibers suspended there) stay on it and keep only its loop alive. On a native
-driver, the watcher, the deadline timer, `getSuspension()`, `suspend()` and `resume()` are
-direct calls into revolt-rs. Otherwise they are PHP calls, and so that a `{main}` wait does not
-make Revolt create a new suspension each time, `{main}`'s suspension is kept by a disabled callback
-on the driver (one more id in `getIdentifiers()`; it never runs nor keeps the loop alive).
+Under the hood, each socket is registered once, edge-triggered, in the poller of the loop's
+`NativeDriver` (no Revolt callback per socket), so the driver needs no system call to set up a
+wait for a reply; the earliest deadline is one unreferenced `delay()`. The waits, that timer,
+`getSuspension()`, `suspend()` and `resume()` are direct calls into revolt-rs, without PHP calls.
 Benchmarks: `tools/bench/fibers.php`, `tools/bench/revolt.sh`.
 
 ## fork()
