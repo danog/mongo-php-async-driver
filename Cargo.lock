@@ -525,7 +525,7 @@ dependencies = [
 [[package]]
 name = "ext-php-rs-build"
 version = "0.2.0"
-source = "git+https://github.com/danog/revolt-rs?rev=b79d28f3acdb5ff0855a2715279e656676187174#b79d28f3acdb5ff0855a2715279e656676187174"
+source = "git+https://github.com/danog/revolt-rs?rev=ed382999a3284062f71a05e5d5185d214be51e4b#ed382999a3284062f71a05e5d5185d214be51e4b"
 dependencies = [
  "anyhow",
 ]
@@ -1259,7 +1259,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "revolt-rs"
 version = "0.1.0"
-source = "git+https://github.com/danog/revolt-rs?rev=b79d28f3acdb5ff0855a2715279e656676187174#b79d28f3acdb5ff0855a2715279e656676187174"
+source = "git+https://github.com/danog/revolt-rs?rev=ed382999a3284062f71a05e5d5185d214be51e4b#ed382999a3284062f71a05e5d5185d214be51e4b"
 dependencies = [
  "ext-php-rs",
  "libc",

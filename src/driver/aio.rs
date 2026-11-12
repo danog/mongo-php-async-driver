@@ -8,7 +8,8 @@
 //!
 //! - When: a call inside a fiber (EG(active_fiber)) waits by suspending; a call in {main} does so
 //!   once the loop is in use (its driver exists: something called EventLoop) and
-//!   mongodb.main_event_loop is on (the {main} suspension runs the loop meanwhile); otherwise,
+//!   mongodb.main_event_loop is on (the {main} suspension runs the loop meanwhile), unless the
+//!   loop has nothing else to do (`main_idle`: then it blocks as without a loop); otherwise,
 //!   and wherever a fiber may not switch (object destruction, shutdown,
 //!   zend_fiber_switch_blocked()), the plain blocking waits are used.
 //! - How: the driver's sockets are *sources* of the loop's driver (revolt-rs's poller itself):
@@ -158,7 +159,26 @@ fn active() -> bool {
     if !NATIVE.load(Ordering::Relaxed) {
         return false;
     }
-    in_fiber() || loop_in_use()
+    in_fiber() || (loop_in_use() && !main_idle())
+}
+
+/// {main}, the loop in use: whether it has nothing to do, so that this call's I/O blocks as
+/// without a loop (no poll, no tick): no other wait of the driver pending (in fibers), and
+/// revolt-rs's idle check (no enabled callback but the driver's own deadline timer, nothing
+/// queued, no armed source, no interrupt). Nothing can add work while the call blocks: only this
+/// thread runs PHP code; signal watchers count as work. Asked again before each I/O step (a PHP
+/// callback of the call itself, an APM subscriber, may have added some).
+fn main_idle() -> bool {
+    let n = LOOP.try_with(|l| l.try_borrow().ok().map(|l| l.nat.as_ref().map(|n| (n.abi, n.driver, n.here, n.timer.map_or(0, |t| t.0))))).ok().flatten();
+    let (abi, d, here, timer) = match n {
+        Some(Some(n)) => n,
+        Some(None) => match NativeLoop::current() {
+            Some(nl) => (nl.abi, nl.driver, 0, 0),
+            None => return false,
+        },
+        None => return false,
+    };
+    here == 0 && unsafe { (abi.idle)(d, timer) }
 }
 
 fn current() -> usize {
