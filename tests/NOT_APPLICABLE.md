@@ -1,7 +1,7 @@
 # Tests that do not apply, cannot run here, or are expected to fail
 
 Nothing is dropped silently: every carried-over test either runs, or is listed here with the
-reason. Counts are kept up to date in the README once each phase lands.
+reason. The current counts are in the summary of each CI run (`tools/ci/junit-summary.py`).
 
 Reference numbers for `tests/phpt` against a standalone mongod 8.0 (PHP 8.4), with
 `tools/phpt.sh`:
