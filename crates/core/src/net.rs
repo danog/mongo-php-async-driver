@@ -1,15 +1,10 @@
-//! Connections and the I/O-backend layer.
+//! Connections.
 //!
 //! A [`Conn`] is one TCP connection to a server. It is used in one of two modes:
 //! - blocking (the default, what ext-mongodb does): `send`/`recv` block the PHP thread, bounded
 //!   by the socket timeout (SO_SNDTIMEO/SO_RCVTIMEO, set only when the value changes);
-//! - non-blocking, driven by an event loop: `try_send`/`try_recv` make progress until the socket
-//!   would block, and a [`Reactor`] reports when to try again.
-//!
-//! [`Reactor`] is the I/O-backend layer: it watches connections for readiness and hands back the
-//! tokens of the ready ones. Backend 1 is [`MioReactor`] (one epoll/kqueue fd, which the PHP side
-//! watches with Revolt; Unix only). A per-socket backend for Windows (Revolt watchers on each
-//! connection socket, no threads) implements the same trait later.
+//! - non-blocking: `try_send`/`try_recv` make progress until the socket would block, and the
+//!   caller waits for readiness (crate::aio: the event loop's poller, or poll(2)).
 
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -163,8 +158,6 @@ pub struct Conn {
     write_timeout: Option<Duration>,
     /// Pool generation at creation (CMAP).
     pub generation: u64,
-    /// Registered with a reactor (backend-specific bookkeeping).
-    pub registered: bool,
     /// The negotiated compressor and the zlib level (OP_COMPRESSED), None: uncompressed.
     pub compressor: Option<(u8, i32)>,
 }
@@ -212,7 +205,6 @@ impl Conn {
                         read_timeout: None,
                         write_timeout: None,
                         generation: 0,
-                        registered: false,
                         compressor: None,
                     });
                 }
@@ -262,7 +254,6 @@ impl Conn {
             read_timeout: None,
             write_timeout: None,
             generation: 0,
-            registered: false,
             compressor: None,
         })
     }
@@ -316,7 +307,6 @@ impl Conn {
             read_timeout: None,
             write_timeout: None,
             generation: 0,
-            registered: false,
             compressor: None,
         })
     }
@@ -594,83 +584,13 @@ impl Conn {
     }
 }
 
-// ------------------------------------------------------------------ I/O backends
+// ------------------------------------------------------------------ waits
 
-/// A reactor token: the driver's identifier of an in-flight operation.
-pub type Token = usize;
-
+/// The readiness a non-blocking operation waits for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Interest {
     Read,
     Write,
-}
-
-/// The I/O-backend layer: readiness notification for non-blocking connections.
-pub trait Reactor {
-    /// Watches `conn` for `interest`, reporting `token` once (re-arm after each report).
-    fn arm(&mut self, conn: &mut Conn, token: Token, interest: Interest) -> io::Result<()>;
-    /// Stops watching `conn` (before it is closed or used in blocking mode elsewhere).
-    fn disarm(&mut self, conn: &mut Conn) -> io::Result<()>;
-    /// Appends the tokens that became ready to `ready`, waiting up to `timeout` (None: forever).
-    fn poll(&mut self, timeout: Option<Duration>, ready: &mut Vec<Token>) -> io::Result<()>;
-}
-
-/// Backend 1: mio's poll (epoll on Linux, kqueue on macOS/BSD). Its fd is what PHP watches.
-#[cfg(unix)]
-pub struct MioReactor {
-    poll: mio::Poll,
-    events: mio::Events,
-}
-
-#[cfg(unix)]
-impl MioReactor {
-    pub fn new() -> io::Result<Self> {
-        Ok(MioReactor { poll: mio::Poll::new()?, events: mio::Events::with_capacity(64) })
-    }
-
-    /// The epoll/kqueue fd: readable when an armed connection is ready.
-    pub fn raw_fd(&self) -> std::os::fd::RawFd {
-        std::os::fd::AsRawFd::as_raw_fd(&self.poll)
-    }
-}
-
-#[cfg(unix)]
-impl Reactor for MioReactor {
-    fn arm(&mut self, conn: &mut Conn, token: Token, interest: Interest) -> io::Result<()> {
-        let fd = conn.raw_fd();
-        let i = match interest {
-            Interest::Read => mio::Interest::READABLE,
-            Interest::Write => mio::Interest::WRITABLE,
-        };
-        let reg = self.poll.registry();
-        if conn.registered {
-            reg.reregister(&mut mio::unix::SourceFd(&fd), mio::Token(token), i)
-        } else {
-            reg.register(&mut mio::unix::SourceFd(&fd), mio::Token(token), i)?;
-            conn.registered = true;
-            Ok(())
-        }
-    }
-
-    fn disarm(&mut self, conn: &mut Conn) -> io::Result<()> {
-        if conn.registered {
-            conn.registered = false;
-            let fd = conn.raw_fd();
-            return self.poll.registry().deregister(&mut mio::unix::SourceFd(&fd));
-        }
-        Ok(())
-    }
-
-    fn poll(&mut self, timeout: Option<Duration>, ready: &mut Vec<Token>) -> io::Result<()> {
-        loop {
-            match self.poll.poll(&mut self.events, timeout) {
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                r => r?,
-            }
-            ready.extend(self.events.iter().map(|e| e.token().0));
-            return Ok(());
-        }
-    }
 }
 
 /// poll(2) over `fds` until one is ready or `deadline` passes (None: no limit); EINTR is

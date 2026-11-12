@@ -4,8 +4,6 @@
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bson::writer::Writer;
 use mongo_core::handshake::{self, HelloOpts, Metadata};
-#[cfg(unix)]
-use mongo_core::net::{Interest, Reactor};
 use mongo_core::sdam::ServerType;
 use mongo_core::wire::{self, MsgBuilder};
 use std::time::Duration;
@@ -72,12 +70,15 @@ fn handshake_and_crud() {
     assert!(e.server);
 }
 
-#[cfg(unix)]
 #[test]
-fn nonblocking_with_mio() {
+fn nonblocking_with_poll() {
+    use mongo_core::{net, os};
     let Some((h, p)) = server() else { return };
     let (mut c, _) = handshake::connect_and_hello(&h, p, Some(Duration::from_secs(5)), &md(), &HelloOpts::default()).unwrap();
-    let mut r = mongo_core::net::MioReactor::new().unwrap();
+    let wait = |c: &net::Conn, events: i16| {
+        let mut fds = [os::pollfd(c.raw_fd(), events)];
+        assert_eq!(net::poll_fds(&mut fds, Some(std::time::Instant::now() + Duration::from_secs(5))).unwrap(), 1);
+    };
     c.set_nonblocking().unwrap();
     let mut w = Writer::new();
     w.int32(b"ping", 1);
@@ -86,24 +87,15 @@ fn nonblocking_with_mio() {
     m.body(&w.finish());
     let msg = m.finish();
     let mut off = 0;
-    let mut ready = Vec::new();
     while !c.try_send(&msg, &mut off).unwrap() {
-        r.arm(&mut c, 1, Interest::Write).unwrap();
-        r.poll(Some(Duration::from_secs(5)), &mut ready).unwrap();
+        wait(&c, os::POLLOUT);
     }
     c.begin_recv();
-    loop {
-        if c.try_recv().unwrap() {
-            break;
-        }
-        r.arm(&mut c, 7, Interest::Read).unwrap();
-        ready.clear();
-        r.poll(Some(Duration::from_secs(5)), &mut ready).unwrap();
-        assert_eq!(ready, vec![7]);
+    while !c.try_recv().unwrap() {
+        wait(&c, os::POLLIN);
     }
     let rep = wire::parse_reply(c.message()).unwrap();
     mongo_core::cmd::check_ok(rep.body).unwrap();
-    r.disarm(&mut c).unwrap();
 }
 
 #[test]

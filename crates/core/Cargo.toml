@@ -35,8 +35,7 @@ x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
 x509-ocsp = { version = "0.2.1", default-features = false, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
-mio = { version = "1", features = ["os-poll", "os-ext"] }
-# the clocks of PHP's hrtime(true) (already a dependency of mio)
+# the OS API: poll(2), sockets, the host name, the clocks of PHP's hrtime(true)
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
