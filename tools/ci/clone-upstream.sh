@@ -21,3 +21,19 @@ clone() { # url dest [extra git args]
 clone https://github.com/mongodb/mongo-php-driver "$dir/driver"
 # the library's spec tests come from its submodule (mongodb/specifications)
 clone https://github.com/mongodb/mongo-php-library "$dir/library" --recurse-submodules --shallow-submodules
+# transactions/error-labels-blockConnection as mongodb/specifications fixed it (DRIVERS-3659,
+# 94ab731), while the library's submodule predates the fix: the test configured its fail point
+# through client0 (socketTimeoutMS=100), and the runner disables it through the same client. The
+# server's configureFailPoint waits for the commitTransaction still blocked in the fail point
+# (blockTimeMS=150), so the cleanup timed out ("Failed to read 4 bytes") whenever that wait
+# passed 100 ms (on the macOS runners in 5 of 28 runs); the fixed test configures it
+# through a client without timeout options. Applied only while the cloned file is the old one.
+spec=94ab731194c348afedc49458b148bdc01c2c4115
+f=$dir/library/tests/specifications/source/transactions/tests/unified/error-labels-blockConnection.json
+if [ -f "$f" ] && ! grep -q failPointClient "$f"; then
+  curl -fsSL --retry 3 -o "$f" "https://raw.githubusercontent.com/mongodb/specifications/$spec/source/transactions/tests/unified/error-labels-blockConnection.json"
+  echo "patched $f (mongodb/specifications $spec)"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "- \`transactions/error-labels-blockConnection\` from \`specifications\` @ [\`${spec:0:10}\`](https://github.com/mongodb/specifications/commit/$spec) (DRIVERS-3659)" >> "$GITHUB_STEP_SUMMARY"
+  fi
+fi
