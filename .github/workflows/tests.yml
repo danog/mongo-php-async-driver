@@ -130,9 +130,9 @@ jobs:
           CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
         run: tools/ci/run-phplib.sh "$EXT" "$CLUSTER_URI" "$PWD/phplib.xml"
 
-      # this driver's own fiber tests (the official suites have none): the event-loop backend of
-      # each OS (epoll / kqueue; Windows: per-socket watchers), on the embedded native Revolt loop
-      # (revolt-rs; the revolt/event-loop package is not installed)
+      # this driver's own fiber tests (the official suites have none): the driver's sockets as
+      # sources of the embedded native Revolt loop (revolt-rs: epoll / kqueue edge-triggered;
+      # Windows: WSAPoll)
       - name: Fiber tests (tests/local), embedded native loop
         if: matrix.topology == 'server'
         env:
@@ -140,21 +140,16 @@ jobs:
         run: |
           PHPT_TESTS="$(echo tests/local/fiber-*.phpt)" tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers.xml"
 
-      # the other ways to get Revolt, on one Linux job: the PHP library with the embedded loop off,
-      # and the revolt extension (revolt-rs at the commit Cargo.lock pins) loaded with this one, in
-      # both orders (one loop either way); and revolt/event-loop's own suite (revolt-rs's copy)
-      # against this extension alone
-      - name: Revolt modes (PHP library, revolt extension, revolt/event-loop's suite)
+      # on one Linux job: the revolt extension (revolt-rs at the commit Cargo.lock pins) loaded
+      # with this one, in both orders (one loop either way); and revolt/event-loop's own suite
+      # (revolt-rs's copy) against this extension alone
+      - name: Revolt modes (revolt extension, revolt/event-loop's suite)
         id: modes
         if: matrix.os == 'ubuntu-24.04' && matrix.php == '8.4' && matrix.topology == 'server' && !matrix.ts
         env:
           CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
         run: |
           fibers="$(echo tests/local/fiber-*.phpt)"
-          revolt=$(mktemp -d)
-          (cd "$revolt" && composer require --no-interaction --no-progress -q revolt/event-loop:1.0.9)
-          REVOLT_AUTOLOAD=$revolt/vendor/autoload.php PHPT_TESTS=$fibers PHPT_EXTRA="-d mongodb.native_event_loop=0" \
-            tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers-library.xml"
           rev=$(sed -n 's|^source = "git+https://github.com/danog/revolt-rs?rev=\([0-9a-f]*\)#.*|\1|p' Cargo.lock | head -1)
           git clone -q https://github.com/danog/revolt-rs "$RUNNER_TEMP/revolt-rs"
           git -C "$RUNNER_TEMP/revolt-rs" checkout -q "$rev"
@@ -173,8 +168,7 @@ jobs:
           suites=("Driver (PHPT)" phpt.xml "Library (PHPUnit)" phplib.xml)
           [ "${{ matrix.topology }}" = server ] && suites+=("Fibers (tests/local)" fibers.xml)
           if [ "${{ steps.modes.outcome }}" != skipped ]; then
-            suites+=("Fibers, native_event_loop=0 + revolt/event-loop" fibers-library.xml
-              "Fibers, revolt extension loaded after" fibers-revolt-after.xml
+            suites+=("Fibers, revolt extension loaded after" fibers-revolt-after.xml
               "Fibers, revolt extension loaded before" fibers-revolt-before.xml
               "revolt/event-loop's suite against this extension" revolt-suite.xml)
           fi

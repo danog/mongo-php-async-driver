@@ -2,7 +2,7 @@
 # Runs the official driver's whole PHPT suite (upstream/driver/tests) against one extension build.
 #   run-phpt.sh <extension file> <MONGODB_URI> <JUnit output>
 # Env: PHPT_TESTS (the tests to run instead), PHPT_EXTRA (more run-tests.php arguments, e.g.
-# "-d mongodb.native_event_loop=0", or "-d extension=<file>" for a second extension, loaded after).
+# "-d extension=<file>" for a second extension, loaded after).
 # Uses php-src's run-tests.php of the running PHP's branch (fetched), one test at a time as the
 # official CI does (tests share server state such as the key vault).
 set -euo pipefail

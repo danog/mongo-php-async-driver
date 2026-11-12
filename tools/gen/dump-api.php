@@ -17,7 +17,7 @@ $params = static function (ReflectionFunctionAbstract $f) use ($type) {
 $out = ['version' => $ext->getVersion(), 'classes' => [], 'functions' => [], 'constants' => $ext->getConstants(), 'ini' => $ext->getINIEntries()];
 foreach ($ext->getClasses() as $c) {
     if (str_starts_with($c->getName(), 'Revolt\\')) {
-        continue; // the embedded revolt-rs's (mongodb.native_event_loop), not the MongoDB API
+        continue; // the embedded revolt-rs's (registered at MINIT unless another copy did), not the MongoDB API
     }
     $m = [];
     foreach ($c->getMethods() as $meth) {
