@@ -68,7 +68,9 @@ $f = new Fiber(function () use ($m, $ns, &$order) {
 });
 $order = [];
 $f->start();
-$slow();
+// {main}'s find outlasts the fibers' by 800 ms or more: under parallel test load, mongod's
+// execution admission queue (read tickets) was seen holding a fiber's find for up to 400 ms
+$m->executeQuery($ns, new Query(['$where' => 'sleep(1000) || true'], ['limit' => 1]))->toArray();
 $order[] = '{main} call returned';
 echo implode(', ', $order), "\n";
 

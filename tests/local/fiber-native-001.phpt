@@ -42,7 +42,9 @@ for ($i = 0; $i < 4; $i++) {
         $done++;
     });
 }
-$m->executeQuery($ns, new Query(['$where' => 'sleep(300) || true'], ['limit' => 1]))->toArray();
+// {main}'s find outlasts the fibers' by 800 ms or more: under parallel test load, mongod's
+// execution admission queue (read tickets) was seen holding a fiber's find for up to 400 ms
+$m->executeQuery($ns, new Query(['$where' => 'sleep(1000) || true'], ['limit' => 1]))->toArray();
 echo "timer ran during the {main} call: ", var_export($ticks >= 1, true), "\n";
 echo "fibers done during the {main} call: $done\n";
 EventLoop::cancel($timer);

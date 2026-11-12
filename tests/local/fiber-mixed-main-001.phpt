@@ -65,9 +65,11 @@ foreach (['blocking', 'loop'] as $mode) {
 
         $ticks = 0;
         $timer = EventLoop::repeat(0.02, function () use (&$ticks) { $ticks++; });
-        // the fibers' replies arrive during these calls
+        // the fibers' replies arrive during these calls (the first find outlasts the fibers' by 800 ms:
+        // under parallel test load, mongod's execution admission queue was seen holding a find for
+        // up to 400 ms)
         $main = $call(fn () => [
-            $x($m->executeQuery($ns, $slow(400, 2))),
+            $x($m->executeQuery($ns, $slow(1000, 2))),
             $x($other->executeQuery($ns, new Query(['_id' => 2]))),
             $m->executeCommand('admin', new Command(['ping' => 1]))->toArray()[0]->ok,
         ]);

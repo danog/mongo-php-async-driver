@@ -35,7 +35,9 @@ for ($i = 0; $i < 3; $i++) EventLoop::queue(function () use ($m, $ns, $slow, &$d
 $s = EventLoop::getSuspension();
 EventLoop::defer(fn () => $s->resume());
 $s->suspend();
-$m->executeQuery($ns, $slow(300))->toArray();
+// {main}'s find outlasts the fibers' by 800 ms or more: under parallel test load, mongod's
+// execution admission queue (read tickets) was seen holding a fiber's find for up to 400 ms
+$m->executeQuery($ns, $slow(1000))->toArray();
 echo "fibers done during the {main} call: $done\n";
 EventLoop::run();
 
