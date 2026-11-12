@@ -151,7 +151,9 @@ jobs:
           CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
         run: |
           fibers="$(echo tests/local/fiber-*.phpt)"
-          rev=$(sed -n 's|^source = "git+https://github.com/danog/revolt-rs?rev=\([0-9a-f]*\)#.*|\1|p' Cargo.lock | head -1)
+          # the locked commit of the revolt-rs dependency (pinned by rev or tag: the hash after "#")
+          rev=$(sed -n 's|^source = "git+https://github.com/danog/revolt-rs?[^#]*#\([0-9a-f]*\)"$|\1|p' Cargo.lock | head -1)
+          test -n "$rev"
           git clone -q https://github.com/danog/revolt-rs "$RUNNER_TEMP/revolt-rs"
           git -C "$RUNNER_TEMP/revolt-rs" checkout -q "$rev"
           (cd "$RUNNER_TEMP/revolt-rs" && PHP=$(command -v php) PHP_CONFIG=$(command -v php-config) cargo build --locked --profile fast -p revolt-ext)
