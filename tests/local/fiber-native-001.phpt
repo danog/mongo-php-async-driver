@@ -5,8 +5,8 @@ Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). The extens
 the Revolt classes at MINIT (revolt-rs, revolt/event-loop 1.0.9) unless another copy of
 revolt-rs (the revolt extension) did: either way there is one loop per thread, the one
 Revolt\EventLoop shows, always on its native driver (setDriver() is refused). The classes exist
-from the start, so {main} calls wait through the loop once it is in use (its driver exists),
-and block before. The driver's sockets are sources of that driver (no Revolt callback): only
+from the start, so {main} calls wait through the loop once it is in use (its driver exists)
+and has something else to do, and block before (or while it is idle). The driver's sockets are sources of that driver (no Revolt callback): only
 the deadline timer of a wait shows.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
@@ -25,9 +25,9 @@ $ping = fn () => $m->executeCommand('admin', new Command(['ping' => 1]))->toArra
 // no driver yet: the {main} call blocks, nothing of the driver is on the loop made afterwards
 var_dump($ping());
 echo "callbacks after a {main} call before the loop was used: ", count(EventLoop::getIdentifiers()), "\n";
-// the loop exists now: the next {main} call waits through it (its deadline timer stays, unreferenced)
+// the loop exists now, but has nothing to do: the next {main} call still blocks (nothing on it)
 var_dump($ping());
-echo "callbacks after a {main} call through the loop: ", var_export(count(EventLoop::getIdentifiers()) >= 1, true), "\n";
+echo "callbacks after a {main} call on the idle loop: ", count(EventLoop::getIdentifiers()), "\n";
 
 $m->executeCommand('mdrop_local', new Command(['drop' => 'fiber_native']));
 $bw = new BulkWrite;
@@ -75,7 +75,7 @@ classes of mongodb (or revolt): true
 float(1)
 callbacks after a {main} call before the loop was used: 0
 float(1)
-callbacks after a {main} call through the loop: true
+callbacks after a {main} call on the idle loop: 0
 timer ran during the {main} call: true
 fibers done during the {main} call: 4
 run() returned at once: true
