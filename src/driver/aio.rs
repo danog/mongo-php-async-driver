@@ -220,6 +220,11 @@ struct Nat {
     here: usize,
     /// the deadline timer: its id and due time
     timer: Option<(u64, Instant)>,
+    /// {main}'s suspension, kept (one reference) between {main}'s waits: Revolt's getSuspension()
+    /// returns the same object while someone holds it, so a {main} wait does not make (and free)
+    /// one each time; replaced when Revolt made another (the kept one died: the loop ended
+    /// without resuming it). Null: none yet.
+    main: sys::zval,
 }
 
 struct Loop {
@@ -281,7 +286,7 @@ unsafe fn nat() -> io::Result<(&'static Abi, *mut sys::zend_object, u32)> {
     if group == 0 || call::has_exception() {
         return Err(mongo_core::aio::interrupted());
     }
-    with(|l| l.nat = Some(Nat { abi: nl.abi, driver: nl.driver, group, here: 0, timer: None }));
+    with(|l| l.nat = Some(Nat { abi: nl.abi, driver: nl.driver, group, here: 0, timer: None, main: zval::null() }));
     Ok((nl.abi, nl.driver, group))
 }
 
@@ -289,15 +294,19 @@ unsafe fn nat() -> io::Result<(&'static Abi, *mut sys::zend_object, u32)> {
 /// owning copy's, runs after this); waits left behind belong to fibers destroyed later, which
 /// find their slots freed and touch nothing.
 pub fn rshutdown() {
-    let _ = LOOP.try_with(|l| {
-        if let Ok(mut l) = l.try_borrow_mut() {
+    // dropped after the borrow (the kept suspension's release reaches the loop)
+    let nat = LOOP
+        .try_with(|l| {
+            let mut l = l.try_borrow_mut().ok()?;
             for s in &mut l.slots {
                 *s = Slot::free(s.gen.wrapping_add(1));
             }
-            l.nat = None;
             l.taken.clear();
-        }
-    });
+            l.nat.take()
+        })
+        .ok()
+        .flatten();
+    drop(nat);
     DRIVER_SLOT.set(null_mut());
     mongo_core::aio::set_no_loop_at(u32::MAX);
     mongo_core::aio::set_sync_words(std::ptr::null(), std::ptr::null());
@@ -473,16 +482,19 @@ unsafe fn suspend(abi: &'static Abi, d: *mut sys::zend_object, token: usize, gen
     if o.is_null() || call::has_exception() {
         return Err(mongo_core::aio::interrupted());
     }
-    // this frame holds the suspension until it returns
+    // this frame holds the suspension until it returns; {main}'s is kept for the next waits too
     let s = zval::obj(o);
-    let rearm = with(|l| {
+    let main = !in_fiber();
+    let (rearm, old) = with(|l| {
         let slot = &mut l.slots[token];
         if slot.gen == gen {
             slot.suspension = o;
         }
         let n = l.nat.as_mut().expect("nat");
-        deadline.filter(|d| n.timer.as_ref().is_none_or(|(_, at)| d < at)).map(|d| (d, n.timer.take()))
+        let old = (main && (!zval::is(&n.main, sys::IS_OBJECT) || n.main.value.obj != o)).then(|| std::mem::replace(&mut n.main, zval::copy(&s)));
+        (deadline.filter(|d| n.timer.as_ref().is_none_or(|(_, at)| d < at)).map(|d| (d, n.timer.take())), old)
     });
+    drop(old);
     if let Some((at, old)) = rearm {
         arm_timer(abi, d, at, old.map(|o| o.0));
     }
