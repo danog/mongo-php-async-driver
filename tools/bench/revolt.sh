@@ -8,7 +8,8 @@
 # (raw results, default revolt-bench.jsonl).
 # Configurations ({main}: every one; fibers: those that have a loop):
 #   idle       the built-in loop registered but never used (EventLoop untouched): synchronous
-#   native     the built-in loop in use
+#   native     the built-in loop in use, idle otherwise ({main} blocks as without a loop)
+#   busy       the built-in loop in use with other work (an unreferenced timer): {main} through it
 #   native-m0  the built-in loop in use, mongodb.main_event_loop=0
 #   native-ev  the built-in loop in use, ext-ev loaded
 #   old-*      the same with [old .so] (an earlier build, to compare with)
@@ -25,18 +26,20 @@ args() { # config -> php arguments (and the <loop> argument last)
   case $1 in
     idle) echo "-d extension=$new none" ;;
     native) echo "-d extension=$new used" ;;
+    busy) echo "-d extension=$new busy" ;;
     native-m0) echo "-d extension=$new -d mongodb.main_event_loop=0 used" ;;
     native-ev) echo "-d extension=$new -d extension=$EV used" ;;
     old-idle) echo "-d extension=$old none" ;;
     old-native) echo "-d extension=$old used" ;;
+    old-busy) echo "-d extension=$old busy" ;;
     old-m0) echo "-d extension=$old -d mongodb.main_event_loop=0 used" ;;
     lib) echo "-d extension=$lib -d mongodb.native_event_loop=0 used" ;;
     lib-m0) echo "-d extension=$lib -d mongodb.native_event_loop=0 -d mongodb.main_event_loop=0 used" ;;
   esac
 }
-main_cfgs=(idle native native-m0)
+main_cfgs=(idle native busy native-m0)
 fiber_cfgs=(native)
-[ -n "$old" ] && { main_cfgs+=(old-idle old-native old-m0); fiber_cfgs+=(old-native); }
+[ -n "$old" ] && { main_cfgs+=(old-idle old-native old-busy old-m0); fiber_cfgs+=(old-native); }
 [ -n "$lib" ] && { main_cfgs+=(lib lib-m0); fiber_cfgs+=(lib); }
 [ -n "$EV" ] && { main_cfgs+=(native-ev); fiber_cfgs+=(native-ev); }
 run() { # round config case fibers ops

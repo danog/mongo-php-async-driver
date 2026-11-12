@@ -5,18 +5,22 @@
 //       tools/bench/revolt.php <uri> <loop> <case> <fibers> <ops>
 // <loop>: "used" (EventLoop::getDriver() first: the loop is in use; an older build without the
 // built-in classes (mongodb.native_event_loop=0) gets the PHP library from REVOLT_AUTOLOAD), or
-// "none" (Revolt not touched).
+// "none" (Revolt not touched), or "busy" (in use, with an unreferenced repeat timer of an hour:
+// work the loop must watch, so {main} calls wait through it instead of blocking).
 // <case>: ping, findOne or insertOne. <fibers>: 0 = sequential calls in {main}, else that many
 // fibers sharing the <ops> calls (EventLoop::queue(), then EventLoop::run()).
 // One JSON line: the Revolt driver, wall and CPU (user + system) ns per operation.
 [, $uri, $loop, $case, $fibers, $ops] = $argv;
 [$fibers, $ops] = [(int) $fibers, (int) $ops];
 $driver = 'none';
-if ($loop === 'used') {
+if ($loop === 'used' || $loop === 'busy') {
     if (!class_exists(Revolt\EventLoop::class, false)) {
         require getenv('REVOLT_AUTOLOAD');
     }
     $driver = (new ReflectionClass(Revolt\EventLoop::getDriver()))->getShortName();
+    if ($loop === 'busy') {
+        Revolt\EventLoop::unreference(Revolt\EventLoop::repeat(3600, fn () => null));
+    }
 }
 $m = new MongoDB\Driver\Manager($uri);
 $ns = 'mdrop_bench.revolt';
