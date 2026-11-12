@@ -259,7 +259,7 @@ unsafe fn owner() -> (String, String) {
         return unknown();
     }
     let ce = (*z).value.ptr as *mut sys::zend_class_entry;
-    if (*ce).type_ != ZEND_INTERNAL_CLASS || (*ce).info.internal.module.is_null() {
+    if (*ce).type_ as u8 != ZEND_INTERNAL_CLASS || (*ce).info.internal.module.is_null() {
         return unknown();
     }
     let m = (*ce).info.internal.module;
@@ -275,8 +275,9 @@ unsafe fn owner() -> (String, String) {
     (module, found)
 }
 
-/// zend_class_entry.type of an internal class
-const ZEND_INTERNAL_CLASS: std::ffi::c_char = 1;
+/// zend_class_entry.type of an internal class (a `char` up to PHP 8.5, a `uint8_t` from 8.6:
+/// compared as u8 on every version)
+const ZEND_INTERNAL_CLASS: u8 = 1;
 
 /// A symbol of a loaded extension (its zend_module_entry's handle).
 #[cfg(unix)]
