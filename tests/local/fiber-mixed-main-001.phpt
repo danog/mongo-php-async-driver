@@ -28,8 +28,9 @@ function blocked(callable $f): mixed {
         }
     };
     register_tick_function($tick);
+    // one statement that ticks: a call (PHP 8.6 emits no tick after a plain assignment)
     declare(ticks=1) {
-        $done = $done;
+        max(0, 1);
     }
     unregister_tick_function($tick);
     return $result;
