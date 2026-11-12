@@ -7,12 +7,10 @@ with ini_set(), the next {main} call waits through the loop again, without any c
 declared in between (the synchronous fast path is re-evaluated when the setting changes).
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 --INI--
 mongodb.main_event_loop=0
 --FILE--
 <?php
-if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 var_dump(ini_get('mongodb.main_event_loop'));

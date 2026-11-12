@@ -1,16 +1,13 @@
 --TEST--
 Fibers: pooled mode, a new connection whose handshake fails carries the backpressure labels
 --DESCRIPTION--
-Local test (not upstream; DIVERGENCES "Concurrent operations in fibers"). Needs Revolt: the native classes
-(mongodb.native_event_loop=1), or revolt/event-loop with REVOLT_AUTOLOAD=<path to a composer vendor/autoload.php that has it>.
-Two fibers at once: the second one gets a new cluster (pooled mode), whose connection's handshake
+Local test (not upstream; DIVERGENCES "Concurrent operations in fibers"). Two fibers at once: the second one gets a new cluster (pooled mode), whose connection's handshake
 is closed by the server (failCommand). As libmongoc 2.5.8's pooled clients (_cluster_add_node,
 _handle_network_error): the error is the hello's network error with the SystemOverloadedError and
 RetryableError labels, no command events are sent for it, the topology is left alone and the next
 operation connects again.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 <?php
 $m = new MongoDB\Driver\Manager(getenv('MONGODB_URI'));
 try {
@@ -23,7 +20,6 @@ try {
 all
 --FILE--
 <?php
-if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command};
 use Revolt\EventLoop;
 $uri = getenv('MONGODB_URI');

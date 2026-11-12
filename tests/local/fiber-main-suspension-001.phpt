@@ -1,17 +1,14 @@
 --TEST--
 Fibers: {main}'s Revolt suspension after the loop ended without resuming it, and shared with the caller
 --DESCRIPTION--
-Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). Needs Revolt: the native classes
-(mongodb.native_event_loop=1), or revolt/event-loop with REVOLT_AUTOLOAD=<path to a composer vendor/autoload.php that has it>. The driver
-keeps {main}'s suspension between waits; Revolt makes a new one once a {main} suspend() ends
+Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). The driver
+waits on {main}'s suspension (the same object while it lives); Revolt makes a new one once a {main} suspend() ends
 without a resume (an uncaught exception of a callback, Driver::stop()): the next driver call
 must then use the new one, whether the driver's own wait or the caller's suspend() saw the end.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 --FILE--
 <?php
-if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $ns = 'mdrop_local.fiber_main_suspension';

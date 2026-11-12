@@ -11,10 +11,8 @@ pending, when PHP skips the call that resumes B).
   (serverSelectionTryOnce).
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 --FILE--
 <?php
-if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $uri = getenv('MONGODB_URI');

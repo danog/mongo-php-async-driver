@@ -6,16 +6,14 @@ Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). With the s
 through the loop. Here fibers (a plain Fiber, and one the loop started) are suspended waiting for
 a reply that arrives while {main} blocks in calls on the same Manager and on another one; the
 loop is not running then, so the fibers stay suspended, and once it runs they get their replies.
-The blocking waits never take the readiness the event loop's watcher reports for the fibers'
+The blocking waits never take the readiness the loop's poller reports for the fibers'
 sockets (each round's clusters are the previous round's, so {main} also uses sockets fibers waited
 on before). With the setting On (the default), the same {main} calls wait through the loop and
 the fibers finish during them.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
-<?php if (!class_exists('Revolt\EventLoop', false) && !is_file((string) getenv('REVOLT_AUTOLOAD'))) die('skip no Revolt: no native Revolt\EventLoop, no REVOLT_AUTOLOAD'); ?>
 --FILE--
 <?php
-if (is_file((string) getenv('REVOLT_AUTOLOAD'))) require getenv('REVOLT_AUTOLOAD'); // else the native classes
 use MongoDB\Driver\{Manager, Command, Query, BulkWrite};
 use Revolt\EventLoop;
 $uri = getenv('MONGODB_URI');

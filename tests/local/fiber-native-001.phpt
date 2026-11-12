@@ -1,13 +1,13 @@
 --TEST--
 Fibers: the native Revolt event loop (revolt-rs, embedded or the revolt extension) is one loop, used once EventLoop is
 --DESCRIPTION--
-Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). With
-mongodb.native_event_loop=1 (the default) the extension registers the Revolt classes at MINIT
-(revolt-rs, revolt/event-loop 1.0.9) unless another copy of revolt-rs (the revolt extension)
-did: either way there is one loop per thread, the one Revolt\EventLoop shows. The classes exist
+Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber"). The extension registers
+the Revolt classes at MINIT (revolt-rs, revolt/event-loop 1.0.9) unless another copy of
+revolt-rs (the revolt extension) did: either way there is one loop per thread, the one
+Revolt\EventLoop shows, always on its native driver (setDriver() is refused). The classes exist
 from the start, so {main} calls wait through the loop once it is in use (its driver exists),
-and block before. Fibers suspend through the native loop; a TracingDriver (not a native driver)
-is reached through PHP calls, as the PHP library is.
+and block before. The driver's sockets are sources of that driver (no Revolt callback): only
+the deadline timer of a wait shows.
 --SKIPIF--
 <?php if (!getenv('MONGODB_URI')) die('skip no MONGODB_URI'); ?>
 <?php if (!class_exists('Revolt\EventLoop', false) || !(new ReflectionClass('Revolt\EventLoop'))->isInternal()) die('skip Revolt\EventLoop is not native'); ?>
@@ -25,7 +25,7 @@ $ping = fn () => $m->executeCommand('admin', new Command(['ping' => 1]))->toArra
 // no driver yet: the {main} call blocks, nothing of the driver is on the loop made afterwards
 var_dump($ping());
 echo "callbacks after a {main} call before the loop was used: ", count(EventLoop::getIdentifiers()), "\n";
-// the loop exists now: the next {main} call waits through it (its watcher stays, unreferenced)
+// the loop exists now: the next {main} call waits through it (its deadline timer stays, unreferenced)
 var_dump($ping());
 echo "callbacks after a {main} call through the loop: ", var_export(count(EventLoop::getIdentifiers()) >= 1, true), "\n";
 
@@ -50,8 +50,12 @@ $t = hrtime(true);
 EventLoop::run();
 echo "run() returned at once: ", var_export((hrtime(true) - $t) < 1e9, true), "\n";
 
-// a TracingDriver over a native one: not native itself, reached through PHP calls
-EventLoop::setDriver(new TracingDriver(EventLoop::getDriver()));
+// the loop's driver cannot be replaced: the driver's waits stay on the one loop
+try {
+    EventLoop::setDriver(new TracingDriver(EventLoop::getDriver()));
+} catch (Revolt\EventLoop\UnsupportedFeatureException $e) {
+    echo get_class($e), "\n";
+}
 $done = 0;
 for ($i = 0; $i < 3; $i++) {
     EventLoop::queue(function () use ($ping, &$done) {
@@ -61,7 +65,7 @@ for ($i = 0; $i < 3; $i++) {
 }
 var_dump($ping());
 EventLoop::run();
-echo "fibers done on the TracingDriver: $done\n";
+echo "fibers done after the refused swap: $done\n";
 $t = hrtime(true);
 EventLoop::run();
 echo "run() returned at once: ", var_export((hrtime(true) - $t) < 1e9, true), "\n";
@@ -75,6 +79,7 @@ callbacks after a {main} call through the loop: true
 timer ran during the {main} call: true
 fibers done during the {main} call: 4
 run() returned at once: true
+Revolt\EventLoop\UnsupportedFeatureException
 float(1)
-fibers done on the TracingDriver: 3
+fibers done after the refused swap: 3
 run() returned at once: true
