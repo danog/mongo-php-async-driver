@@ -1,5 +1,5 @@
 #!/bin/bash
-# The event loops compared (README, Performance): tools/bench/revolt.php in several configurations,
+# The event loops compared (docs/PERFORMANCE.md, Event loops): tools/bench/revolt.php in several configurations,
 # alternating (the order rotates every round), many rounds; prints the medians per configuration.
 #   revolt.sh <uri> <rounds> <new .so> [old .so] [library .so]
 # Env: PHP (default php), REVOLT_AUTOLOAD (revolt/event-loop's vendor/autoload.php: the library
