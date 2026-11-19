@@ -36,9 +36,6 @@ jobs:
         ts: [nts, zts]
         arch: [x86_64, arm64]
         libc: [glibc, musl]
-        # 8.6's NTS build is made from source in docker-library's thread-safe images (below): glibc only
-        exclude:
-          - { php: "8.6", ts: nts, libc: musl }
     steps:
       - name: Check the tag name
         run: |
@@ -63,7 +60,11 @@ jobs:
           image=php:$tag-${{ matrix.libc == 'musl' && 'alpine' || 'bookworm' }}
           cat > "$RUNNER_TEMP/php-nts.sh" <<'SCRIPT'
           set -eu
-          apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential >/dev/null
+          if command -v apk >/dev/null; then
+            apk add --no-cache -q build-base linux-headers
+          else
+            apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential >/dev/null
+          fi
           mkdir /tmp/php-nts
           tar -xf /usr/src/php.tar.xz -C /tmp/php-nts --strip-components=1
           cd /tmp/php-nts
