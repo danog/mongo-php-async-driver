@@ -495,7 +495,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -525,7 +525,7 @@ dependencies = [
 [[package]]
 name = "ext-php-rs-build"
 version = "0.2.0"
-source = "git+https://github.com/danog/revolt-rs?rev=2e021cad3c479bb8e109331b264b2072c4906996#2e021cad3c479bb8e109331b264b2072c4906996"
+source = "git+https://github.com/danog/revolt-rs?tag=v0.1.1#80c238b7bd5e44be11f14038d561e2fe22f1816e"
 dependencies = [
  "anyhow",
 ]
@@ -1245,8 +1245,8 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "revolt-rs"
-version = "0.1.0"
-source = "git+https://github.com/danog/revolt-rs?rev=2e021cad3c479bb8e109331b264b2072c4906996#2e021cad3c479bb8e109331b264b2072c4906996"
+version = "0.1.1"
+source = "git+https://github.com/danog/revolt-rs?tag=v0.1.1#80c238b7bd5e44be11f14038d561e2fe22f1816e"
 dependencies = [
  "ext-php-rs",
  "libc",
@@ -1283,7 +1283,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1594,10 +1594,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1864,7 +1864,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
