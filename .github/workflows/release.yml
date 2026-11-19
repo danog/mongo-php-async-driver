@@ -36,9 +36,9 @@ jobs:
         ts: [nts, zts]
         arch: [x86_64, arm64]
         libc: [glibc, musl]
-        # the official 8.6 images are thread-safe only
+        # 8.6's NTS build is made from source in docker-library's thread-safe images (below): glibc only
         exclude:
-          - { php: "8.6", ts: nts }
+          - { php: "8.6", ts: nts, libc: musl }
     steps:
       - name: Check the tag name
         run: |
@@ -49,14 +49,31 @@ jobs:
           persist-credentials: false
       - name: Build in the official PHP image
         run: |
-          # <X.Y>-cli: NTS, <X.Y>-zts: ZTS; 8.6 is still a release candidate and its "cli" images are ZTS
+          # <X.Y>-cli: NTS, <X.Y>-zts: ZTS; docker-library's images of 8.6 are thread-safe only (its "cli" too), so its
+          # NTS build is made in them, from their own sources (/usr/src/php.tar.xz): minimal (the extension needs only
+          # the headers, php-config and the CLI), first in PATH. Here rather than in tools/release (that of the tag's
+          # checkout), so that a run for an older tag builds it too.
+          nts=
           case "${{ matrix.php }}-${{ matrix.ts }}" in
-            8.6-zts) tag=8.6-rc-cli ;;
+            8.6-zts) tag=8.6-cli ;;
+            8.6-nts) tag=8.6-cli; nts=1 ;;
             *-zts)   tag=${{ matrix.php }}-zts ;;
             *)       tag=${{ matrix.php }}-cli ;;
           esac
           image=php:$tag-${{ matrix.libc == 'musl' && 'alpine' || 'bookworm' }}
-          docker run --rm -v "$PWD:/src" -w /src -e EXPECT_ZTS=${{ matrix.ts == 'zts' && 1 || 0 }} "$image" sh tools/release/build-linux.sh mongodb.so
+          cat > "$RUNNER_TEMP/php-nts.sh" <<'SCRIPT'
+          set -eu
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential >/dev/null
+          mkdir /tmp/php-nts
+          tar -xf /usr/src/php.tar.xz -C /tmp/php-nts --strip-components=1
+          cd /tmp/php-nts
+          ./configure -q --prefix=/opt/php-nts --disable-all --disable-cgi --disable-phpdbg --without-pear
+          make -s -j"$(nproc)" >/dev/null
+          make -s install >/dev/null
+          SCRIPT
+          docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP/php-nts.sh:/php-nts.sh:ro" -w /src \
+            -e EXPECT_ZTS=${{ matrix.ts == 'zts' && 1 || 0 }} -e NTS=$nts "$image" \
+            sh -c 'if [ -n "$NTS" ]; then sh /php-nts.sh; export PATH=/opt/php-nts/bin:$PATH; fi; sh tools/release/build-linux.sh mongodb.so'
       - name: Package
         run: |
           asset=$(echo "php_mongodb-${TAG}_php${{ matrix.php }}-${{ matrix.arch }}-linux-${{ matrix.libc }}${{ matrix.ts == 'zts' && '-zts' || '' }}.zip" | tr 'A-Z' 'a-z')
@@ -115,9 +132,6 @@ jobs:
       matrix:
         php: ["8.2", "8.3", "8.4", "8.5", "8.6"]
         ts: [nts, ts]
-        # no Windows development pack is published for 8.6 before its release
-        exclude:
-          - { php: "8.6" }
     defaults:
       run:
         shell: bash
