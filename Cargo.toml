@@ -25,7 +25,7 @@ ext-php-rs = { version = "=0.16.4", default-features = false, features = ["runti
 libc = "0.2"
 # the native Revolt event loop (revolt/event-loop 1.0.9 in Rust, MIT): registers the Revolt classes
 # at MINIT unless another copy did, and drives the driver's waits without PHP-level calls
-revolt-rs = { git = "https://github.com/danog/revolt-rs", tag = "v0.1.1" }
+revolt-rs = { git = "https://github.com/danog/revolt-rs", tag = "v0.2.0" }
 
 [workspace]
 members = ["crates/core", "crates/crypt"]
