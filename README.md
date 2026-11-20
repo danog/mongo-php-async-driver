@@ -1,11 +1,11 @@
 # mongo-php-async-driver
 
-A drop-in replacement for the `mongodb` PHP extension (ext-mongodb 2.5.6), written in pure Rust,
+A drop-in replacement for the `mongodb` PHP extension (ext-mongodb 2.5.8), written in pure Rust,
 whose network waits are async: a driver call inside a `Fiber` suspends only that fiber, through
 the [Revolt](https://revolt.run) event loop built into the extension. Code written for
 ext-mongodb, [PHPLIB](https://github.com/mongodb/mongo-php-library) included, runs unchanged.
 
-- **Same API and behaviour as ext-mongodb 2.5.6:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
+- **Same API and behaviour as ext-mongodb 2.5.8:** every `MongoDB\BSON\*` and `MongoDB\Driver\*`
   class, constant, `var_dump()` output, serialization format, exception and message. Every
   difference is listed, with its reason and the test that pins it, in
   [DIVERGENCES.md](DIVERGENCES.md); where mirroring ext-mongodb would be unsafe, safety wins.
@@ -36,7 +36,7 @@ which needs Rust (`cargo`) and libclang.
   64-bit. Pre-built binaries: Linux (x86-64 and arm64, glibc and musl), macOS (arm64 and x86-64)
   and Windows (x86-64); until PHP 8.6 is released, 8.6 has ZTS builds only on Linux and none on
   Windows.
-- **MongoDB** 4.2 and later (as ext-mongodb 2.5.6): standalone, replica sets, sharded clusters.
+- **MongoDB** 4.2 and later (as ext-mongodb 2.5.8): standalone, replica sets, sharded clusters.
 - **Client-side encryption** in pure Rust: `ClientEncryption`, every KMS provider, CSFLE and
   Queryable Encryption, and `autoEncryption` with `bypassAutoEncryption` or `bypassQueryAnalysis`.
   Not included: automatic encryption through query analysis (mongocryptd or crypt_shared, from

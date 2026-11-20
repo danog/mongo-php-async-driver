@@ -5,7 +5,7 @@ that they can be re-synced. Local changes, if any, are listed below per suite.
 
 | Directory | Upstream | Tag / commit | Licence |
 |---|---|---|---|
-| `phpt/` | https://github.com/mongodb/mongo-php-driver `tests/` (without the `drivers-evergreen-tools` submodule) | `2.5.6` / `4ff9840052151eb8d5477149a3700a01bca10b60` | Apache-2.0 |
+| `phpt/` | https://github.com/mongodb/mongo-php-driver `tests/` (without the `drivers-evergreen-tools` submodule) | `2.5.8` / `af2aae91b8140114c1cf0ed894cbf1ac715e77a9` | Apache-2.0 |
 | `phplib/tests/`, `phplib/phpunit.xml.dist`, `phplib/composer.json` | https://github.com/mongodb/mongo-php-library `tests/` (without submodules) | `2.5.1` / `f5fdaaf13c0f8f9b3e59ba52a47d430533858843` | Apache-2.0 |
 | `spec/` (git submodule, not copied) | https://github.com/mongodb/specifications | `eb2ee1e529cf1c2fbf8bd54c32dc32c644306d0d` (the commit PHPLIB 2.5.1 pins) | CC BY-NC-SA 3.0 US |
 

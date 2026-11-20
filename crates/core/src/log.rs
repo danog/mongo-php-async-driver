@@ -110,35 +110,3 @@ pub const MONGOC: &str = "mongoc";
 pub const CLIENT: &str = "client";
 pub const CLUSTER: &str = "cluster";
 pub const TOPOLOGY_SCANNER: &str = "topology_scanner";
-
-/// Names a value that holds secrets (phongo's client hash: the URI's SHA-256 and the option
-/// values) in log lines: HMAC-SHA-256 with a random per-process key, in hex. Equal values give
-/// equal fingerprints within a process; nothing about the value can be recovered or guessed
-/// offline from it.
-pub fn fingerprint(data: &[u8]) -> String {
-    use hmac::{Hmac, KeyInit, Mac};
-    static KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
-    let key = KEY.get_or_init(|| {
-        let mut k = [0u8; 32];
-        getrandom::fill(&mut k).ok().map(|()| k)
-    });
-    // without a key nothing is shown
-    let Some(key) = key else { return "******".to_owned() };
-    let mut m = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(key).expect("HMAC takes any key size");
-    m.update(data);
-    m.finalize().into_bytes().iter().map(|b| format!("{b:02x}")).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn fingerprint_is_keyed_and_stable() {
-        let a = super::fingerprint(b"a:4:{s:3:\"pid\";i:1;}");
-        assert_eq!(a, super::fingerprint(b"a:4:{s:3:\"pid\";i:1;}"));
-        assert_ne!(a, super::fingerprint(b"a:4:{s:3:\"pid\";i:2;}"));
-        assert_eq!(a.len(), 64);
-        // not the plain SHA-256 of the value
-        let plain: String = crate::auth::scram::sha256(b"a:4:{s:3:\"pid\";i:1;}").iter().map(|b| format!("{b:02x}")).collect();
-        assert_ne!(a, plain);
-    }
-}

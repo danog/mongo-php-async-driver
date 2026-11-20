@@ -6,7 +6,7 @@ use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOCRYPT_VERSION, LIBMONGOC_VE
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::ptr::{addr_of, addr_of_mut, null, null_mut};
 
-const VERSION: &CStr = c"2.5.6";
+const VERSION: &CStr = c"2.5.8";
 const _: () = assert!(VERSION.to_bytes().len() == EXT_VERSION.len());
 
 const MODULE_DEP_REQUIRED: u8 = 1;
