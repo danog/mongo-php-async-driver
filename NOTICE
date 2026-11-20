@@ -56,8 +56,7 @@ Snappy-Rust Authors and Copyright 2016 Andrew Gallant).
 
 The Revolt event loop is revolt-rs (https://github.com/danog/revolt-rs), a Rust implementation of
 revolt/event-loop (https://github.com/revoltphp/event-loop), compiled into the extension as a
-dependency (and its patched copy of ext-php-rs-build, MIT OR Apache-2.0, for building on PHP 8.6).
-It is licensed under the MIT License:
+dependency. It is licensed under the MIT License:
 
     The MIT License (MIT)
 

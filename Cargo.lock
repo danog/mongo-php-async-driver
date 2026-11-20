@@ -524,8 +524,9 @@ dependencies = [
 
 [[package]]
 name = "ext-php-rs-build"
-version = "0.2.0"
-source = "git+https://github.com/danog/revolt-rs?tag=v0.1.1#80c238b7bd5e44be11f14038d561e2fe22f1816e"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5f815ea2c4c677aecd7d74a6078ad56dd2a63d6d58aa87b75fd44852f48777f"
 dependencies = [
  "anyhow",
 ]
