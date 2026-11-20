@@ -104,7 +104,7 @@ pub fn validate_db_name(db: &str) -> Result<(), Error> {
         return bad("database name invalid: contains a NUL byte".into());
     }
     if db.contains('.') {
-        return bad(format!("database name \"{db}\" invalid: contains \".\""));
+        return bad("database name invalid: contains \".\"".into());
     }
     Ok(())
 }
