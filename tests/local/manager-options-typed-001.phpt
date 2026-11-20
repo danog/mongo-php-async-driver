@@ -45,11 +45,11 @@ foreach ([['driver' => 'x'], ['driver' => ['name' => 1]]] as $driverOptions) {
 }
 ?>
 --EXPECT--
-Failed to parse URI options: 'AWS_SESSION_TOKEN' authentication mechanism property 'MONGODB-AWS' has incorrect type 'INT32', should be 'UTF8'
+Failed to parse URI options: 'MONGODB-AWS' authentication mechanism property 'AWS_SESSION_TOKEN' has incorrect type 'INT32', should be 'UTF8'
 ok
-Failed to parse URI options: 'ENVIRONMENT' authentication mechanism property 'MONGODB-OIDC' has incorrect type 'ARRAY', should be 'UTF8'
-Failed to parse URI options: 'ENVIRONMENT' authentication mechanism property 'MONGODB-OIDC' has incorrect type 'DOUBLE', should be 'UTF8'
-Failed to parse URI options: 'AWS_SESSION_TOKEN' authentication mechanism property 'MONGODB-AWS' has incorrect type 'NULL', should be 'UTF8'
+Failed to parse URI options: 'MONGODB-OIDC' authentication mechanism property 'ENVIRONMENT' has incorrect type 'ARRAY', should be 'UTF8'
+Failed to parse URI options: 'MONGODB-OIDC' authentication mechanism property 'ENVIRONMENT' has incorrect type 'DOUBLE', should be 'UTF8'
+Failed to parse URI options: 'MONGODB-AWS' authentication mechanism property 'AWS_SESSION_TOKEN' has incorrect type 'NULL', should be 'UTF8'
 ok
 array(2) {
   [0]=>

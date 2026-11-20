@@ -1,11 +1,14 @@
 --TEST--
 Manager: debug output and URI errors never show the password or other secrets
 --DESCRIPTION--
-Local test (not upstream). ext-mongodb shows the URI as given in var_dump($manager) and in
-"Failed to parse MongoDB URI" messages, password included. Here the password, the secret
-options (tlsCertificateKeyFilePassword, sslClientCertificateKeyPassword) and an
-authMechanismProperties value with a secret property (such as AWS_SESSION_TOKEN) are replaced
-by "******"; the username is kept. Listed in DIVERGENCES.md (permanent, for safety).
+Local test (not upstream). ext-mongodb shows the URI as given in var_dump($manager), password
+included. Here the password, the secret options (tlsCertificateKeyFilePassword,
+sslClientCertificateKeyPassword) and an authMechanismProperties value with a secret property
+(such as AWS_SESSION_TOKEN) are replaced by "******"; the username is kept. Listed in
+DIVERGENCES.md (permanent, for safety). The "Failed to parse MongoDB URI" messages quote no part
+of the URI, as ext-mongodb 2.5.8 (PHPC-2804, libmongoc 2.5.9): an option is named by its
+position in the query. An unescaped '@' in the password is refused (the reference takes the
+rest as a host name: also in DIVERGENCES.md).
 --FILE--
 <?php
 $m = new MongoDB\Driver\Manager('mongodb://AKID:s3cr3t@127.0.0.1:1/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:t0ken&appname=x');
@@ -39,9 +42,9 @@ bool(false)
 bool(false)
 bool(false)
 MongoDB\Driver\Manager Object ( [uri] => mongodb://user:******@127.0.0.1/?appname=a@b [cluster] => Array ( ) [cryptSharedVersion] => ) 
-Failed to parse MongoDB URI: 'mongodb://user:******@127.0.0.1/'. Password must not have unescaped chars. Percent-encode username and password according to RFC 3986.
-Failed to parse MongoDB URI: 'mongodb://user:******@127.0.0.1/'. Password must not have unescaped chars. Percent-encode username and password according to RFC 3986.
-Failed to parse MongoDB URI: 'mongodb://127.0.0.1/?tlsCertificateKeyFilePassword=******'. Value for URI option "tlsCertificateKeyFilePassword" contains is invalid: ******.
-Failed to parse MongoDB URI: 'mongodb://k@127.0.0.1/?authMechanism=MONGODB-AWS&authMechanismProperties=******'. Value for URI option "authMechanismProperties" contains is invalid: ******.
-Failed to parse MongoDB URI: 'mongodb://user:******@127.0.0.1/?tlsCertificateKeyFilePassword=******&w=-5'. Error while parsing the 'w' URI option: Unsupported w value [w=-5].
-Failed to parse MongoDB URI: 'mongodb://127.0.0.1/?sslClientCertificateKeyPassword=******&tlsCertificateKeyFilePassword=******'. Deprecated option 'sslclientcertificatekeypassword=******' conflicts with canonical name 'tlscertificatekeyfilepassword=******'.
+Failed to parse MongoDB URI: Password must not have unescaped chars. Percent-encode username and password according to RFC 3986.
+Failed to parse MongoDB URI: Password must not have unescaped chars. Percent-encode username and password according to RFC 3986.
+Failed to parse MongoDB URI: Value for URI option at query position 0 is invalid: Truncated %-sequence: expected two hexadecimal digits.
+Failed to parse MongoDB URI: Value for URI option at query position 26 is invalid: Truncated %-sequence: expected two hexadecimal digits.
+Failed to parse MongoDB URI: Error while parsing the 'w' URI option: Unsupported w value [w=-5].
+Failed to parse MongoDB URI: Deprecated option conflicts with canonical name 'tlscertificatekeyfilepassword'.

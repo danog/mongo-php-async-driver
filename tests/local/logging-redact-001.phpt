@@ -1,14 +1,13 @@
 --TEST--
 Logging: no password, secret option, client hash or authentication payload reaches any log output
 --DESCRIPTION--
-Local test (not upstream). ext-mongodb logs the URI as given ("Connection string: '...'"), the
-persistent-client hash (a PHP serialization holding the URI's SHA-256 and every option value,
-passwords included) and, at TRACE level, hex dumps of every wire message (authentication
-conversations, createUser passwords). Here the URI is redacted as in var_dump(), the hash is
-replaced by a keyed per-process fingerprint, and no wire dump is produced. The test captures the
-mongodb.debug stream and a LogSubscriber, runs failing and passing operations with secrets in the
-URI, the URI options and a command, and checks that no secret appears. Listed in DIVERGENCES.md
-(permanent, for safety).
+Local test (not upstream). ext-mongodb logs, at TRACE level, hex dumps of every wire message
+(authentication conversations, createUser passwords); before 2.5.8 (PHPC-2804) it also logged the
+URI as given and the persistent-client hash (the URI's SHA-256 and every option value). Here no
+wire dump is produced, and the client messages are 2.5.8's, without the hash. The test captures
+the mongodb.debug stream and a LogSubscriber, runs failing and passing operations with secrets in
+the URI, the URI options and a command, and checks that no secret appears. Listed in
+DIVERGENCES.md (permanent, for safety).
 --SKIPIF--
 <?php require __DIR__ . "/../phpt/utils/basic-skipif.inc"; ?>
 <?php skip_if_not_live(); ?>
@@ -85,9 +84,10 @@ rmdir($dir);
 $all = $stream . "\n" . implode("\n", $logger->lines);
 
 printf("stream has lines: %s\n", substr_count($stream, "\n") > 5 ? 'yes' : 'no');
-printf("connection string logged: %s\n", str_contains($stream, "Connection string: 'mongodb://alice:******@") ? 'yes' : 'no');
-printf("client hash logged: %s\n", preg_match('/Created client with hash: [0-9a-f]{64}\n/', $stream) ? 'yes' : 'no');
-printf("found client logged: %s\n", preg_match('/Found client for hash: [0-9a-f]{64}\n/', $stream) ? 'yes' : 'no');
+printf("connection string logged: %s\n", str_contains($stream, 'Connection string') ? 'yes' : 'no');
+printf("non-persistent client logged: %s\n", str_contains($stream, "> Created non-persistent client\n") ? 'yes' : 'no');
+printf("persistent client logged: %s\n", str_contains($stream, "> Created persistent client\n") && str_contains($stream, "> Stored persistent client\n") ? 'yes' : 'no');
+printf("found client logged: %s\n", str_contains($stream, "> Found persistent client\n") ? 'yes' : 'no');
 printf("authentication failure logged: %s\n", str_contains($all, 'cluster ERROR') || str_contains($stream, 'cluster: ERROR   > Authentication failed') ? 'yes' : 'no');
 printf("subscriber saw messages: %s\n", count($logger->lines) > 5 ? 'yes' : 'no');
 // the driver name is not a secret: it shows that option values are searched for at all
@@ -104,8 +104,9 @@ MongoDB\Driver\Exception\AuthenticationException
 MongoDB\Driver\Exception\%s
 MongoDB\Driver\Exception\%s
 stream has lines: yes
-connection string logged: yes
-client hash logged: yes
+connection string logged: no
+non-persistent client logged: yes
+persistent client logged: yes
 found client logged: yes
 authentication failure logged: yes
 subscriber saw messages: yes
