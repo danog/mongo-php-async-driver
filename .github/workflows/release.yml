@@ -36,7 +36,7 @@ jobs:
         ts: [nts, zts]
         arch: [x86_64, arm64]
         libc: [glibc, musl]
-        # the official 8.6 images are thread-safe only
+        # docker-library's images of 8.6 are thread-safe only
         exclude:
           - { php: "8.6", ts: nts }
     steps:
@@ -49,9 +49,9 @@ jobs:
           persist-credentials: false
       - name: Build in the official PHP image
         run: |
-          # <X.Y>-cli: NTS, <X.Y>-zts: ZTS; 8.6 is still a release candidate and its "cli" images are ZTS
+          # <X.Y>-cli: NTS, <X.Y>-zts: ZTS; docker-library's images of 8.6 are thread-safe only (its "cli" too)
           case "${{ matrix.php }}-${{ matrix.ts }}" in
-            8.6-zts) tag=8.6-rc-cli ;;
+            8.6-zts) tag=8.6-cli ;;
             *-zts)   tag=${{ matrix.php }}-zts ;;
             *)       tag=${{ matrix.php }}-cli ;;
           esac
@@ -115,9 +115,6 @@ jobs:
       matrix:
         php: ["8.2", "8.3", "8.4", "8.5", "8.6"]
         ts: [nts, ts]
-        # no Windows development pack is published for 8.6 before its release
-        exclude:
-          - { php: "8.6" }
     defaults:
       run:
         shell: bash

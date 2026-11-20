@@ -20,7 +20,7 @@ fn get<'a>(doc: &'a [u8], key: &[u8]) -> Option<Value<'a>> {
 }
 
 fn md() -> Metadata {
-    Metadata { appname: Some("core-live".into()), driver_name: "ext-mongodb:PHP".into(), driver_version: "2.5.6".into(), platform: "PHP test".into() }
+    Metadata { appname: Some("core-live".into()), driver_name: "ext-mongodb:PHP".into(), driver_version: "2.5.8".into(), platform: "PHP test".into() }
 }
 
 #[test]

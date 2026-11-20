@@ -51,6 +51,21 @@ $conns = function (string $app) use ($admin): int {
     return $n;
 };
 $ms = fn (int $t) => (hrtime(true) - $t) / 1e6;
+// when {main}'s find was sent: whether it waited for a cluster (the server may take long to
+// answer it, queued behind the fibers' sleeping queries: under load, for as long as one of them)
+final class MainFind implements MongoDB\Driver\Monitoring\CommandSubscriber {
+    public static ?int $sent = null;
+    public function commandStarted(MongoDB\Driver\Monitoring\CommandStartedEvent $e): void
+    {
+        // delivered once the operation released the client, with the time the event was created
+        if ($e->getCommandName() === 'find' && ($e->getCommand()->filter->_id ?? null) === 2) {
+            self::$sent = func_get_args()[1];
+        }
+    }
+    public function commandSucceeded(MongoDB\Driver\Monitoring\CommandSucceededEvent $e): void {}
+    public function commandFailed(MongoDB\Driver\Monitoring\CommandFailedEvent $e): void {}
+}
+MongoDB\Driver\Monitoring\addSubscriber(new MainFind);
 // $n fibers at once, each with a 300 ms query: started (and suspended), not awaited
 $start = function (Manager $m, int $n) use ($ns): array {
     $fibers = [];
@@ -72,7 +87,6 @@ foreach (['blocking', 'loop'] as $mode) {
         $fibers = $start($m, $max + 1);
         $t1 = hrtime(true);
         $main = $call(fn () => $m->executeQuery($ns, new Query(['_id' => 2]))->toArray()[0]->x);
-        $mainMs = $ms($t1);
         $same = null;
         if ($mode === 'blocking') {
             $same = blocked(function () use ($conns, $app, $m) {
@@ -83,6 +97,7 @@ foreach (['blocking', 'loop'] as $mode) {
         }
         EventLoop::run();
         $all = $ms($t);
+        $mainMs = (MainFind::$sent - $t1) / 1e6;
         echo "maxPoolSize=$max: {main} $main, ", $mainMs < 250 ? 'at once' : 'after waiting for a cluster', ", fibers ", implode(' ', array_map(fn ($f) => $f->getReturn(), $fibers)), "\n";
         if ($same !== null) {
             echo "  a second {main} call reuses the spare's connection: ", var_export($same, true), "\n";

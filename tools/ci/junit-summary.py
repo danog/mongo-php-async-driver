@@ -54,6 +54,16 @@ for label, path in zip(sys.argv[1::2], sys.argv[2::2]):
                        if l.strip() and not l.strip().startswith(name)]
                 failures.append((status, name, msg[0][:200] if msg else ""))
                 break
+            # run-tests.php runs a failed test again when its output looks like a timeout ("timed
+            # out", "connection refused"...), and reports a pass on that second attempt as a
+            # warning: the first attempt failed
+            if c.tag == "warning" and "passed on retry" in ((c.text or "") + (c.get("message") or "")):
+                status = "fail"
+                if is_expected(name, c.text):
+                    status = "expected"
+                    break
+                failures.append((status, name, "failed, then passed when run-tests.php ran it again"))
+                break
             if c.tag == "skipped":
                 status = "skip"
         if status == "pass" and is_expected(name):

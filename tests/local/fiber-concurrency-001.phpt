@@ -2,7 +2,9 @@
 Fibers: concurrent operations, {main} running the loop, pool limit, destroyed fiber, cursor guard
 --DESCRIPTION--
 Local test (not upstream; DIVERGENCES "Driver calls inside a Fiber").
-- 8 fibers each running a query whose server-side $where sleeps 300 ms finish in about 300 ms;
+- 8 fibers each running a query whose server-side $where sleeps 300 ms finish in much less than 8
+  such queries one after the other (measured first: the server's sleep() isn't exact, mongod 9.0's
+  lasts about 2.7 times as long);
 - a {main} call while fibers wait in the driver runs the event loop (they progress meanwhile);
 - maxPoolSize=1: a second fiber waits for the cluster, at most serverSelectionTimeoutMS;
 - a fiber left unreferenced while it waits lives until its wait ends; {main} goes on meanwhile;
@@ -24,11 +26,16 @@ $m->executeBulkWrite($ns, $bw);
 $slow = fn (int $ms, array $o = ['limit' => 1]) => new Query(['$where' => "sleep($ms) || true"], $o);
 
 $t = hrtime(true);
+$m->executeQuery($ns, $slow(300))->toArray();
+$one = (hrtime(true) - $t) / 1e6;
+
+$t = hrtime(true);
 $done = 0;
 for ($i = 0; $i < 8; $i++) EventLoop::queue(function () use ($m, $ns, $slow, &$done) { $m->executeQuery($ns, $slow(300))->toArray(); $done++; });
 EventLoop::run();
 $ms = (hrtime(true) - $t) / 1e6;
-echo "8 fibers: done=$done concurrent=", var_export($ms < 1500, true), "\n";
+// one after the other, they would take 8 times as long as one
+echo "8 fibers: done=$done concurrent=", var_export($ms < 4 * $one, true), "\n";
 
 $done = 0;
 for ($i = 0; $i < 3; $i++) EventLoop::queue(function () use ($m, $ns, $slow, &$done) { $m->executeQuery($ns, $slow(200))->toArray(); $done++; });

@@ -4,6 +4,7 @@
 # (credentials included): never commit them
 /tests/**/*.sh
 !/tests/phpt/frankenphp/restart-test.sh
+!/tests/phpt/shutdown/exit-status-test.sh
 /tests/**/*.diff
 /tests/**/*.exp
 /tests/**/*.out

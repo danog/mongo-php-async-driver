@@ -10,12 +10,14 @@ licensed under the Apache License, Version 2.0:
 - MongoDB PHP Driver (mongo-php-driver, "phongo"), https://github.com/mongodb/mongo-php-driver
   Copyright 2014-present MongoDB, Inc.
   Ported: the PHP classes, BSON encoding/decoding layer and driver logic.
-  Copied: tests/phpt/ (from tests/ at tag 2.5.6).
+  Copied: tests/phpt/ (from tests/ at tag 2.5.8).
 
 - MongoDB C Driver (libmongoc and libbson), https://github.com/mongodb/mongo-c-driver
   Copyright 2009-present MongoDB, Inc.
   Ported: BSON, Decimal128, Extended JSON, URI parsing, SDAM, server selection, connection
   pooling, wire protocol, sessions, retries, authentication.
+  Copied: crates/core/tests/credential_disclosure/credential-disclosure.json (from
+  src/libmongoc/tests/json/credential_disclosure/ at tag 2.5.9).
 
 - libmongocrypt, https://github.com/mongodb/libmongocrypt
   Copyright 2019-present MongoDB, Inc.
@@ -56,8 +58,7 @@ Snappy-Rust Authors and Copyright 2016 Andrew Gallant).
 
 The Revolt event loop is revolt-rs (https://github.com/danog/revolt-rs), a Rust implementation of
 revolt/event-loop (https://github.com/revoltphp/event-loop), compiled into the extension as a
-dependency (and its patched copy of ext-php-rs-build, MIT OR Apache-2.0, for building on PHP 8.6).
-It is licensed under the MIT License:
+dependency. It is licensed under the MIT License:
 
     The MIT License (MIT)
 

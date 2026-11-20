@@ -213,6 +213,8 @@ jobs:
       - run: cargo test --locked -p mongo-crypt
       - run: cargo test --locked -p mongo-crypt --no-default-features
       - run: cargo test --locked -p mongo-core --lib
+      # libmongoc 2.5.9's URI diagnostics tests (no server, no submodule)
+      - run: cargo test --locked -p mongo-core --test uri_disclosure
 
   # the official driver's FrankenPHP test (PHPC-2797): FrankenPHP reboots its PHP threads in-process
   # (GSHUTDOWN and MINIT again in one process) and the extension must keep working; run against
@@ -236,6 +238,11 @@ jobs:
       - name: Restart test
         env:
           SKIP_BUILD: "1"
+        run: bash tests/phpt/frankenphp/restart-test.sh
+      - name: Restart test with module unload
+        env:
+          SKIP_BUILD: "1"
+          KEEP_MODULES: "0"
         run: bash tests/phpt/frankenphp/restart-test.sh
       - name: Containers and connectivity (on failure)
         if: failure()

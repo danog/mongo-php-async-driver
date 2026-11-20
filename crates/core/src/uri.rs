@@ -173,6 +173,32 @@ pub fn canonicalize(key: &str) -> &str {
     MAP.iter().find(|(a, _)| a.eq_ignore_ascii_case(key)).map(|(_, b)| *b).unwrap_or(key)
 }
 
+/// _known_uri_option's vocabulary (libmongoc's MONGOC_URI_* names; gssapiservicename is not
+/// in it).
+const KNOWN_OPTIONS: &[&str] = &[
+    "appname", "authmechanism", "authmechanismproperties", "authsource", "canonicalizehostname", "connecttimeoutms",
+    "compressors", "directconnection", "heartbeatfrequencyms", "journal", "loadbalanced",
+    "localthresholdms", "maxpoolsize", "maxstalenessseconds", "readconcernlevel", "readpreference", "readpreferencetags",
+    "replicaset", "retryreads", "retrywrites", "maxadaptiveretries", "enableoverloadretargeting", "safe",
+    "servermonitoringmode", "serverselectiontimeoutms", "serverselectiontryonce", "socketcheckintervalms",
+    "sockettimeoutms", "srvservicename", "srvmaxhosts", "tls", "tlscertificatekeyfile", "tlscertificatekeyfilepassword",
+    "tlscafile", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames", "tlsinsecure",
+    "tlsdisablecertificaterevocationcheck", "tlsdisableocspendpointcheck", "w", "waitqueuetimeoutms", "wtimeoutms",
+    "zlibcompressionlevel", "ssl", "sslclientcertificatekeyfile", "sslclientcertificatekeypassword",
+    "sslcertificateauthorityfile", "sslallowinvalidcertificates", "sslallowinvalidhostnames",
+];
+
+/// _known_uri_option: the canonical name of a known option, for diagnostics, which never quote
+/// the input (not even a known name in the user's spelling).
+pub fn known_option(key: &str) -> Option<&'static str> {
+    KNOWN_OPTIONS.iter().find(|n| n.eq_ignore_ascii_case(key)).map(|n| canonicalize(n))
+}
+
+/// A known option's canonical name (libmongoc formats a NULL one as glibc does).
+fn known_name(key: &str) -> &'static str {
+    known_option(key).unwrap_or("(null)")
+}
+
 /// mlib_nat64_parse: Err(true) = EINVAL, Err(false) = ERANGE.
 fn nat64_parse(s: &str, base: u32) -> Result<u64, bool> {
     if s.is_empty() {
@@ -271,13 +297,13 @@ fn pct_decode(sv: &str) -> R<String> {
             continue;
         }
         if b.len() - i < 3 {
-            return Err(format!("At offset {}: Truncated %-sequence \"{}\"", i, String::from_utf8_lossy(&b[i..])));
+            return Err("Truncated %-sequence: expected two hexadecimal digits".into());
         }
         let pair = std::str::from_utf8(&b[i + 1..i + 3]).map_err(|_| ())
             .and_then(|p| nat64_parse(p, 16).map_err(|_| ()));
         match pair {
             Ok(v) => out.push(v as u8),
-            Err(()) => return Err(format!("At offset {}: Invalid %-sequence \"{}\"", i, String::from_utf8_lossy(&b[i..i + 3]))),
+            Err(()) => return Err("Invalid %-sequence: expected two hexadecimal digits".into()),
         }
         i += 3;
     }
@@ -322,11 +348,12 @@ pub fn host_from_hostport(host: &str, port: u16) -> R<Host> {
 /// _mongoc_host_list_from_string_with_err (_parse_host / _parse_host_ipv6)
 pub fn host_from_string(spec: &str) -> R<Host> {
     if spec.contains(']') {
-        let base = format!("Invalid IPv6 literal address '{spec}'");
+        // the host or port text may be a credential of a malformed userinfo: never quoted
+        let base = "Invalid IPv6 literal address";
         if !spec.starts_with('[') {
             return Err(format!("{base}: Must start with a bracket '['"));
         }
-        let Some(close) = spec.find(']') else { return Err(format!("{base}: Mising closing bracket ']'")) };
+        let Some(close) = spec.find(']') else { return Err(format!("{base}: Missing closing bracket ']'")) };
         let has_port = spec.as_bytes().get(close + 1) == Some(&b':');
         if !has_port && close != spec.len() - 1 {
             return Err(format!("{base}: Invalid trailing content following closing bracket ']'"));
@@ -334,14 +361,14 @@ pub fn host_from_string(spec: &str) -> R<Host> {
         let mut port = DEFAULT_PORT;
         if has_port {
             let ps = &spec[close + 2..];
-            port = parse_port(ps).map_err(|e| format!("{base}: Invalid port '{ps}': {e}"))?;
+            port = parse_port(ps).map_err(|e| format!("{base}: Invalid port: {e}"))?;
         }
         return host_from_hostport(&spec[1..close], port);
     }
     let mut port = DEFAULT_PORT;
     let mut hostname = spec;
     if let Some((h, ps)) = spec.split_once(':') {
-        port = parse_port(ps).map_err(|e| format!("Invalid host specifier '{spec}': Invalid port string '{ps}': {e}"))?;
+        port = parse_port(ps).map_err(|e| format!("Invalid host specifier: Invalid port string: {e}"))?;
         hostname = h;
     }
     host_from_hostport(hostname, port)
@@ -373,6 +400,9 @@ fn check_srv_service_name(s: &str) -> bool {
     }
     alpha > 0 && b[0] != b'-' && b[b.len() - 1] != b'-'
 }
+
+/// The authentication mechanisms (mongoc_uri_finalize_auth's vocabulary).
+const MECHANISMS: &[&str] = &["SCRAM-SHA-1", "SCRAM-SHA-256", "PLAIN", "MONGODB-X509", "GSSAPI", "MONGODB-AWS", "MONGODB-OIDC"];
 
 /// (environment, supports a username, requires TOKEN_RESOURCE): mongoc-oidc-env.c
 const OIDC_ENVS: &[(&str, bool, bool)] = &[("test", false, false), ("azure", true, true), ("gcp", false, true), ("k8s", false, false)];
@@ -515,6 +545,12 @@ fn public_properties(v: &str) -> bool {
 impl Uri {
     /// mongoc_uri_new_with_error
     pub fn parse(s: &str) -> R<Uri> {
+        Self::parse_with_warnings(s).map_err(|(e, _)| e)
+    }
+
+    /// mongoc_uri_new_with_error, with the warnings of a URI it rejects (libmongoc logs them
+    /// while it parses, before it fails).
+    pub fn parse_with_warnings(s: &str) -> Result<Uri, (String, Vec<String>)> {
         let mut u = Uri {
             string: s.to_owned(),
             is_srv: false,
@@ -535,18 +571,25 @@ impl Uri {
             write_concern: WriteConcern::default(),
             warnings: Vec::new(),
         };
-        u.parse_str(s)?;
-        u.assign_read_prefs_mode()?;
-        u.max_staleness_seconds = u.max_staleness_option();
-        if !u.read_prefs_valid() {
+        match u.parse_all(s) {
+            Ok(()) => Ok(u),
+            Err(e) => Err((e, u.warnings)),
+        }
+    }
+
+    fn parse_all(&mut self, s: &str) -> R<()> {
+        self.parse_str(s)?;
+        self.assign_read_prefs_mode()?;
+        self.max_staleness_seconds = self.max_staleness_option();
+        if !self.read_prefs_valid() {
             return Err("Invalid readPreferences".into());
         }
-        u.build_write_concern()?;
-        let wc = &u.write_concern;
+        self.build_write_concern()?;
+        let wc = &self.write_concern;
         if (wc.journal == Some(true) && wc.w == W_UNACKNOWLEDGED) || wc.wtimeout < 0 {
             return Err("Invalid writeConcern".into());
         }
-        Ok(u)
+        Ok(())
     }
 
     fn warn(&mut self, w: String) {
@@ -565,7 +608,7 @@ impl Uri {
         match scheme {
             "mongodb" => self.is_srv = false,
             "mongodb+srv" => self.is_srv = true,
-            _ => return Err(format!("Invalid URI scheme \"{scheme}://\". Expected one of \"mongodb://\" or \"mongodb+srv://\"")),
+            _ => return Err("Invalid URI scheme. Expected one of \"mongodb://\" or \"mongodb+srv://\"".into()),
         }
         self.parse_authority(authority)?;
         self.parse_path(path)?;
@@ -624,8 +667,8 @@ impl Uri {
         }
         let service = match pct_decode(s) {
             Ok(v) if valid_hostname(&v) && v.matches('.').count() - usize::from(v.starts_with('.')) >= 2 => v,
-            Ok(_) => return Err(format!("Invalid SRV service name \"{s}\" in URI: ")),
-            Err(e) => return Err(format!("Invalid SRV service name \"{s}\" in URI: {e}")),
+            Ok(_) => return Err("Invalid SRV service name: expected a hostname with at least three components".into()),
+            Err(e) => return Err(format!("Invalid SRV service name: {e}")),
         };
         if service.contains(',') {
             return Err("Multiple service names are prohibited in an SRV URI".into());
@@ -659,8 +702,8 @@ impl Uri {
             self.warn("Unix Domain Sockets must be escaped (e.g. / = %2F)".into());
             return Err(String::new());
         }
-        let hp = pct_decode(hostport).map_err(|e| format!("Invalid host specifier \"{hostport}\": {e}"))?;
-        let h = host_from_string(&hp).map_err(|e| format!("Invalid host specifier \"{hp}\": {e}"))?;
+        let hp = pct_decode(hostport).map_err(|e| format!("Invalid host specifier: {e}"))?;
+        let h = host_from_string(&hp).map_err(|e| format!("Invalid host specifier: {e}"))?;
         // _mongoc_host_list_upsert: replace a case-insensitively equal host_and_port in place
         match self.hosts.iter_mut().find(|x| x.host_and_port.eq_ignore_ascii_case(&h.host_and_port)) {
             Some(x) => *x = h,
@@ -675,9 +718,9 @@ impl Uri {
             self.database = None;
             return Ok(());
         }
-        let db = pct_decode(rel).map_err(|e| format!("Invalid database specifier \"{rel}\": {e}"))?;
+        let db = pct_decode(rel).map_err(|e| format!("Invalid database specifier: {e}"))?;
         if db.contains(['/', '\\', '.', ' ', '"', '$']) {
-            return Err(format!("Invalid database specifier \"{db}\": Contains disallowed characters"));
+            return Err("Invalid database specifier: Contains disallowed characters".into());
         }
         self.database = Some(db);
         Ok(())
@@ -687,27 +730,27 @@ impl Uri {
     pub fn apply_query_string(&mut self, q: &str, from_dns: bool) -> R<()> {
         let mut options = Opts::default();
         let mut remain = q;
+        // diagnostics name an option by its position in the raw query (or TXT record), in
+        // characters, as libmongoc counts it (UTF-8 codepoints, with the '&' separators)
+        let mut position = 0;
         while !remain.is_empty() {
             let (entry, rest) = remain.split_once('&').unwrap_or((remain, ""));
             remain = rest;
-            self.handle_query_param(&mut options, entry, from_dns)?;
+            self.handle_query_param(&mut options, entry, position, from_dns)?;
+            position += entry.chars().count() + usize::from(!remain.is_empty());
         }
         validate_names(&self.options, &options)?;
         validate_names(&options, &self.options)?;
         self.apply_options(&options, from_dns)
     }
 
-    fn handle_query_param(&mut self, options: &mut Opts, s: &str, from_dns: bool) -> R<()> {
-        let Some((key, val)) = s.split_once('=') else { return Err(format!("URI option \"{s}\" contains no \"=\" sign")) };
+    fn handle_query_param(&mut self, options: &mut Opts, s: &str, position: usize, from_dns: bool) -> R<()> {
+        let source = if from_dns { "TXT record" } else { "query" };
+        let Some((key, val)) = s.split_once('=') else { return Err(format!("URI option at {source} position {position} contains no \"=\" sign")) };
         if from_dns && !["authsource", "loadbalanced", "replicaset"].iter().any(|k| k.eq_ignore_ascii_case(key)) {
-            return Err(format!("URI option \"{key}\" prohibited in TXT records"));
+            return Err(format!("URI option at {source} position {position} prohibited in TXT records"));
         }
-        // the decoding error quotes the value: not for a secret
-        let value = pct_decode(val).map_err(|e| if is_secret_option(key) || key.eq_ignore_ascii_case("authmechanismproperties") {
-            format!("Value for URI option \"{key}\" contains is invalid: {REDACTED}")
-        } else {
-            format!("Value for URI option \"{key}\" contains is invalid: {e}")
-        })?;
+        let value = pct_decode(val).map_err(|e| format!("Value for URI option at {source} position {position} is invalid: {e}"))?;
         if key.eq_ignore_ascii_case("readpreferencetags") {
             let mut tags = crate::bson::writer::Writer::with_capacity(32);
             let mut r = value.as_str();
@@ -717,8 +760,8 @@ impl Uri {
                 match entry.split_once(':') {
                     Some((k, v)) => tags.utf8(k.as_bytes(), v.as_bytes()),
                     None => {
-                        self.warn(format!("Unsupported value for \"readpreferencetags\": \"{value}\""));
-                        return Err(format!("Unsupported value for \"{key}\": \"{value}\""));
+                        self.warn("Unsupported value for \"readpreferencetags\": expected key:value pairs".into());
+                        return Err("Unsupported value for \"readpreferencetags\"".into());
                     }
                 }
             }
@@ -732,14 +775,20 @@ impl Uri {
             }
             if from_dns {
                 if !key.eq_ignore_ascii_case("authsource") {
-                    self.warn(format!("Ignoring URI option \"{key}\" from TXT record \"{s}\". Option is already present in URI"));
+                    self.warn(format!("Ignoring URI option \"{}\" from TXT record. Option is already present in URI", known_name(key)));
                 }
                 return Ok(());
             }
-            self.warn(format!("Overwriting previously provided value for '{key}'"));
+            match known_option(key) {
+                Some(name) => self.warn(format!("Overwriting previously provided value for '{name}'")),
+                None => self.warn(format!("Overwriting previously provided URI option at {source} position {position}")),
+            }
         }
         if key.eq_ignore_ascii_case("replicaset") && value.is_empty() {
-            return Err(format!("Value for URI option \"{key}\" cannot be empty string"));
+            return Err("Value for URI option \"replicaset\" cannot be empty string".into());
+        }
+        if known_option(key).is_none() {
+            self.warn(format!("Unsupported URI option at {source} position {position}"));
         }
         options.upsert(key, OptVal::Str(value));
         Ok(())
@@ -748,14 +797,14 @@ impl Uri {
     fn set_int32(&mut self, option_orig: &str, value: i32) -> R<()> {
         let option = canonicalize(option_orig);
         if option.eq_ignore_ascii_case("heartbeatfrequencyms") && value < MIN_HEARTBEAT_FREQUENCY_MS {
-            return Err(format!("Invalid \"{option_orig}\" of {value}: must be at least {MIN_HEARTBEAT_FREQUENCY_MS}"));
+            return Err(format!("Invalid \"{}\" of {value}: must be at least {MIN_HEARTBEAT_FREQUENCY_MS}", known_name(option)));
         }
         if option.eq_ignore_ascii_case("zlibcompressionlevel") && !(-1..=9).contains(&value) {
-            return Err(format!("Invalid \"{option_orig}\" of {value}: must be between -1 and 9"));
+            return Err(format!("Invalid \"zlibcompressionlevel\" of {value}: must be between -1 and 9"));
         }
         match self.options.get_mut(option) {
             Some(OptVal::Int32(v)) => *v = value,
-            Some(_) => return Err(format!("Cannot set URI option \"{option}\" to {value}, it already has a non-32-bit integer value")),
+            Some(_) => return Err(format!("Cannot set URI option \"{}\" to {value}, it already has a non-32-bit integer value", known_name(option))),
             None => self.options.0.push((option.to_ascii_lowercase(), OptVal::Int32(value))),
         }
         Ok(())
@@ -765,7 +814,7 @@ impl Uri {
         let option = canonicalize(option_orig);
         match self.options.get_mut(option) {
             Some(OptVal::Int64(v)) => *v = value,
-            Some(_) => return Err(format!("Cannot set URI option \"{option}\" to {value}, it already has a non-64-bit integer value")),
+            Some(_) => return Err(format!("Cannot set URI option \"{}\" to {value}, it already has a non-64-bit integer value", known_name(option))),
             None => self.options.0.push((option.to_ascii_lowercase(), OptVal::Int64(value))),
         }
         Ok(())
@@ -911,7 +960,7 @@ impl Uri {
                 self.compressors.retain(|x| *x != lc);
                 self.compressors.push(lc);
             } else {
-                self.warn(format!("Unsupported compressor: '{c}'"));
+                self.warn("Unsupported compressor in URI option \"compressors\"".into());
             }
         }
     }
@@ -979,42 +1028,44 @@ impl Uri {
             let OptVal::Str(value) = v else { continue };
             let key = key.as_str();
             let canon = canonicalize(key).to_owned();
+            // the diagnostics name the option, never its value or the user's spelling of it
+            let name = known_name(key);
             self.raw.upsert(key, OptVal::Str(value.clone()));
-            let unsupported = || Err(format!("Unsupported value for \"{key}\": \"{value}\""));
+            let unsupported = || Err(format!("Unsupported value for \"{name}\""));
             macro_rules! dupe {
                 () => {
                     if from_dns {
                         if key != "authsource" {
-                            self.warn(format!("Cannot override URI option \"{key}\" from TXT record"));
+                            self.warn(format!("Cannot override URI option \"{name}\" from TXT record"));
                         }
                         continue;
                     }
-                    self.warn(format!("Overwriting previously provided value for '{key}'"));
+                    self.warn(format!("Overwriting previously provided value for '{name}'"));
                 };
             }
             if option_is_int64(key) {
                 if value.is_empty() {
-                    self.warn(format!("Empty value provided for \"{key}\""));
+                    self.warn(format!("Empty value provided for \"{name}\""));
                     continue;
                 }
                 let Ok(i) = i64_parse(value, 0) else { return unsupported() };
                 self.set_int64(&canon, i)?;
             } else if option_is_int32(key) {
                 if value.is_empty() {
-                    self.warn(format!("Empty value provided for \"{key}\""));
+                    self.warn(format!("Empty value provided for \"{name}\""));
                     continue;
                 }
                 let retry = canon.eq_ignore_ascii_case("maxadaptiveretries");
                 let i = match i32_parse(value, 0) {
                     Ok(i) => i,
                     Err(_) if retry => {
-                        self.warn(format!("Unsupported value for \"{key}\": \"{value}\""));
+                        self.warn(format!("Unsupported value for \"{name}\": expected an integer"));
                         continue;
                     }
                     Err(_) => return unsupported(),
                 };
                 if retry && i < 0 {
-                    self.warn(format!("Invalid \"{key}\" of {i}: must be a non-negative integer"));
+                    self.warn(format!("Invalid \"{name}\" of {i}: must be a non-negative integer"));
                     continue;
                 }
                 self.set_int32(&canon, i)?;
@@ -1035,7 +1086,7 @@ impl Uri {
                     self.warn("canonicalizehostname is deprecated, use authmechanismproperties with CANONICALIZE_HOST_NAME instead".into());
                 }
                 if value.is_empty() {
-                    self.warn(format!("Empty value provided for \"{key}\""));
+                    self.warn(format!("Empty value provided for \"{name}\""));
                     continue;
                 }
                 let lv = value.to_ascii_lowercase();
@@ -1044,14 +1095,14 @@ impl Uri {
                 } else if lv == "false" {
                     false
                 } else if value == "1" || lv == "yes" || lv == "y" || lv == "t" {
-                    self.warn(format!("Deprecated boolean value for \"{key}\": \"{value}\", please update to \"{key}=true\""));
+                    self.warn(format!("Deprecated boolean value for \"{name}\", please update to \"{name}=true\""));
                     true
                 } else if lv == "0" || lv == "-1" || value == "no" || value == "n" || value == "f" {
-                    self.warn(format!("Deprecated boolean value for \"{key}\": \"{value}\", please update to \"{key}=false\""));
+                    self.warn(format!("Deprecated boolean value for \"{name}\", please update to \"{name}=false\""));
                     false
                 } else {
                     if canon.eq_ignore_ascii_case("enableoverloadretargeting") {
-                        self.warn(format!("Unsupported value for \"{key}\": \"{value}\""));
+                        self.warn(format!("Unsupported value for \"{name}\": expected a boolean"));
                         continue;
                     }
                     return unsupported();
@@ -1070,7 +1121,7 @@ impl Uri {
                 self.read_concern_level = Some(value.clone());
             } else if key == "gssapiservicename" {
                 if self.credentials.0.iter().any(|(k, _)| k == "authmechanismproperties") {
-                    self.warn(format!("authMechanismProperties SERVICE_NAME already set, ignoring '{key}'"));
+                    self.warn("authMechanismProperties SERVICE_NAME already set, ignoring 'gssapiservicename'".into());
                 } else {
                     self.warn("gssapiservicename is deprecated, use authmechanismproperties with SERVICE_NAME instead".into());
                     self.parse_mechanism_properties(&format!("SERVICE_NAME:{value}"));
@@ -1104,7 +1155,7 @@ impl Uri {
                         self.compressors.retain(|x| *x != lc);
                         self.compressors.push(lc);
                     } else {
-                        self.warn(format!("Unsupported compressor: '{c}'"));
+                        self.warn("Unsupported compressor in URI option \"compressors\"".into());
                     }
                 }
             } else if key == "servermonitoringmode" {
@@ -1114,9 +1165,8 @@ impl Uri {
                 self.options.upsert(key, OptVal::Str(value.clone()));
             } else if option_is_utf8(key) {
                 self.options.upsert(&canon, OptVal::Str(value.clone()));
-            } else {
-                self.warn(format!("Unsupported URI option \"{key}\""));
             }
+            // an unknown key is ignored: handle_query_param warned about it by position
         }
         Ok(())
     }
@@ -1237,11 +1287,24 @@ impl Uri {
             return Err("authSource may not be specified as an empty string".into());
         }
         if let Some(s) = &source {
+            // _mongoc_validate_db_name
+            if s.contains('\0') {
+                return Err("Invalid authSource: database name invalid: contains a NUL byte".into());
+            }
             if s.contains('.') {
-                return Err(format!("database name \"{s}\" invalid: contains \".\""));
+                return Err("Invalid authSource: database name invalid: contains \".\"".into());
             }
         }
-        let mech = self.auth_mechanism().map(str::to_owned);
+        // the diagnostics name the mechanism from a fixed vocabulary, never in the user's spelling
+        let mech = match self.auth_mechanism() {
+            None => None,
+            Some(m) => match MECHANISMS.iter().find(|x| x.eq_ignore_ascii_case(m)) {
+                Some(&m) => Some(m),
+                None => {
+                    return Err("Unsupported value for authMechanism: must be one of ['MONGODB-OIDC', 'SCRAM-SHA-1', 'SCRAM-SHA-256', 'PLAIN', 'MONGODB-X509', 'GSSAPI', 'MONGODB-AWS']".into())
+                }
+            },
+        };
         let (user, pass) = (self.username.clone(), self.password.clone());
         if mech.is_none() && user.is_none() {
             return Ok(());
@@ -1250,22 +1313,21 @@ impl Uri {
         let Some(m) = mech else {
             return req_user(user.as_deref(), "default");
         };
-        let mu = m.to_ascii_uppercase();
-        match mu.as_str() {
+        match m {
             "SCRAM-SHA-1" | "SCRAM-SHA-256" | "PLAIN" => {
-                req_user(user.as_deref(), &m)?;
+                req_user(user.as_deref(), m)?;
                 if pass.is_none() {
                     return Err(format!("'{m}' authentication mechanism requires a password"));
                 }
             }
             "MONGODB-X509" => {
-                allowed_user(user.as_deref(), &m)?;
-                prohibit_pass(pass.as_deref(), &m)?;
-                self.default_external(source.as_deref(), &m)?;
+                allowed_user(user.as_deref(), m)?;
+                prohibit_pass(pass.as_deref(), m)?;
+                self.default_external(source.as_deref(), m)?;
             }
             "GSSAPI" => {
-                req_user(user.as_deref(), &m)?;
-                self.default_external(source.as_deref(), &m)?;
+                req_user(user.as_deref(), m)?;
+                self.default_external(source.as_deref(), m)?;
                 check_props(props.as_deref(), &self.mechanism_property_types, &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST"], "GSSAPI")?;
                 if let Some(p) = &props {
                     if let Some((_, v)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("CANONICALIZE_HOST_NAME")) {
@@ -1281,41 +1343,37 @@ impl Uri {
                 }
             }
             "MONGODB-AWS" => {
-                allowed_user(user.as_deref(), &m)?;
-                self.default_external(source.as_deref(), &m)?;
+                allowed_user(user.as_deref(), m)?;
+                self.default_external(source.as_deref(), m)?;
                 check_props(props.as_deref(), &self.mechanism_property_types, &["AWS_SESSION_TOKEN"], "MONGODB-AWS")?;
                 if user.is_none() != pass.is_none() {
                     return Err(format!("'{m}' authentication mechanism does not accept a username or a password without the other"));
                 }
             }
             "MONGODB-OIDC" => {
-                allowed_user(user.as_deref(), &m)?;
-                self.default_external(source.as_deref(), &m)?;
-                prohibit_pass(pass.as_deref(), &m)?;
+                allowed_user(user.as_deref(), m)?;
+                self.default_external(source.as_deref(), m)?;
+                prohibit_pass(pass.as_deref(), m)?;
                 check_props(props.as_deref(), &self.mechanism_property_types, &["ENVIRONMENT", "TOKEN_RESOURCE"], "MONGODB-OIDC")?;
                 if let Some(p) = &props {
                     if let Some((_, env)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("ENVIRONMENT")) {
-                        let Some(&(name, user_ok, token_req)) = OIDC_ENVS.iter().find(|(n, _, _)| n == env) else {
-                            return Err(format!("'{m}' authentication has unrecognized ENVIRONMENT property '{env}'"));
+                        let Some(&(_, user_ok, token_req)) = OIDC_ENVS.iter().find(|(n, _, _)| n == env) else {
+                            return Err(format!("'{m}' authentication has unrecognized ENVIRONMENT property"));
                         };
                         if user.is_some() && !user_ok {
-                            return Err(format!("'{m}' authentication with {name} environment does not accept a username"));
+                            return Err(format!("'{m}' authentication environment does not accept a username"));
                         }
                         let has_tr = p.iter().any(|(k, _)| k.eq_ignore_ascii_case("TOKEN_RESOURCE"));
                         if has_tr && !token_req {
-                            return Err(format!("'{m}' authentication with {name} environment does not accept a TOKEN_RESOURCE"));
+                            return Err(format!("'{m}' authentication environment does not accept TOKEN_RESOURCE"));
                         }
                         if !has_tr && token_req {
-                            return Err(format!("'{m}' authentication with {name} environment requires a TOKEN_RESOURCE"));
+                            return Err(format!("'{m}' authentication environment requires TOKEN_RESOURCE"));
                         }
                     }
                 }
             }
-            _ => {
-                return Err(format!(
-                    "Unsupported value for authMechanism '{m}': must be one of ['MONGODB-OIDC', 'SCRAM-SHA-1', 'SCRAM-SHA-256', 'PLAIN', 'MONGODB-X509', 'GSSAPI', 'MONGODB-AWS']"
-                ))
-            }
+            _ => unreachable!("every mechanism of MECHANISMS is validated"),
         }
         Ok(())
     }
@@ -1326,9 +1384,7 @@ impl Uri {
                 self.credentials.0.push(("authsource".into(), OptVal::Str("$external".into())));
                 Ok(())
             }
-            Some(s) if !s.eq_ignore_ascii_case("$external") => {
-                Err(format!("'{m}' authentication mechanism requires \"$external\" authSource, but \"{s}\" was specified"))
-            }
+            Some(s) if !s.eq_ignore_ascii_case("$external") => Err(format!("'{m}' authentication mechanism requires \"$external\" authSource")),
             Some(_) => Ok(()),
         }
     }
@@ -1341,7 +1397,7 @@ impl Uri {
                 "secondary" => ReadMode::Secondary,
                 "secondarypreferred" => ReadMode::SecondaryPreferred,
                 "nearest" => ReadMode::Nearest,
-                _ => return Err(format!("Error while assigning URI read preference: Unsupported readPreference value [readPreference={p}]")),
+                _ => return Err("Error while assigning URI read preference: Unsupported readPreference value".into()),
             };
         }
         Ok(())
@@ -1370,7 +1426,7 @@ impl Uri {
         }
         let wt = self.get_int64("wtimeoutms", 0);
         if wt < 0 {
-            return Err(format!("Unsupported wtimeoutMS value [w={wt}]"));
+            return Err(format!("Unsupported wtimeoutMS value {wt}: must be non-negative"));
         }
         wc.wtimeout = wt;
         if let Some(OptVal::Bool(b)) = self.options.get("journal") {
@@ -1420,12 +1476,11 @@ fn prohibit_pass(p: Option<&str>, m: &str) -> R<()> {
 /// the values that are not (by key: BSON type code).
 fn check_props(props: Option<&[(String, String)]>, types: &[(String, u8)], supported: &[&str], m: &str) -> R<()> {
     for (k, _) in props.unwrap_or(&[]) {
-        if !supported.iter().any(|s| s.eq_ignore_ascii_case(k)) {
-            return Err(format!("Unsupported '{m}' authentication mechanism property: '{k}'"));
-        }
+        let Some(name) = supported.iter().find(|s| s.eq_ignore_ascii_case(k)) else {
+            return Err(format!("Unsupported '{m}' authentication mechanism property"));
+        };
         if let Some((_, t)) = types.iter().find(|(tk, _)| tk == k) {
-            // libmongoc's message (its arguments in this order)
-            return Err(format!("'{k}' authentication mechanism property '{m}' has incorrect type '{}', should be 'UTF8'", bson_type_name(*t)));
+            return Err(format!("'{m}' authentication mechanism property '{name}' has incorrect type '{}', should be 'UTF8'", bson_type_name(*t)));
         }
     }
     Ok(())
@@ -1471,9 +1526,7 @@ fn validate_names(a: &Opts, b: &Opts) -> R<()> {
         for other in [a, b] {
             if let Some((_, OptVal::Str(cval))) = other.0.iter().find(|(k, _)| k == canon) {
                 if cval != value {
-                    // safety: the reference quotes both values, also for the password options
-                    let (value, cval) = if is_secret_option(key) || is_secret_option(canon) { (REDACTED, REDACTED) } else { (value.as_str(), cval.as_str()) };
-                    return Err(format!("Deprecated option '{key}={value}' conflicts with canonical name '{canon}={cval}'"));
+                    return Err(format!("Deprecated option conflicts with canonical name '{}'", known_name(canon)));
                 }
             }
         }

@@ -319,8 +319,7 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| zval::is_true(zval::deref(z)));
     if !disable_persistence {
         if let Some(c) = super::find_persistent_client(&key) {
-            // safety: the reference prints the hash itself (the URI's SHA-256 and the option values)
-            log::debug(PHONGO, || format!("Found client for hash: {}", log::fingerprint(&key)));
+            log::debug(PHONGO, || "Found persistent client".to_owned());
             super::apm::register_manager(call::this(ex), c.clone());
             me.client = Some(c);
             return;
@@ -334,18 +333,18 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
             None => return,
         }
     };
-    let mut parsed = Uri::parse(&uri_string);
-    // libmongoc logs while parsing, phongo after
-    if let Ok(u) = &mut parsed {
-        log_uri_warnings(u);
-    }
-    // safety: the reference logs the URI as given, password included
-    log::debug(PHONGO, || format!("Connection string: '{}'", mongo_core::uri::redact(&uri_string)));
-    let mut uri = match parsed {
-        Ok(u) => u,
-        Err(e) => {
-            // safety: the reference quotes the URI as given, password included
-            throw(E::InvalidArgument, format!("Failed to parse MongoDB URI: '{}'. {e}.", mongo_core::uri::redact(&uri_string)));
+    // libmongoc logs while parsing (also when it then fails), phongo after
+    let mut uri = match Uri::parse_with_warnings(&uri_string) {
+        Ok(mut u) => {
+            log_uri_warnings(&mut u);
+            u
+        }
+        Err((e, warnings)) => {
+            for w in warnings {
+                log::warning(log::MONGOC, || w);
+            }
+            // the connection string is never quoted: it may hold credentials
+            throw(E::InvalidArgument, format!("Failed to parse MongoDB URI: {e}."));
             return;
         }
     };
@@ -445,9 +444,9 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     }
     match r {
         Ok(c) => {
-            log::debug(PHONGO, || format!("Created client with hash: {}", log::fingerprint(&key)));
+            log::debug(PHONGO, || if disable_persistence { "Created non-persistent client" } else { "Created persistent client" }.to_owned());
             if !disable_persistence {
-                log::debug(PHONGO, || format!("Stored persistent client with hash: {}", log::fingerprint(&key)));
+                log::debug(PHONGO, || "Stored persistent client".to_owned());
                 super::store_persistent_client(key, c.clone());
             } else {
                 log::debug(PHONGO, || "Stored non-persistent client".to_owned());
