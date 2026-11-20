@@ -54,7 +54,7 @@ pub const RTT_UNSET: i64 = -1;
 pub const DEFAULT_WIRE_VERSION: i32 = 0;
 /// MONGOC_NO_SERVER_CONNECTION_ID
 pub const NO_SERVER_CONNECTION_ID: i64 = -1;
-/// WIRE_VERSION_MIN (MongoDB 4.2) / WIRE_VERSION_MAX (9.0) of libmongoc 2.5.8
+/// WIRE_VERSION_MIN (MongoDB 4.2) / WIRE_VERSION_MAX (9.0) of libmongoc 2.5.9
 pub const WIRE_VERSION_MIN: i32 = 8;
 pub const WIRE_VERSION_MAX: i32 = 29;
 pub const WIRE_VERSION_5_0: i32 = 13;
