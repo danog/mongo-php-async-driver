@@ -8,14 +8,16 @@ import xml.etree.ElementTree as ET
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "expected-failures.txt")) as f:
     entries = [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
 # "<scope>: <entry>" applies only where the scope matches: a runner OS (Linux, macOS, Windows,
-# from RUNNER_OS) or a PHP version ("php8.6", from PHP_VERSION_MINOR)
+# from RUNNER_OS), a PHP version ("php8.6", from PHP_VERSION_MINOR) or a server setup of the
+# workflow's matrix ("setup:auth-tls", from CI_SETUP)
 import re
-active = {os.environ.get("RUNNER_OS", ""), "php" + os.environ.get("PHP_VERSION_MINOR", "")}
+active = {os.environ.get("RUNNER_OS", ""), "php" + os.environ.get("PHP_VERSION_MINOR", ""),
+          "setup:" + os.environ.get("CI_SETUP", "")}
 
 
 def scope(e):
     s = e.split(": ", 1)[0]
-    return s if s in ("Linux", "macOS", "Windows") or re.fullmatch(r"php\d+\.\d+", s) else None
+    return s if s in ("Linux", "macOS", "Windows") or re.fullmatch(r"php\d+\.\d+|setup:[a-z0-9-]+", s) else None
 
 
 entries = [e.split(": ", 1)[1] if scope(e) else e for e in entries if scope(e) is None or scope(e) in active]

@@ -1,8 +1,9 @@
 # Upstream tests that fail by design: a documented divergence (DIVERGENCES.md), or a failure that
 # ext-mongodb has too.
 # One test per line: a PHPT path, or a PHPUnit Class::method (data sets included); or
-# "message: <text>" for every test whose failure contains that text; "<Linux|macOS|Windows>: " or
-# "php<X.Y>: " before an entry limits it to that runner OS or PHP version. They are reported as
+# "message: <text>" for every test whose failure contains that text; "<Linux|macOS|Windows>: ",
+# "php<X.Y>: " or "setup:<setup>: " (a setup of the workflow's matrix, e.g. setup:load-balanced)
+# before an entry limits it to that runner OS, PHP version or server setup. They are reported as
 # "expected" and do not fail the run; a listed test that starts passing is reported so the entry
 # can be removed.
 

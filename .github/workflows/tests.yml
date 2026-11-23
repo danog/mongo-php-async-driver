@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   test:
-    name: "${{ matrix.os }} / PHP ${{ matrix.php }}${{ matrix.ts == 'zts' && ' ZTS' || '' }} / MongoDB ${{ matrix.mongodb }} ${{ matrix.topology }}"
+    name: "${{ matrix.os }} / PHP ${{ matrix.php }}${{ matrix.ts == 'zts' && ' ZTS' || '' }} / MongoDB ${{ matrix.mongodb }} ${{ matrix.topology }}${{ matrix.setup && format(' ({0})', matrix.setup) || '' }}"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     strategy:
@@ -32,13 +32,26 @@ jobs:
         include:
           # Linux: every topology
           - { os: ubuntu-24.04, php: "8.2", mongodb: "8.0", topology: server }
-          - { os: ubuntu-24.04, php: "8.3", mongodb: "8.0", topology: server }
+          # started through mongo-orchestration instead of mongodb-runner: its server (localhost:8889)
+          # stays up, and the upstream tests that start their own mongod through it run
+          - { os: ubuntu-24.04, php: "8.3", mongodb: "8.0", topology: server, setup: orchestration }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server }
           - { os: ubuntu-24.04, php: "8.5", mongodb: "8.0", topology: server }
           - { os: ubuntu-24.04, php: "8.6", mongodb: "8.0", topology: server }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: sharded_cluster }
           - { os: ubuntu-24.04, php: "8.4", mongodb: latest, topology: replica_set }
+          # the setups the official Evergreen CI tests and the default ones skip: auth with TLS
+          # (SCRAM user bob, the tools' x509gen certificates); a load balancer (HAProxy in front of
+          # two mongos with loadBalancerPort); the server started with requireApiVersion (and
+          # API_VERSION=1 for the tests); MongoDB Atlas Local (mongot: the Atlas Search tests);
+          # the oldest supported server (4.2, Docker: no 4.2 build runs on ubuntu-24.04)
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, setup: auth-tls }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set, setup: auth-tls }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: sharded_cluster, setup: load-balanced }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, setup: api-version }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set, setup: atlas-local }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "4.2", topology: replica_set, setup: docker }
           # macOS
           - { os: macos-15, php: "8.4", mongodb: "8.0", topology: server }
           - { os: macos-15, php: "8.4", mongodb: "8.0", topology: replica_set }
@@ -63,13 +76,74 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Load balancer setting
+        if: matrix.setup == 'load-balanced'
+        # the action has no input for it; the tools read LOAD_BALANCER from the environment
+        run: echo "LOAD_BALANCER=true" >> "$GITHUB_ENV"
+
       - name: Start MongoDB
         id: mongodb
+        if: matrix.setup != 'orchestration' && matrix.setup != 'docker'
         # MongoDB's own test tooling, at the commit the latest official library pins (its submodule)
         uses: ./upstream/library/tests/drivers-evergreen-tools
         with:
           version: ${{ matrix.mongodb }}
           topology: ${{ matrix.topology }}
+          auth: ${{ matrix.setup == 'auth-tls' && 'auth' || '' }}
+          ssl: ${{ matrix.setup == 'auth-tls' && 'ssl' || '' }}
+          require-api-version: ${{ matrix.setup == 'api-version' && 'true' || '' }}
+          local-atlas: ${{ matrix.setup == 'atlas-local' && 'true' || '' }}
+
+      - name: Connection string
+        if: steps.mongodb.outcome == 'success'
+        env:
+          URI: ${{ steps.mongodb.outputs.cluster-uri }}
+          DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
+        run: |
+          case "${{ matrix.setup }}" in
+            auth-tls)
+              # the options the official driver's and library's Evergreen tasks append with SSL=yes
+              # (the tests that verify the certificate pass tlsCAFile themselves); SSL_DIR: the
+              # tools' x509gen certificates, which those tests load
+              case "$URI" in *\?*) URI="$URI&" ;; */) URI="$URI?" ;; *) URI="$URI/?" ;; esac
+              URI="${URI}ssl=true&sslallowinvalidcertificates=true"
+              echo "SSL_DIR=$DRIVERS_TOOLS/.evergreen/x509gen" >> "$GITHUB_ENV" ;;
+            # the tests' clients declare the server API the server requires
+            api-version) echo "API_VERSION=1" >> "$GITHUB_ENV" ;;
+          esac
+          echo "CLUSTER_URI=$URI" >> "$GITHUB_ENV"
+
+      - name: Start MongoDB (mongo-orchestration)
+        if: matrix.setup == 'orchestration'
+        # what the action does, without --mongodb-runner (run-orchestration.sh): mongo-orchestration
+        # starts the deployment, and its server stays up for the tests that start their own mongod
+        # (createTemporaryMongoInstance(): logs to /tmp/MO/phongo)
+        env:
+          DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
+          MONGODB_VERSION: ${{ matrix.mongodb }}
+          TOPOLOGY: ${{ matrix.topology }}
+        run: |
+          export MONGODB_BINARIES=$DRIVERS_TOOLS/mongodb/bin MONGO_ORCHESTRATION_HOME=$DRIVERS_TOOLS/.evergreen/orchestration
+          export PROJECT_ORCHESTRATION_HOME=$GITHUB_WORKSPACE/.evergreen/orchestration
+          bash "$DRIVERS_TOOLS/.evergreen/run-orchestration.sh" -v
+          echo "$MONGODB_BINARIES" >> "$GITHUB_PATH"
+          echo "CLUSTER_URI=$(cat "$DRIVERS_TOOLS/uri.txt")" >> "$GITHUB_ENV"
+          mkdir -p /tmp/MO/phongo
+          curl -fsS http://localhost:8889/v1 >/dev/null
+
+      - name: Start the load balancer (HAProxy)
+        if: matrix.setup == 'load-balanced'
+        # as the official Evergreen tasks: the tests connect through the single-mongos one
+        env:
+          DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: |
+          command -v haproxy >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq haproxy; }
+          bash "$DRIVERS_TOOLS/.evergreen/run-load-balancer.sh" start
+          single=$(sed -n 's/^SINGLE_MONGOS_LB_URI: "\(.*\)"$/\1/p' lb-expansion.yml)
+          multi=$(sed -n 's/^MULTI_MONGOS_LB_URI: "\(.*\)"$/\1/p' lb-expansion.yml)
+          test -n "$single" && test -n "$multi"
+          { echo "CLUSTER_URI=$single"; echo "MONGODB_SINGLE_MONGOS_LB_URI=$single"; echo "MONGODB_MULTI_MONGOS_LB_URI=$multi"; } >> "$GITHUB_ENV"
 
       - uses: shivammathur/setup-php@v2
         env:
@@ -120,23 +194,53 @@ jobs:
           echo "EXT=$ext" >> "$GITHUB_ENV"
           php -n -d "extension=$ext" -r 'echo "mongodb ", phpversion("mongodb"), PHP_ZTS ? " (ZTS)" : "", "\n";'
 
-      - name: Official driver tests (PHPT)
+      - name: Start MongoDB (Docker)
+        if: matrix.setup == 'docker'
+        # a replica set of the official image (tools/topo.sh, initiated through this build)
+        run: |
+          TOPO_DOCKER=1 TOPO_IMAGE=mongo:${{ matrix.mongodb }} TOPO_PHP="php -n -d extension=$EXT" tools/topo.sh start replset
+          echo "CLUSTER_URI=mongodb://127.0.0.1:28011,127.0.0.1:28012,127.0.0.1:28013/?replicaSet=rs0" >> "$GITHUB_ENV"
+
+      - name: Mock KMS servers (client-side encryption)
+        if: runner.os == 'Linux'
+        # as the official library's Evergreen tasks: the KMIP server and the KMS servers with an
+        # expired certificate, a certificate for another host, and one that requires a client
+        # certificate (no credentials: the tests that need AWS/Azure/GCP keys stay skipped)
         env:
-          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+          DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
+        run: |
+          cd "$DRIVERS_TOOLS/.evergreen/csfle"
+          . ./activate-kmstlsvenv.sh
+          x=$DRIVERS_TOOLS/.evergreen/x509gen
+          nohup python -u kms_http_server.py --ca_file "$x/ca.pem" --cert_file "$x/expired.pem" --port 8100 > http-expired.log 2>&1 &
+          nohup python -u kms_http_server.py --ca_file "$x/ca.pem" --cert_file "$x/wrong-host.pem" --port 8101 > http-wrong-host.log 2>&1 &
+          nohup python -u kms_http_server.py --ca_file "$x/ca.pem" --cert_file "$x/server.pem" --port 8102 --require_client_cert > http-client-cert.log 2>&1 &
+          nohup python -u kms_kmip_server.py --port 5698 > kmip.log 2>&1 &
+          for port in 8100 8101 8102 5698; do
+            for _ in $(seq 1 120); do nc -z 127.0.0.1 $port && break; sleep 0.5; done
+            nc -z 127.0.0.1 $port || { echo "port $port not listening"; tail -n 50 ./*.log; exit 1; }
+          done
+          {
+            echo "KMIP_ENDPOINT=localhost:5698"
+            echo "KMS_ENDPOINT_EXPIRED=127.0.0.1:8100"
+            echo "KMS_ENDPOINT_WRONG_HOST=127.0.0.1:8101"
+            echo "KMS_ENDPOINT_REQUIRE_CLIENT_CERT=127.0.0.1:8102"
+            echo "KMS_TLS_CA_FILE=$x/ca.pem"
+            echo "KMS_TLS_CERTIFICATE_KEY_FILE=$x/client.pem"
+          } >> "$GITHUB_ENV"
+
+      - name: Official driver tests (PHPT)
         run: tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/phpt.xml"
 
       - name: Official library tests (PHPUnit)
-        env:
-          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
         run: tools/ci/run-phplib.sh "$EXT" "$CLUSTER_URI" "$PWD/phplib.xml"
 
       # this driver's own fiber tests (the official suites have none): the driver's sockets as
       # sources of the embedded native Revolt loop (revolt-rs: epoll / kqueue edge-triggered;
       # Windows: WSAPoll)
       - name: Fiber tests (tests/local), embedded native loop
-        if: matrix.topology == 'server'
-        env:
-          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        # the default setups' standalone (they connect without credentials or TLS)
+        if: matrix.topology == 'server' && (!matrix.setup || matrix.setup == 'orchestration')
         run: |
           PHPT_TESTS="$(echo tests/local/fiber-*.phpt)" tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/fibers.xml"
 
@@ -146,9 +250,7 @@ jobs:
       # suite (revolt-rs's copy) against this extension alone
       - name: Revolt modes (revolt extension, revolt/event-loop's suite)
         id: modes
-        if: matrix.os == 'ubuntu-24.04' && matrix.php == '8.4' && matrix.topology == 'server' && !matrix.ts
-        env:
-          CLUSTER_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        if: matrix.os == 'ubuntu-24.04' && matrix.php == '8.4' && matrix.topology == 'server' && !matrix.ts && !matrix.setup
         run: |
           fibers="$(echo tests/local/fiber-*.phpt)"
           # the locked commit of the revolt-rs dependency (pinned by rev or tag: the hash after "#")
@@ -172,9 +274,12 @@ jobs:
         if: always()
         env:
           PHP_VERSION_MINOR: ${{ matrix.php }}
+          CI_SETUP: ${{ matrix.setup }}
         run: |
           suites=("Driver (PHPT)" phpt.xml "Library (PHPUnit)" phplib.xml)
-          [ "${{ matrix.topology }}" = server ] && suites+=("Fibers (tests/local)" fibers.xml)
+          if [ "${{ matrix.topology == 'server' && (!matrix.setup || matrix.setup == 'orchestration') }}" = true ]; then
+            suites+=("Fibers (tests/local)" fibers.xml)
+          fi
           if [ "${{ steps.modes.outcome }}" != skipped ]; then
             suites+=("Fibers, revolt extension loaded after" fibers-revolt-after.xml
               "Fibers, revolt extension loaded before" fibers-revolt-before.xml
@@ -186,7 +291,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.ts || 'nts' }}-${{ matrix.mongodb }}-${{ matrix.topology }}
+          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.ts || 'nts' }}-${{ matrix.mongodb }}-${{ matrix.topology }}${{ matrix.setup && format('-{0}', matrix.setup) || '' }}
           path: |
             phpt.xml
             phplib.xml
