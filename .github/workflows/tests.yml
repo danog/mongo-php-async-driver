@@ -2,30 +2,41 @@ name: Tests
 
 # Every run tests this extension against the official test suites at their latest commits: the
 # default branch of mongodb/mongo-php-driver (PHPT) and of mongodb/mongo-php-library (PHPUnit) are
-# cloned fresh (tools/ci/clone-upstream.sh; the commits are listed in each job's summary). The
-# schedule re-runs them daily, so upstream changes show up even without a push here.
+# cloned fresh (tools/ci/clone-upstream.sh; the commits are listed in each job's summary).
+# autoupdate.yml runs it daily with the newest MongoDB release (input "mongodb"), so that upstream
+# changes show up even without a push here.
 
 on:
   push:
   pull_request:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      mongodb:
+        description: >-
+          The MongoDB version every job starts instead of its own (Atlas Local: its "latest" image;
+          the 4.2 Docker job keeps 4.2)
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 # a newer push supersedes an older one; a scheduled or manual run gets its own group, so it never
 # cancels the run of a push (and the reverse)
+# (github.workflow: the caller's name when autoupdate.yml calls it, so the two never share a group)
 concurrency:
-  group: tests-${{ github.event_name }}-${{ github.ref }}
+  group: tests-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: "${{ matrix.os }} / PHP ${{ matrix.php }}${{ matrix.ts == 'zts' && ' ZTS' || '' }} / MongoDB ${{ matrix.mongodb }} ${{ matrix.topology }}${{ matrix.setup && format(' ({0})', matrix.setup) || '' }}"
+    name: "${{ matrix.os }} / PHP ${{ matrix.php }}${{ matrix.ts == 'zts' && ' ZTS' || '' }} / MongoDB ${{ (!inputs.mongodb || matrix.setup == 'docker') && matrix.mongodb || matrix.setup == 'atlas-local' && 'latest' || inputs.mongodb }} ${{ matrix.topology }}${{ matrix.setup && format(' ({0})', matrix.setup) || '' }}"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
+    env:
+      # the job's MongoDB version: its own, or the one autoupdate.yml asks for
+      MONGODB_VERSION: ${{ (!inputs.mongodb || matrix.setup == 'docker') && matrix.mongodb || matrix.setup == 'atlas-local' && 'latest' || inputs.mongodb }}
     strategy:
       fail-fast: false
       matrix:
@@ -87,7 +98,7 @@ jobs:
         # MongoDB's own test tooling, at the commit the latest official library pins (its submodule)
         uses: ./upstream/library/tests/drivers-evergreen-tools
         with:
-          version: ${{ matrix.mongodb }}
+          version: ${{ env.MONGODB_VERSION }}
           topology: ${{ matrix.topology }}
           auth: ${{ matrix.setup == 'auth-tls' && 'auth' || '' }}
           ssl: ${{ matrix.setup == 'auth-tls' && 'ssl' || '' }}
@@ -120,7 +131,6 @@ jobs:
         # (createTemporaryMongoInstance(): logs to /tmp/MO/phongo)
         env:
           DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
-          MONGODB_VERSION: ${{ matrix.mongodb }}
           TOPOLOGY: ${{ matrix.topology }}
         run: |
           export MONGODB_BINARIES=$DRIVERS_TOOLS/mongodb/bin MONGO_ORCHESTRATION_HOME=$DRIVERS_TOOLS/.evergreen/orchestration
@@ -129,7 +139,7 @@ jobs:
           echo "$MONGODB_BINARIES" >> "$GITHUB_PATH"
           echo "CLUSTER_URI=$(cat "$DRIVERS_TOOLS/uri.txt")" >> "$GITHUB_ENV"
           mkdir -p /tmp/MO/phongo
-          curl -fsS http://localhost:8889/v1 >/dev/null
+          curl -fsS http://localhost:8889/v1/servers >/dev/null
 
       - name: Start the load balancer (HAProxy)
         if: matrix.setup == 'load-balanced'
@@ -198,7 +208,7 @@ jobs:
         if: matrix.setup == 'docker'
         # a replica set of the official image (tools/topo.sh, initiated through this build)
         run: |
-          TOPO_DOCKER=1 TOPO_IMAGE=mongo:${{ matrix.mongodb }} TOPO_PHP="php -n -d extension=$EXT" tools/topo.sh start replset
+          TOPO_DOCKER=1 TOPO_IMAGE=mongo:$MONGODB_VERSION TOPO_PHP="php -n -d extension=$EXT" tools/topo.sh start replset
           echo "CLUSTER_URI=mongodb://127.0.0.1:28011,127.0.0.1:28012,127.0.0.1:28013/?replicaSet=rs0" >> "$GITHUB_ENV"
 
       - name: Mock KMS servers (client-side encryption)
@@ -291,7 +301,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.ts || 'nts' }}-${{ matrix.mongodb }}-${{ matrix.topology }}${{ matrix.setup && format('-{0}', matrix.setup) || '' }}
+          name: results-${{ matrix.os }}-php${{ matrix.php }}-${{ matrix.ts || 'nts' }}-${{ env.MONGODB_VERSION }}-${{ matrix.topology }}${{ matrix.setup && format('-{0}', matrix.setup) || '' }}
           path: |
             phpt.xml
             phplib.xml
