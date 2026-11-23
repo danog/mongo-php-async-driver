@@ -1,0 +1,70 @@
+name: Scheduled tests
+
+# Daily: the whole Tests workflow against the latest commits of the official test suites (the
+# default branches of mongodb/mongo-php-driver and mongodb/mongo-php-library, as every run of it)
+# and the newest MongoDB release, release candidates included ("latest-release").
+#
+# When it fails, the "report" job opens an issue with what failed (tools/ci/failures.sh: the
+# unexpected test failures of each job, and the end of the log of each failed job), or, while such
+# an issue is open, comments on it.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  # From the Actions tab, or with gh workflow run scheduled.yml.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A run still going when the next one starts is left to finish.
+concurrency:
+  group: scheduled-tests
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/tests.yml
+    with:
+      mongodb: latest-release
+
+  report:
+    needs: test
+    if: failure() && needs.test.result == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read # the failed jobs and their logs
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: ${{ runner.temp }}/results
+
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          tools/ci/failures.sh "$GITHUB_RUN_ID" "$RUNNER_TEMP/results" > "$RUNNER_TEMP/failures.md"
+          title="Scheduled tests failed (latest official test suites, newest MongoDB release)"
+          # an issue or comment holds at most 65536 characters: the rest is in the run's logs
+          {
+            echo "The scheduled run $RUN_URL failed."
+            echo
+            head -c 60000 "$RUNNER_TEMP/failures.md"
+            [ "$(wc -c < "$RUNNER_TEMP/failures.md")" -gt 60000 ] && printf '\n\n(truncated: see the run)\n'
+            true
+          } > "$RUNNER_TEMP/body.md"
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
