@@ -1,5 +1,5 @@
 #!/bin/bash
-# Writes, as Markdown, what failed in a run of the Tests workflow (for autoupdate.yml's fix job):
+# Writes, as Markdown, what failed in a run of the Tests workflow (scheduled.yml reports it in an issue):
 # for each matrix job, the unexpected failures of its JUnit results as tools/ci/junit-summary.py
 # reports them (expected-failures.txt applied with the job's OS, PHP version and setup); then, for
 # every failed job, the end of its log up to its last error (a build, a setup or a non-PHPT job).
