@@ -85,7 +85,10 @@ start() {
         echo $! > "$RELAY_PID"
         for _ in $(seq 1 40); do [ -S /tmp/mongodb-28010.sock ] && break; sleep 0.25; done
       fi ;;
-    replset) for p in 28011 28012 28013; do mongod_start rs0-$p $p --replSet rs0; done; initiate 28011 "$(members rs0 28011 28012 28013)" ;;
+    replset)
+      for p in 28011 28012 28013; do mongod_start rs0-$p $p --replSet rs0; done
+      # the member tags of drivers-evergreen-tools' replica set (server-getTags-002 selects by them)
+      initiate 28011 '{"_id":"rs0","members":[{"_id":0,"host":"'$H':28011","tags":{"ordinal":"one","dc":"ny"}},{"_id":1,"host":"'$H':28012","tags":{"ordinal":"two","dc":"pa"}},{"_id":2,"host":"'$H':28013"}]}' ;;
     sharded)
       mongod_start cfg 28020 --replSet cfg --configsvr; initiate 28020 '{"_id":"cfg","configsvr":true,"members":[{"_id":0,"host":"'$H':28020"}]}'
       mongod_start sh1 28021 --replSet sh1 --shardsvr; initiate 28021 "$(members sh1 28021)"
