@@ -52,13 +52,15 @@ jobs:
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: sharded_cluster }
           - { os: ubuntu-24.04, php: "8.4", mongodb: latest, topology: replica_set }
-          # the setups the official Evergreen CI tests and the default ones skip: auth with TLS
-          # (SCRAM user bob, the tools' x509gen certificates); a load balancer (HAProxy in front of
-          # two mongos with loadBalancerPort); the server started with requireApiVersion (and
-          # API_VERSION=1 for the tests); MongoDB Atlas Local (mongot: the Atlas Search tests);
-          # the oldest supported server (4.2, Docker: no 4.2 build runs on ubuntu-24.04)
-          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, setup: auth-tls }
-          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set, setup: auth-tls }
+          # the setups the official Evergreen CI tests and the default ones skip, as it combines
+          # them: auth (SCRAM user bob; standalone and replica set), TLS (standalone, the tools'
+          # x509gen certificates); a load balancer (HAProxy in front of two mongos with
+          # loadBalancerPort); the server started with requireApiVersion (and API_VERSION=1 for the
+          # tests); MongoDB Atlas Local (mongot: the library's "atlas" group, the Atlas Search
+          # tests); the oldest supported server (4.2, Docker: no 4.2 build runs on ubuntu-24.04)
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, setup: auth }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set, setup: auth }
+          - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, setup: tls }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: sharded_cluster, setup: load-balanced }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: server, setup: api-version }
           - { os: ubuntu-24.04, php: "8.4", mongodb: "8.0", topology: replica_set, setup: atlas-local }
@@ -100,8 +102,8 @@ jobs:
         with:
           version: ${{ env.MONGODB_VERSION }}
           topology: ${{ matrix.topology }}
-          auth: ${{ matrix.setup == 'auth-tls' && 'auth' || '' }}
-          ssl: ${{ matrix.setup == 'auth-tls' && 'ssl' || '' }}
+          auth: ${{ matrix.setup == 'auth' && 'auth' || '' }}
+          ssl: ${{ matrix.setup == 'tls' && 'ssl' || '' }}
           require-api-version: ${{ matrix.setup == 'api-version' && 'true' || '' }}
           local-atlas: ${{ matrix.setup == 'atlas-local' && 'true' || '' }}
 
@@ -112,7 +114,7 @@ jobs:
           DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
         run: |
           case "${{ matrix.setup }}" in
-            auth-tls)
+            tls)
               # the options the official driver's and library's Evergreen tasks append with SSL=yes
               # (the tests that verify the certificate pass tlsCAFile themselves); SSL_DIR: the
               # tools' x509gen certificates, which those tests load
@@ -243,6 +245,10 @@ jobs:
         run: tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/phpt.xml"
 
       - name: Official library tests (PHPUnit)
+        env:
+          # Atlas Local has no test commands (configureFailPoint...): as the official library's
+          # Atlas task, only the "atlas" group
+          PHPUNIT_ARGS: ${{ matrix.setup == 'atlas-local' && '--group atlas' || '' }}
         run: tools/ci/run-phplib.sh "$EXT" "$CLUSTER_URI" "$PWD/phplib.xml"
 
       # this driver's own fiber tests (the official suites have none): the driver's sockets as
