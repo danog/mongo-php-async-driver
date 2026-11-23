@@ -40,3 +40,7 @@ php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testRenameAllRevisions
 php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testRenameSameFilename
 php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testStreamWithContextResolver
 php8.6: MongoDB\Tests\GridFS\StreamWrapperFunctionalTest::testWritableStreamClose
+
+# examples/atlas_search.php exits (1) unless MONGODB_URI is an Atlas host (".mongodb.net"): on Atlas
+# Local it never gets to the search, whatever the extension (the Atlas Search spec tests run there)
+setup:atlas-local: MongoDB\Tests\ExamplesTest::testAtlasSearch
