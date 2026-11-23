@@ -65,3 +65,15 @@ if [ -f "$f" ] && grep -q '^        \$this->assertCount(2, \$indexes);$' "$f" &&
     echo "- \`SpecTests/SearchIndexSpecTest::testCreateMultipleIndexesInBatch\`: compares the listed search indexes in name order (mongot lists them in any order)" >> "$GITHUB_STEP_SUMMARY"
   fi
 fi
+# skip_if_no_mongo_orchestration() requests MONGO_ORCHESTRATION_URI (http://localhost:8889/v1), which
+# mongo-orchestration answers with 404: its service root is /v1/ (the routes are /v1 + "/"), so the
+# tests that start their own mongod through it (cursor-getmore-005/006) were always skipped. The
+# patched check requests /v1/; the tests' own requests (/v1/servers/<id>) are unchanged.
+f=$dir/driver/tests/utils/skipif.php
+if [ -f "$f" ] && grep -q '@file_get_contents(MONGO_ORCHESTRATION_URI, false, $ctx)' "$f"; then
+  perl -pi -e 's/\@file_get_contents\(MONGO_ORCHESTRATION_URI, false, \$ctx\)/\@file_get_contents(MONGO_ORCHESTRATION_URI . "\/", false, \$ctx)/' "$f"
+  echo "patched $f (mongo-orchestration's service root)"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "- \`tests/utils/skipif.php\`: checks mongo-orchestration at \`/v1/\` (\`/v1\` answers 404)" >> "$GITHUB_STEP_SUMMARY"
+  fi
+fi

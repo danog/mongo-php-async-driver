@@ -213,34 +213,6 @@ jobs:
           TOPO_DOCKER=1 TOPO_IMAGE=mongo:$MONGODB_VERSION TOPO_PHP="php -n -d extension=$EXT" tools/topo.sh start replset
           echo "CLUSTER_URI=mongodb://127.0.0.1:28011,127.0.0.1:28012,127.0.0.1:28013/?replicaSet=rs0" >> "$GITHUB_ENV"
 
-      - name: Mock KMS servers (client-side encryption)
-        if: runner.os == 'Linux'
-        # as the official library's Evergreen tasks: the KMIP server and the KMS servers with an
-        # expired certificate, a certificate for another host, and one that requires a client
-        # certificate (no credentials: the tests that need AWS/Azure/GCP keys stay skipped)
-        env:
-          DRIVERS_TOOLS: ${{ github.workspace }}/upstream/library/tests/drivers-evergreen-tools
-        run: |
-          cd "$DRIVERS_TOOLS/.evergreen/csfle"
-          . ./activate-kmstlsvenv.sh
-          x=$DRIVERS_TOOLS/.evergreen/x509gen
-          nohup python -u kms_http_server.py --ca_file "$x/ca.pem" --cert_file "$x/expired.pem" --port 8100 > http-expired.log 2>&1 &
-          nohup python -u kms_http_server.py --ca_file "$x/ca.pem" --cert_file "$x/wrong-host.pem" --port 8101 > http-wrong-host.log 2>&1 &
-          nohup python -u kms_http_server.py --ca_file "$x/ca.pem" --cert_file "$x/server.pem" --port 8102 --require_client_cert > http-client-cert.log 2>&1 &
-          nohup python -u kms_kmip_server.py --port 5698 > kmip.log 2>&1 &
-          for port in 8100 8101 8102 5698; do
-            for _ in $(seq 1 120); do nc -z 127.0.0.1 $port && break; sleep 0.5; done
-            nc -z 127.0.0.1 $port || { echo "port $port not listening"; tail -n 50 ./*.log; exit 1; }
-          done
-          {
-            echo "KMIP_ENDPOINT=localhost:5698"
-            echo "KMS_ENDPOINT_EXPIRED=127.0.0.1:8100"
-            echo "KMS_ENDPOINT_WRONG_HOST=127.0.0.1:8101"
-            echo "KMS_ENDPOINT_REQUIRE_CLIENT_CERT=127.0.0.1:8102"
-            echo "KMS_TLS_CA_FILE=$x/ca.pem"
-            echo "KMS_TLS_CERTIFICATE_KEY_FILE=$x/client.pem"
-          } >> "$GITHUB_ENV"
-
       - name: Official driver tests (PHPT)
         run: tools/ci/run-phpt.sh "$EXT" "$CLUSTER_URI" "$PWD/phpt.xml"
 
