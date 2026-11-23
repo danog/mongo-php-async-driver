@@ -53,3 +53,15 @@ if [ -f "$f" ] && grep -q '^        usleep(1000);$' "$f"; then
     echo "- \`GridFS/StreamWrapperFunctionalTest::testOpenSpecificRevision\`: waits for the next millisecond between revisions (Windows' usleep(1000) can be shorter)" >> "$GITHUB_STEP_SUMMARY"
   fi
 fi
+# SearchIndexSpecTest::testCreateMultipleIndexesInBatch compares the indexes $listSearchIndexes
+# returns with the names it created, in creation order; mongot lists them in no particular order
+# (on Atlas Local, test-search-index-2 came first in 1 of 3 runs, the driver passing on the
+# server's order as ext-mongodb does). The patched test sorts them by name first.
+f=$dir/library/tests/SpecTests/SearchIndexSpecTest.php
+if [ -f "$f" ] && grep -q '^        \$this->assertCount(2, \$indexes);$' "$f" && ! grep -q 'usort($indexes' "$f"; then
+  perl -0pi -e 's/^(        \$this->assertCount\(2, \$indexes\);\n)/$1        usort(\$indexes, fn (\$a, \$b) => strcmp(\$a->name, \$b->name));\n/m' "$f"
+  echo "patched $f (search indexes in name order)"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "- \`SpecTests/SearchIndexSpecTest::testCreateMultipleIndexesInBatch\`: compares the listed search indexes in name order (mongot lists them in any order)" >> "$GITHUB_STEP_SUMMARY"
+  fi
+fi
