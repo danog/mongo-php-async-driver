@@ -35,8 +35,9 @@ use std::io;
 use std::ptr::{addr_of, null_mut};
 use std::time::{Duration, Instant};
 
-extern "C" {
-    fn zend_fiber_switch_blocked() -> bool;
+unsafe extern "C" {
+    // no arguments and no preconditions: returns the engine's fiber-switch block count > 0
+    safe fn zend_fiber_switch_blocked() -> bool;
     fn zend_read_static_property_ex(scope: *mut sys::zend_class_entry, name: *mut sys::zend_string, silent: bool) -> *mut sys::zval;
 }
 
@@ -116,7 +117,7 @@ fn publish_sync_words(counter: *const u32) {
 /// Whether this call's waits suspend: inside a fiber, and in {main} once the loop is in use;
 /// never where PHP forbids fiber switches, in object destruction or at shutdown.
 fn active() -> bool {
-    if FORBID.get() > 0 || shutting_down() || unsafe { zend_fiber_switch_blocked() } {
+    if FORBID.get() > 0 || shutting_down() || zend_fiber_switch_blocked() {
         return false;
     }
     in_fiber() || (loop_in_use() && !main_idle())
@@ -175,7 +176,7 @@ enum SlotState {
 
 struct Slot {
     /// bumped at every reuse (park ids name one use of a slot)
-    gen: u32,
+    generation: u32,
     state: SlotState,
     /// the suspension of the waiting fiber or {main} (borrowed: the waiting frame holds it);
     /// null until it suspends, and once it was taken for a resume
@@ -184,8 +185,8 @@ struct Slot {
 }
 
 impl Slot {
-    fn free(gen: u32) -> Slot {
-        Slot { gen, state: SlotState::Free, suspension: null_mut(), deadline: None }
+    fn free(generation: u32) -> Slot {
+        Slot { generation, state: SlotState::Free, suspension: null_mut(), deadline: None }
     }
 }
 
@@ -224,8 +225,8 @@ fn with<R>(f: impl FnOnce(&mut Loop) -> R) -> R {
 }
 
 /// The park id of a slot's use.
-fn park_id(t: usize, gen: u32) -> u64 {
-    (t as u64) | ((gen as u64) << 32)
+fn park_id(t: usize, generation: u32) -> u64 {
+    (t as u64) | ((generation as u64) << 32)
 }
 
 /// MINIT: installs the backend; the embedded revolt-rs registers the Revolt classes unless
@@ -288,7 +289,7 @@ unsafe fn symbol(handle: *mut c_void, name: &std::ffi::CStr) -> *mut c_void {
 #[cfg(windows)]
 unsafe fn symbol(handle: *mut c_void, name: &std::ffi::CStr) -> *mut c_void {
     #[link(name = "kernel32")]
-    extern "system" {
+    unsafe extern "system" {
         fn GetProcAddress(module: *mut c_void, name: *const std::ffi::c_char) -> *mut c_void;
     }
     GetProcAddress(handle, name.as_ptr())
@@ -329,7 +330,7 @@ pub fn rshutdown() {
         .try_with(|l| {
             let mut l = l.try_borrow_mut().ok()?;
             for s in &mut l.slots {
-                *s = Slot::free(s.gen.wrapping_add(1));
+                *s = Slot::free(s.generation.wrapping_add(1));
             }
             l.taken.clear();
             l.nat.take()
@@ -381,10 +382,10 @@ fn unpark(id: u64) {
 /// The suspension of the pending wait `id` (slot, generation), now in `state`; null when it does
 /// not wait (any more), or has not suspended yet.
 fn take_pending(id: u64, state: SlotState) -> *mut sys::zend_object {
-    let (t, gen) = ((id & 0xffff_ffff) as usize, (id >> 32) as u32);
+    let (t, generation) = ((id & 0xffff_ffff) as usize, (id >> 32) as u32);
     LOOP.try_with(|l| {
         let Ok(mut l) = l.try_borrow_mut() else { return null_mut() };
-        let Some(s) = l.slots.get_mut(t).filter(|s| s.gen == gen && s.state == SlotState::Pending && !s.suspension.is_null()) else {
+        let Some(s) = l.slots.get_mut(t).filter(|s| s.generation == generation && s.state == SlotState::Pending && !s.suspension.is_null()) else {
             return null_mut();
         };
         s.state = state;
@@ -419,7 +420,7 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     let (small, big) = sources(fds);
     let src: &[SrcFd] = if fds.len() <= 2 { &small[..fds.len()] } else { &big };
     // a slot, named as the waiter of the sockets
-    let (token, gen) = with(|l| {
+    let (token, generation) = with(|l| {
         let t = match l.slots.iter().position(|s| s.state == SlotState::Free) {
             Some(t) => t,
             None => {
@@ -427,11 +428,11 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
                 l.slots.len() - 1
             }
         };
-        let gen = l.slots[t].gen.wrapping_add(1);
-        l.slots[t].gen = gen;
-        (t, gen)
+        let generation = l.slots[t].generation.wrapping_add(1);
+        l.slots[t].generation = generation;
+        (t, generation)
     });
-    let id = park_id(token, gen);
+    let id = park_id(token, generation);
     if !src.is_empty() {
         let r = unsafe { (abi.src_arm)(d, group, src.as_ptr(), src.len(), id) };
         if r < 0 {
@@ -453,7 +454,7 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
         }
     }
     let first = with(|l| {
-        l.slots[token] = Slot { gen, state: SlotState::Pending, suspension: null_mut(), deadline };
+        l.slots[token] = Slot { generation, state: SlotState::Pending, suspension: null_mut(), deadline };
         let n = l.nat.as_mut().expect("nat");
         n.here += 1;
         n.here == 1
@@ -464,14 +465,14 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
     if let Some(enqueue) = enqueue {
         enqueue(id);
     }
-    let r = unsafe { suspend(abi, d, token, gen, deadline) };
+    let r = unsafe { suspend(abi, d, token, generation, deadline) };
     // the slot is still this wait's unless the request ended meanwhile (rshutdown): then the
     // driver may be gone, nothing is touched
     let state = with(|l| {
-        if l.slots[token].gen != gen || l.nat.is_none() {
+        if l.slots[token].generation != generation || l.nat.is_none() {
             return None;
         }
-        let s = std::mem::replace(&mut l.slots[token], Slot::free(gen));
+        let s = std::mem::replace(&mut l.slots[token], Slot::free(generation));
         let n = l.nat.as_mut().expect("nat");
         n.here -= 1;
         Some((s.state, n.here == 0))
@@ -507,7 +508,7 @@ fn wait(fds: &mut [mongo_core::os::PollFd], deadline: Option<Instant>, enqueue: 
 
 /// Suspends the wait `token` (its suspension stored in the slot), with the deadline timer armed
 /// for it if it is the earliest.
-unsafe fn suspend(abi: &'static Abi, d: *mut sys::zend_object, token: usize, gen: u32, deadline: Option<Instant>) -> io::Result<()> {
+unsafe fn suspend(abi: &'static Abi, d: *mut sys::zend_object, token: usize, generation: u32, deadline: Option<Instant>) -> io::Result<()> {
     let o = (abi.suspension)(d);
     if o.is_null() || call::has_exception() {
         return Err(mongo_core::aio::interrupted());
@@ -517,7 +518,7 @@ unsafe fn suspend(abi: &'static Abi, d: *mut sys::zend_object, token: usize, gen
     let main = !in_fiber();
     let (rearm, old) = with(|l| {
         let slot = &mut l.slots[token];
-        if slot.gen == gen {
+        if slot.generation == generation {
             slot.suspension = o;
         }
         let n = l.nat.as_mut().expect("nat");

@@ -16,7 +16,7 @@ use std::ffi::{c_char, c_int};
 use std::io::Write;
 use std::ptr::null_mut;
 
-extern "C" {
+unsafe extern "C" {
     // main/php_open_temporary_file.h (PHPAPI)
     fn php_open_temporary_fd(dir: *const c_char, pfx: *const c_char, opened_path_p: *mut *mut sys::zend_string) -> c_int;
 }

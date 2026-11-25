@@ -155,11 +155,11 @@ pub fn clock_default() -> u64 {
 /// zend_hrtime of PHP 8.5 on macOS: clock_gettime_nsec_np(CLOCK_UPTIME_RAW).
 #[cfg(target_vendor = "apple")]
 pub fn clock_uptime_raw() -> u64 {
-    extern "C" {
-        fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> u64;
+    unsafe extern "C" {
+        // no pointers; an unknown clock id yields 0 (and sets errno)
+        safe fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> u64;
     }
-    // SAFETY: a valid clock id
-    unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) }
+    clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW)
 }
 
 /// _mongoc_apm_is_sensitive_command_name / _mongoc_apm_is_sensitive_hello_message

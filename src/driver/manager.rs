@@ -424,10 +424,10 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     let auto_encryption = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"autoEncryption").is_some();
     let r = match &api {
         Err(msg) => {
-            if let Err(e) = make() {
-                throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message));
-            } else {
-                throw(E::InvalidArgument, msg.clone());
+            match make() {
+                Err(e) => throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message)),
+                // the client is dropped after the throw
+                Ok(_c) => throw(E::InvalidArgument, msg.clone()),
             }
             return;
         }

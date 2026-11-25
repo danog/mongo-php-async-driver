@@ -41,7 +41,7 @@ pub const fn cstr(s: &'static CStr) -> *const c_char {
     s.as_ptr()
 }
 
-extern "C" {
+unsafe extern "C" {
     // variadic: not emitted usefully by bindgen
     pub fn php_info_print_table_header(num_cols: i32, ...);
     pub fn php_info_print_table_row(num_cols: i32, ...);

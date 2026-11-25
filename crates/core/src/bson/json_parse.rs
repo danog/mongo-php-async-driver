@@ -10,14 +10,14 @@ use super::oid;
 use super::utf8;
 use super::writer::Writer;
 use std::borrow::Cow;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 
 /// jsonsl's level limit (libbson's STACK_MAX).
 const MAX_LEVELS: usize = 100;
 
 /// The parsed tree borrows from the input wherever it can: a string without escapes and every
 /// number token are slices of it (no allocation per value). The members of arrays and objects
-/// are slices of an `Arena` (no allocation per container either).
+/// are ranges of the tree's two member lists (no allocation per container either).
 enum J<'a> {
     Str(Cow<'a, [u8]>),
     /// an integer token: negative?, magnitude (None: does not fit u64), text
@@ -25,60 +25,51 @@ enum J<'a> {
     Float(&'a [u8]),
     Bool(bool),
     Null,
-    Arr(&'a [J<'a>]),
-    Obj(&'a [(Cow<'a, [u8]>, J<'a>)]),
+    /// members in `Tree::vals`
+    Arr(Span),
+    /// members in `Tree::pairs`
+    Obj(Span),
 }
 
 type Pair<'a> = (Cow<'a, [u8]>, J<'a>);
 
-/// Append-only storage for the tree's member lists: chunks that are never grown past their
-/// capacity, so the slices handed out stay where they are until the arena is dropped (its
-/// members are dropped with it). No Drop impl: Vec's lets the members borrow from the arena.
-struct Arena<T> {
-    /// the chunk being filled
-    cur: RefCell<Vec<T>>,
-    /// the chunks filled before it
-    full: RefCell<Vec<Vec<T>>>,
+/// The members of one container: `len` elements from `start` of a member list.
+#[derive(Clone, Copy)]
+struct Span {
+    start: usize,
+    len: usize,
 }
 
-impl<T> Arena<T> {
-    /// `first`: an empty chunk to fill first (a spare one of the thread's previous parse)
-    fn new(first: Vec<T>) -> Self {
-        Arena { cur: RefCell::new(first), full: RefCell::new(Vec::new()) }
-    }
+impl Span {
+    const EMPTY: Span = Span { start: 0, len: 0 };
+}
 
-    /// Moves `stack[start..]` into the arena.
-    fn take_from(&self, stack: &mut Vec<T>, start: usize) -> &[T] {
-        let n = stack.len() - start;
-        if n == 0 {
-            return &[];
-        }
-        let mut c = self.cur.borrow_mut();
-        if c.capacity() - c.len() < n {
-            let cap = (c.capacity() * 2).max(n).max(64);
-            let old = std::mem::replace(&mut *c, Vec::with_capacity(cap));
-            if old.capacity() != 0 {
-                // moving a Vec leaves its elements where they are
-                self.full.borrow_mut().push(old);
-            }
-        }
-        let at = c.len();
-        c.extend(stack.drain(start..));
-        // SAFETY: a chunk never reallocates (it is filled only within its capacity) and is
-        // dropped only with the arena (or by `recycle`), which the returned borrow keeps alive
-        unsafe { std::slice::from_raw_parts(c.as_ptr().add(at), n) }
-    }
+/// The member lists of the parsed tree: each container's members are contiguous in one of them
+/// (moved there from the parser's stack once the container is complete).
+struct Tree<'a> {
+    vals: Vec<J<'a>>,
+    pairs: Vec<Pair<'a>>,
+}
 
-    /// The chunk being filled, emptied, for the next parse.
-    /// SAFETY: no slice `take_from` returned is used afterwards.
-    unsafe fn recycle(&self) -> Vec<T> {
-        let mut c = self.cur.take();
-        c.clear();
-        c
+impl<'a> Tree<'a> {
+    #[inline]
+    fn arr(&self, s: Span) -> &[J<'a>] {
+        &self.vals[s.start..s.start + s.len]
+    }
+    #[inline]
+    fn obj(&self, s: Span) -> &[Pair<'a>] {
+        &self.pairs[s.start..s.start + s.len]
     }
 }
 
-/// The member stacks and the last arena chunks of the thread's previous parse, empty: a small
+/// Moves `stack[start..]` to the end of `list`: their span there.
+fn take_from<T>(list: &mut Vec<T>, stack: &mut Vec<T>, start: usize) -> Span {
+    let span = Span { start: list.len(), len: stack.len() - start };
+    list.extend(stack.drain(start..));
+    span
+}
+
+/// The member stacks and the member lists of the thread's previous parse, empty: a small
 /// document is then parsed without allocating (tree buffers over MAX_SPARE elements are freed).
 #[derive(Default)]
 struct Spare {
@@ -106,15 +97,22 @@ fn respare<T, U>(mut v: Vec<T>) -> Vec<U> {
     v.into_iter().map(|_| unreachable!()).collect()
 }
 
+/// The parser. Its layout is fixed so that `i` is not next to `s`: the position is stored after
+/// every token and read again with the input's length, and the two adjacent loads get merged
+/// into one (`ldp`) that cannot take its value from the 8-byte store still in flight, so it
+/// waits for it (measured: +5-6% on large documents; see also `string`).
+#[repr(C)]
 struct P<'a> {
     s: &'a [u8],
+    tree: Tree<'a>,
     i: usize,
-    vals: &'a Arena<J<'a>>,
-    pairs: &'a Arena<Pair<'a>>,
     /// the members of the containers being parsed (each container's at the top)
     val_stack: Vec<J<'a>>,
     pair_stack: Vec<Pair<'a>>,
 }
+
+// `i` is not adjacent to the input slice (pointer, length)
+const _: () = assert!(std::mem::offset_of!(P<'static>, i) >= std::mem::offset_of!(P<'static>, s) + 2 * std::mem::size_of::<&[u8]>());
 
 type R<T> = Result<T, String>;
 
@@ -145,7 +143,7 @@ impl<'a> P<'a> {
                 self.ws();
                 if self.i < self.s.len() && self.s[self.i] == b'}' {
                     self.i += 1;
-                    return Ok(J::Obj(&[]));
+                    return Ok(J::Obj(Span::EMPTY));
                 }
                 loop {
                     self.ws();
@@ -176,9 +174,9 @@ impl<'a> P<'a> {
                             self.i += 1;
                             if depth == 0 {
                                 // the root's members stay on the stack (see from_json)
-                                return Ok(J::Obj(&[]));
+                                return Ok(J::Obj(Span::EMPTY));
                             }
-                            return Ok(J::Obj(self.pairs.take_from(&mut self.pair_stack, start)));
+                            return Ok(J::Obj(take_from(&mut self.tree.pairs, &mut self.pair_stack, start)));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
                     }
@@ -193,7 +191,7 @@ impl<'a> P<'a> {
                 self.ws();
                 if self.i < self.s.len() && self.s[self.i] == b']' {
                     self.i += 1;
-                    return Ok(J::Arr(&[]));
+                    return Ok(J::Arr(Span::EMPTY));
                 }
                 loop {
                     let val = self.value(depth + 1)?;
@@ -207,9 +205,9 @@ impl<'a> P<'a> {
                         b']' => {
                             self.i += 1;
                             if depth == 0 {
-                                return Ok(J::Arr(&[]));
+                                return Ok(J::Arr(Span::EMPTY));
                             }
-                            return Ok(J::Arr(self.vals.take_from(&mut self.val_stack, start)));
+                            return Ok(J::Arr(take_from(&mut self.tree.vals, &mut self.val_stack, start)));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
                     }
@@ -281,32 +279,40 @@ impl<'a> P<'a> {
         }
     }
     fn string(&mut self) -> R<Cow<'a, [u8]>> {
-        self.i += 1;
+        // The position is kept in a local and written back where the function returns (or calls
+        // a method that reads it): kept in `self.i`, it would be stored before every call that
+        // may unwind (the Vec pushes) and loaded again after it, and when that load is merged
+        // with one of the neighbouring field (`ldp` of `s.len` and `i`) it waits for the store
+        // to complete at every escape (measured: +24% on a string with frequent escapes).
+        let s = self.s;
+        let st = self.i + 1;
         // the common case: no escape before the closing quote, the input itself
-        let st = self.i;
-        let j = super::swar::find2(self.s, st, b'"', b'\\');
-        if j < self.s.len() && self.s[j] == b'"' {
+        let j = super::swar::find2(s, st, b'"', b'\\');
+        if j < s.len() && s[j] == b'"' {
             self.i = j + 1;
-            return Ok(Cow::Borrowed(&self.s[st..j]));
+            return Ok(Cow::Borrowed(&s[st..j]));
         }
         let mut out = Vec::new();
+        let mut i = st;
         loop {
-            let st = self.i;
-            self.i = super::swar::find2(self.s, st, b'"', b'\\');
-            out.extend_from_slice(&self.s[st..self.i]);
-            if self.i >= self.s.len() {
+            let st = i;
+            i = super::swar::find2(s, st, b'"', b'\\');
+            out.extend_from_slice(&s[st..i]);
+            if i >= s.len() {
+                self.i = i;
                 return Err("Incomplete JSON".into());
             }
-            if self.s[self.i] == b'"' {
-                self.i += 1;
+            if s[i] == b'"' {
+                self.i = i + 1;
                 return Ok(Cow::Owned(out));
             }
-            self.i += 1;
-            if self.i >= self.s.len() {
+            i += 1;
+            if i >= s.len() {
+                self.i = i;
                 return Err("Incomplete JSON".into());
             }
-            let c = self.s[self.i];
-            self.i += 1;
+            let c = s[i];
+            i += 1;
             match c {
                 b'"' | b'\\' | b'/' => out.push(c),
                 b'b' => out.push(8),
@@ -315,9 +321,11 @@ impl<'a> P<'a> {
                 b'r' => out.push(b'\r'),
                 b't' => out.push(b'\t'),
                 b'u' => {
+                    // rare: hex4 and err work on self.i
+                    self.i = i;
                     let mut cp = self.hex4()?;
                     if (0xd800..0xdc00).contains(&cp) {
-                        if self.s.get(self.i) == Some(&b'\\') && self.s.get(self.i + 1) == Some(&b'u') {
+                        if s.get(self.i) == Some(&b'\\') && s.get(self.i + 1) == Some(&b'u') {
                             self.i += 2;
                             let lo = self.hex4()?;
                             if !(0xdc00..0xe000).contains(&lo) {
@@ -331,12 +339,13 @@ impl<'a> P<'a> {
                     } else if (0xdc00..0xe000).contains(&cp) {
                         return Err(self.err("INVALID_CODEPOINT"));
                     }
+                    i = self.i;
                     let ch = char::from_u32(cp).unwrap();
                     let mut b = [0u8; 4];
                     out.extend_from_slice(ch.encode_utf8(&mut b).as_bytes());
                 }
                 _ => {
-                    self.i -= 1;
+                    self.i = i - 1;
                     return Err(self.err("ESCAPE_INVALID"));
                 }
             }
@@ -385,13 +394,10 @@ fn lossy(b: &[u8]) -> String {
 /// `bson_new_from_json`: the document, or the error message.
 pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
     let sp = SPARE.take();
-    let (vals, pairs) = (Arena::new(respare(sp.vals)), Arena::new(respare(sp.pairs)));
-    let mut p = P { s: input, i: 0, vals: &vals, pairs: &pairs, val_stack: respare(sp.val_stack), pair_stack: respare(sp.pair_stack) };
+    let tree = Tree { vals: respare(sp.vals), pairs: respare(sp.pairs) };
+    let mut p = P { s: input, i: 0, tree, val_stack: respare(sp.val_stack), pair_stack: respare(sp.pair_stack) };
     let r = parse(&mut p);
-    let (val_stack, pair_stack) = (respare(p.val_stack), respare(p.pair_stack));
-    // SAFETY: the tree is not used after parse
-    let (vals, pairs) = unsafe { (vals.recycle(), pairs.recycle()) };
-    SPARE.set(Spare { val_stack, pair_stack, vals: respare(vals), pairs: respare(pairs) });
+    SPARE.set(Spare { val_stack: respare(p.val_stack), pair_stack: respare(p.pair_stack), vals: respare(p.tree.vals), pairs: respare(p.tree.pairs) });
     r
 }
 
@@ -418,27 +424,27 @@ fn parse(p: &mut P) -> Result<Vec<u8>, String> {
     let mut w = Writer::with_capacity(input.len());
     // the root container's members were left on the stack (all of it: nothing else is open)
     match root {
-        J::Obj(_) => doc(&mut w, &p.pair_stack)?,
-        J::Arr(_) => arr(&mut w, &p.val_stack)?,
+        J::Obj(_) => doc(&mut w, &p.tree, &p.pair_stack)?,
+        J::Arr(_) => arr(&mut w, &p.tree, &p.val_stack)?,
         _ => unreachable!(),
     }
     Ok(w.finish())
 }
 
-fn doc(w: &mut Writer, o: &[(Cow<[u8]>, J)]) -> R<()> {
+fn doc(w: &mut Writer, t: &Tree, o: &[Pair]) -> R<()> {
     for (k, v) in o {
         if !utf8::validate(k, false) {
             return Err("invalid bytes in UTF8 string".into());
         }
-        value(w, k, v)?;
+        value(w, t, k, v)?;
     }
     Ok(())
 }
 
-fn arr(w: &mut Writer, a: &[J]) -> R<()> {
+fn arr(w: &mut Writer, t: &Tree, a: &[J]) -> R<()> {
     let mut buf = [0u8; 20];
     for (i, v) in a.iter().enumerate() {
-        value(w, index_key(&mut buf, i), v)?;
+        value(w, t, index_key(&mut buf, i), v)?;
     }
     Ok(())
 }
@@ -456,7 +462,7 @@ fn index_key(buf: &mut [u8; 20], mut i: usize) -> &[u8] {
     }
 }
 
-fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
+fn value(w: &mut Writer, t: &Tree, k: &[u8], v: &J) -> R<()> {
     match v {
         J::Str(s) => {
             if !utf8::validate(s, true) {
@@ -477,17 +483,18 @@ fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
         J::Null => w.null(k),
         J::Arr(a) => {
             let p = w.begin(iter::T_ARRAY, k);
-            arr(w, a)?;
+            arr(w, t, t.arr(*a))?;
             w.end(p);
         }
         J::Obj(o) => {
+            let o = t.obj(*o);
             if let Some((k0, _)) = o.first() {
                 if KNOWN.contains(&k0.as_ref()) {
-                    return special(w, k, o);
+                    return special(w, t, k, o);
                 }
             }
             let p = w.begin(iter::T_DOCUMENT, k);
-            doc(w, o)?;
+            doc(w, t, o)?;
             w.end(p);
         }
     }
@@ -801,7 +808,7 @@ fn str_of<'v>(k: &[u8], v: &'v J, ty: u8, rs: &str, allow_null: bool) -> R<&'v [
     }
 }
 
-fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
+fn special(w: &mut Writer, t: &Tree, key: &[u8], o: &[Pair]) -> R<()> {
     let mut sp = Spec::default();
     let check = |sp: &mut Spec, k: &[u8], t: u8| -> R<()> {
         if sp.ty != 0 && sp.ty != t {
@@ -844,7 +851,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 match v {
                     J::Obj(inner) => {
                         sp.legacy = false;
-                        binary_values(&mut sp, inner)?;
+                        binary_values(&mut sp, t.obj(*inner))?;
                         sp.closed = true;
                     }
                     _ => {
@@ -858,7 +865,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             b"$type" => {
                 check(&mut sp, k, iter::T_BINARY)?;
                 match v {
-                    J::Obj(_) if idx == 0 => return regular_doc(w, key, o),
+                    J::Obj(_) if idx == 0 => return regular_doc(w, t, key, o),
                     J::Str(s) => {
                         if !utf8::validate(s, true) {
                             return Err("invalid bytes in UTF8 string".into());
@@ -867,7 +874,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                         sp.has_subtype = true;
                         match scan_hex2(s) {
                             Some(t) => sp.subtype = t,
-                            None if !sp.has_binary => return regular_doc(w, key, o),
+                            None if !sp.has_binary => return regular_doc(w, t, key, o),
                             None => return Err(format!("Invalid input string \"{}\", looking for binary subtype", lossy(s))),
                         }
                     }
@@ -901,6 +908,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                         sp.date = iso8601_parse(s)?;
                     }
                     J::Obj(inner) => {
+                        let inner = t.obj(*inner);
                         for (ik, iv) in inner.iter() {
                             if ik.as_ref() != b"$numberLong" {
                                 return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty)));
@@ -962,6 +970,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             b"$timestamp" => {
                 check(&mut sp, k, iter::T_TIMESTAMP)?;
                 let J::Obj(inner) = v else { return Err(timestamp_wrong(v)) };
+                let inner = t.obj(*inner);
                 for (ik, iv) in inner.iter() {
                     let which = match ik.as_ref() {
                         b"t" => 0,
@@ -993,6 +1002,7 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             b"$regularExpression" => {
                 check(&mut sp, k, iter::T_REGEX)?;
                 let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_REGEX_STARTMAP")) };
+                let inner = t.obj(*inner);
                 for (ik, iv) in inner.iter() {
                     match ik.as_ref() {
                         b"pattern" => sp.pattern = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
@@ -1008,11 +1018,12 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             b"$dbPointer" => {
                 check(&mut sp, k, iter::T_DBPOINTER)?;
                 let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_DBPOINTER_STARTMAP")) };
+                let inner = t.obj(*inner);
                 if inner.is_empty() {
                     return Err("Empty $dbPointer".into());
                 }
                 let mut sub = Writer::new();
-                doc(&mut sub, inner)?;
+                doc(&mut sub, t, inner)?;
                 let d = sub.finish();
                 let mut it = Iter::new(&d).unwrap();
                 let (mut ns, mut id) = (None, None);
@@ -1043,8 +1054,9 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 }
                 sp.ty = iter::T_CODEWSCOPE;
                 let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_SCOPE_STARTMAP")) };
+                let inner = t.obj(*inner);
                 let mut sub = Writer::new();
-                doc(&mut sub, inner)?;
+                doc(&mut sub, t, inner)?;
                 sp.scope = Some(sub.finish());
             }
             _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(k), type_name(sp.ty))),
@@ -1137,7 +1149,7 @@ fn oid_lenient(s: &[u8]) -> [u8; 12] {
 }
 
 /// The canonical `"$binary": {"base64": ..., "subType": ...}` object.
-fn binary_values(sp: &mut Spec, inner: &[(Cow<[u8]>, J)]) -> R<()> {
+fn binary_values(sp: &mut Spec, inner: &[Pair]) -> R<()> {
     const RS: &str = "IN_BSON_TYPE_BINARY_VALUES";
     for (k, v) in inner {
         match k.as_ref() {
@@ -1210,9 +1222,9 @@ fn parse_uuid(s: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// A wrapper-looking object that turns out to be a regular document (a `$type` query operator).
-fn regular_doc(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
+fn regular_doc(w: &mut Writer, t: &Tree, key: &[u8], o: &[Pair]) -> R<()> {
     let p = w.begin(iter::T_DOCUMENT, key);
-    doc(w, o)?;
+    doc(w, t, o)?;
     w.end(p);
     Ok(())
 }

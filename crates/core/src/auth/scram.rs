@@ -60,9 +60,9 @@ pub(crate) fn wipe(b: &mut [u8]) {
     std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Overwrites the bytes of `s`, which is left empty.
 fn wipe_string(s: &mut String) {
-    // SAFETY: zero bytes are valid UTF-8
-    wipe(unsafe { s.as_mut_vec() });
+    wipe(&mut std::mem::take(s).into_bytes());
 }
 
 /// Equality in time that depends only on the lengths (mongoc_memcmp).

@@ -61,14 +61,20 @@ pub static mut CE: Ces = Ces {
     vectortype: null_mut(),
 };
 
+/// The class entries (all set at MINIT, by `ce_mut`, then only read).
 #[inline]
 pub fn ce() -> &'static Ces {
+    // SAFETY: CE is only written through `ce_mut`, during MINIT, before any `ce()` borrow exists
     unsafe { &*std::ptr::addr_of!(CE) }
 }
 
+/// For the class registrations of MINIT.
+///
+/// # Safety
+/// Only during MINIT, while no reference `ce()` returned is alive (no request has run yet).
 #[inline]
-pub fn ce_mut() -> &'static mut Ces {
-    unsafe { &mut *std::ptr::addr_of_mut!(CE) }
+pub unsafe fn ce_mut() -> &'static mut Ces {
+    &mut *std::ptr::addr_of_mut!(CE)
 }
 
 /// phongo_error_domain_t

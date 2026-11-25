@@ -405,7 +405,7 @@ mod tests {
         if neg {
             out.push('-');
         }
-        let ds = |d: &[u8]| unsafe { std::str::from_utf8_unchecked(d) }.to_owned();
+        let ds = |d: &[u8]| d.iter().map(|&c| char::from(c)).collect::<String>();
         if x < -4 || x >= p as i32 {
             out.push(digits[0] as char);
             if digits.len() > 1 {

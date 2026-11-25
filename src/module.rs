@@ -71,7 +71,7 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
     crate::driver::apm::minit();
     sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
     crate::zend::obj::init_std();
-    crate::gen::api::register_all();
+    crate::r#gen::api::register_all();
     sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
     if !crate::driver::aio::minit(module_number) {
         // PHP reports "Unable to start mongodb module" and does not start
@@ -211,8 +211,8 @@ const fn const_parse(s: &str) -> u32 {
 }
 
 /// The entry point PHP looks up when loading the extension.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn get_module() -> *mut sys::zend_module_entry {
-    unsafe { (*addr_of_mut!(MODULE)).functions = crate::gen::api::functions() };
+    unsafe { (*addr_of_mut!(MODULE)).functions = crate::r#gen::api::functions() };
     addr_of_mut!(MODULE)
 }

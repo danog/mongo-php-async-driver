@@ -150,8 +150,11 @@ pub struct Conn {
     stream: Stream,
     /// The server address as the topology names it ("host:port").
     pub addr: String,
-    /// The message being received (complete after `recv` / `try_recv` returned it).
+    /// The message being received: its first `rlen` bytes (complete after `recv` / `try_recv`
+    /// returned it). Every byte of the Vec is initialized: it only grows (zero-filled), so each
+    /// byte is zeroed once for the connection, not before every read.
     rbuf: Vec<u8>,
+    rlen: usize,
     max_msg: usize,
     nonblocking: bool,
     read_timeout: Option<Duration>,
@@ -200,6 +203,7 @@ impl Conn {
                         stream: Stream::Plain(stream),
                         addr,
                         rbuf: Vec::new(),
+            rlen: 0,
                         max_msg: DEFAULT_MAX_MSG_SIZE,
                         nonblocking: false,
                         read_timeout: None,
@@ -249,6 +253,7 @@ impl Conn {
             stream: Stream::Plain(stream),
             addr: path.to_owned(),
             rbuf: Vec::new(),
+            rlen: 0,
             max_msg: DEFAULT_MAX_MSG_SIZE,
             nonblocking: false,
             read_timeout: None,
@@ -302,6 +307,7 @@ impl Conn {
             stream: Stream::Plain(stream),
             addr: addr.to_owned(),
             rbuf: Vec::new(),
+            rlen: 0,
             max_msg: DEFAULT_MAX_MSG_SIZE,
             nonblocking: true,
             read_timeout: None,
@@ -446,9 +452,9 @@ impl Conn {
             self.stream.tcp().set_read_timeout(t).map_err(NetError::Io)?;
             self.read_timeout = t;
         }
-        self.rbuf.clear();
+        self.rlen = 0;
         while !self.read_some()? {}
-        Ok(&self.rbuf)
+        Ok(&self.rbuf[..self.rlen])
     }
 
     /// Waits until the socket is ready for `interest`, up to `timeout` (the per-call socket
@@ -491,13 +497,13 @@ impl Conn {
     /// before the first read).
     fn recv_waiting(&mut self, timeout: Option<Duration>, wait_first: bool) -> Result<&[u8], NetError> {
         self.set_nonblocking()?;
-        self.rbuf.clear();
+        self.rlen = 0;
         if wait_first {
             self.wait(Interest::Read, timeout)?;
         }
         loop {
             match self.read_some() {
-                Ok(true) => return Ok(&self.rbuf),
+                Ok(true) => return Ok(&self.rbuf[..self.rlen]),
                 Ok(false) => {}
                 // the non-blocking socket has nothing yet (io_err maps WouldBlock so)
                 Err(NetError::Timeout) => {
@@ -529,7 +535,7 @@ impl Conn {
 
     /// Starts receiving a new message (non-blocking mode).
     pub fn begin_recv(&mut self) {
-        self.rbuf.clear();
+        self.rlen = 0;
     }
 
     /// Non-blocking receive; Ok(true) once the message is complete (see `message`).
@@ -542,17 +548,17 @@ impl Conn {
 
     /// The last complete message.
     pub fn message(&self) -> &[u8] {
-        &self.rbuf
+        &self.rbuf[..self.rlen]
     }
 
     /// Reads into rbuf (one read call at most once the header is known); true when complete.
     fn read_some(&mut self) -> Result<bool, NetError> {
         loop {
-            let have = self.rbuf.len();
+            let have = self.rlen;
             // the first read takes up to 16 KiB (most replies), then exactly what is missing:
             // one reply per request, so bytes beyond it are a protocol error
             let want = if have >= 4 {
-                let n = wire::message_length(&self.rbuf);
+                let n = wire::message_length(&self.rbuf[..have]);
                 // validated before anything beyond the header is read or reserved
                 if n < wire::HEADER_LEN as i32 || n as usize > self.max_msg {
                     return Err(NetError::Protocol("invalid reply length"));
@@ -568,15 +574,13 @@ impl Conn {
             } else {
                 16 * 1024 - have
             };
-            let want = want.min(READ_CHUNK);
-            self.rbuf.reserve(want);
-            let spare = self.rbuf.spare_capacity_mut();
-            // SAFETY: read() only writes into the buffer; we expose the uninitialized tail as
-            // bytes and set the length to what was written.
-            let dst = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, want) };
-            match self.stream.read(dst) {
+            let end = have + want.min(READ_CHUNK);
+            if self.rbuf.len() < end {
+                self.rbuf.resize(end, 0);
+            }
+            match self.stream.read(&mut self.rbuf[have..end]) {
                 Ok(0) => return Err(NetError::Closed),
-                Ok(n) => unsafe { self.rbuf.set_len(have + n) },
+                Ok(n) => self.rlen = have + n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(io_err(e)),
             }

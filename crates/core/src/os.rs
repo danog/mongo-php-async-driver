@@ -97,9 +97,10 @@ mod imp {
         let s = unsafe { TcpStream::from_raw_fd(fd) };
         socket_defaults(fd);
         s.set_nonblocking(true)?;
-        let (st, len) = sockaddr(sa);
-        // SAFETY: a sockaddr of the given length
-        let r = if unsafe { libc::connect(fd, (&st as *const libc::sockaddr_storage).cast(), len) } == 0 {
+        let addr = sockaddr(sa);
+        let (p, len) = addr.as_ptr();
+        // SAFETY: a socket address of the given length, alive for the call
+        let r = if unsafe { libc::connect(fd, p, len) } == 0 {
             Ok(true)
         } else {
             let e = io::Error::last_os_error();
@@ -121,10 +122,9 @@ mod imp {
         if unsafe { libc::poll(&mut p, 1, 0) } <= 0 || p.revents == 0 {
             return false;
         }
-        let mut b = 0u8;
-        // SAFETY: a one-byte buffer we own; MSG_PEEK leaves the data in the socket
-        let r = unsafe { libc::recv(fd, (&mut b as *mut u8).cast(), 1, libc::MSG_PEEK | libc::MSG_DONTWAIT) };
-        r < 1
+        // recv(MSG_PEEK), which leaves the data in the socket; it does not block, as poll(2)
+        // reported the socket readable (or failed) and only this thread reads from it
+        !matches!(s.peek(&mut [0u8]), Ok(1))
     }
 
     /// What std sets on its own sockets: close-on-exec, and (Apple) no SIGPIPE on writes to a
@@ -141,37 +141,52 @@ mod imp {
         }
     }
 
-    /// The C socket address of `sa`.
-    fn sockaddr(sa: &SocketAddr) -> (libc::sockaddr_storage, libc::socklen_t) {
-        // SAFETY: an all-zero sockaddr_storage is valid; the casts write within its size
-        let mut st: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-        let len = match sa {
+    /// A C socket address.
+    enum CAddr {
+        V4(libc::sockaddr_in),
+        V6(libc::sockaddr_in6),
+    }
+
+    impl CAddr {
+        fn as_ptr(&self) -> (*const libc::sockaddr, libc::socklen_t) {
+            match self {
+                CAddr::V4(a) => ((a as *const libc::sockaddr_in).cast(), std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t),
+                CAddr::V6(a) => ((a as *const libc::sockaddr_in6).cast(), std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t),
+            }
+        }
+    }
+
+    /// The C socket address of `sa`, built as std's `socket_addr_to_c`: the portable fields
+    /// set, the platform's others (sin_len, sin_zero, ...) zero.
+    fn sockaddr(sa: &SocketAddr) -> CAddr {
+        match sa {
             SocketAddr::V4(a) => {
-                let p = unsafe { &mut *(&mut st as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in>() };
-                p.sin_family = libc::AF_INET as libc::sa_family_t;
-                p.sin_port = a.port().to_be();
-                p.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) };
-                #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
-                {
-                    p.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
-                }
-                std::mem::size_of::<libc::sockaddr_in>()
+                let p = libc::sockaddr_in {
+                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+                    sin_len: std::mem::size_of::<libc::sockaddr_in>() as u8,
+                    sin_family: libc::AF_INET as libc::sa_family_t,
+                    sin_port: a.port().to_be(),
+                    sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) },
+                    // SAFETY: all-zero bytes are a valid sockaddr_in (integers and byte arrays)
+                    ..unsafe { std::mem::zeroed() }
+                };
+                CAddr::V4(p)
             }
             SocketAddr::V6(a) => {
-                let p = unsafe { &mut *(&mut st as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in6>() };
-                p.sin6_family = libc::AF_INET6 as libc::sa_family_t;
-                p.sin6_port = a.port().to_be();
-                p.sin6_addr = libc::in6_addr { s6_addr: a.ip().octets() };
-                p.sin6_flowinfo = a.flowinfo();
-                p.sin6_scope_id = a.scope_id();
-                #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
-                {
-                    p.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
-                }
-                std::mem::size_of::<libc::sockaddr_in6>()
+                let p = libc::sockaddr_in6 {
+                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+                    sin6_len: std::mem::size_of::<libc::sockaddr_in6>() as u8,
+                    sin6_family: libc::AF_INET6 as libc::sa_family_t,
+                    sin6_port: a.port().to_be(),
+                    sin6_addr: libc::in6_addr { s6_addr: a.ip().octets() },
+                    sin6_flowinfo: a.flowinfo(),
+                    sin6_scope_id: a.scope_id(),
+                    // SAFETY: all-zero bytes are a valid sockaddr_in6 (integers and byte arrays)
+                    ..unsafe { std::mem::zeroed() }
+                };
+                CAddr::V6(p)
             }
-        };
-        (st, len as libc::socklen_t)
+        }
     }
 }
 
@@ -247,9 +262,10 @@ mod imp {
         }
         let stream = unsafe { TcpStream::from_raw_socket(s as u64) };
         stream.set_nonblocking(true)?;
-        let (st, len) = sockaddr(sa);
-        // SAFETY: a socket address of the given length
-        let r = if unsafe { ws::connect(s, (&st as *const ws::SOCKADDR_STORAGE).cast(), len) } == 0 {
+        let addr = sockaddr(sa);
+        let (p, len) = addr.as_ptr();
+        // SAFETY: a socket address of the given length, alive for the call
+        let r = if unsafe { ws::connect(s, p, len) } == 0 {
             Ok(true)
         } else {
             let e = last_error();
@@ -275,10 +291,8 @@ mod imp {
             // POLLERR / POLLHUP only
             return true;
         }
-        let mut b = 0u8;
-        // SAFETY: a one-byte buffer we own; MSG_PEEK leaves the data in the socket
-        let r = unsafe { ws::recv(fd, &mut b, 1, ws::MSG_PEEK) };
-        r < 1
+        // recv(MSG_PEEK), which leaves the data in the socket
+        !matches!(s.peek(&mut [0u8]), Ok(1))
     }
 
     /// mongoc_winerr_to_string: "(0x<code, 8 hex digits>) <the system's message>".
@@ -310,28 +324,37 @@ mod imp {
         format!("(0x{code:08X}) {text}")
     }
 
+    /// A socket address.
+    enum CAddr {
+        V4(ws::SOCKADDR_IN),
+        V6(ws::SOCKADDR_IN6),
+    }
+
+    impl CAddr {
+        fn as_ptr(&self) -> (*const ws::SOCKADDR, i32) {
+            match self {
+                CAddr::V4(a) => ((a as *const ws::SOCKADDR_IN).cast(), std::mem::size_of::<ws::SOCKADDR_IN>() as i32),
+                CAddr::V6(a) => ((a as *const ws::SOCKADDR_IN6).cast(), std::mem::size_of::<ws::SOCKADDR_IN6>() as i32),
+            }
+        }
+    }
+
     /// The socket address of `sa`.
-    fn sockaddr(sa: &SocketAddr) -> (ws::SOCKADDR_STORAGE, i32) {
-        // SAFETY: an all-zero SOCKADDR_STORAGE is valid; the casts write within its size
-        let mut st: ws::SOCKADDR_STORAGE = unsafe { std::mem::zeroed() };
-        let len = match sa {
-            SocketAddr::V4(a) => {
-                let p = unsafe { &mut *(&mut st as *mut ws::SOCKADDR_STORAGE).cast::<ws::SOCKADDR_IN>() };
-                p.sin_family = ws::AF_INET;
-                p.sin_port = a.port().to_be();
-                p.sin_addr.S_un.S_addr = u32::from_ne_bytes(a.ip().octets());
-                std::mem::size_of::<ws::SOCKADDR_IN>()
-            }
-            SocketAddr::V6(a) => {
-                let p = unsafe { &mut *(&mut st as *mut ws::SOCKADDR_STORAGE).cast::<ws::SOCKADDR_IN6>() };
-                p.sin6_family = ws::AF_INET6;
-                p.sin6_port = a.port().to_be();
-                p.sin6_addr.u.Byte = a.ip().octets();
-                p.sin6_flowinfo = a.flowinfo();
-                p.Anonymous.sin6_scope_id = a.scope_id();
-                std::mem::size_of::<ws::SOCKADDR_IN6>()
-            }
-        };
-        (st, len as i32)
+    fn sockaddr(sa: &SocketAddr) -> CAddr {
+        match sa {
+            SocketAddr::V4(a) => CAddr::V4(ws::SOCKADDR_IN {
+                sin_family: ws::AF_INET,
+                sin_port: a.port().to_be(),
+                sin_addr: ws::IN_ADDR { S_un: ws::IN_ADDR_0 { S_addr: u32::from_ne_bytes(a.ip().octets()) } },
+                sin_zero: [0; 8],
+            }),
+            SocketAddr::V6(a) => CAddr::V6(ws::SOCKADDR_IN6 {
+                sin6_family: ws::AF_INET6,
+                sin6_port: a.port().to_be(),
+                sin6_flowinfo: a.flowinfo(),
+                sin6_addr: ws::IN6_ADDR { u: ws::IN6_ADDR_0 { Byte: a.ip().octets() } },
+                Anonymous: ws::SOCKADDR_IN6_0 { sin6_scope_id: a.scope_id() },
+            }),
+        }
     }
 }
