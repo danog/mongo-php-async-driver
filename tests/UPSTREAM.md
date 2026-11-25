@@ -23,4 +23,7 @@ git -C tests/spec fetch origin <commit> && git -C tests/spec checkout <commit>
 
 ## Local changes
 
-None yet.
+`phpt/`: from mongo-php-driver `c6309a00e` (PHPC-2736, "compressors" may be a list of strings,
+after 2.5.8): `connect/compression-001.phpt`, `manager/manager-ctor-compressors-001.phpt` and
+`manager/manager-ctor-compressors-error-001.phpt` added, `manager/manager-ctor_error-003.phpt`
+updated.

@@ -223,13 +223,74 @@ unsafe fn dup(ht: *mut sys::HashTable) -> *mut sys::HashTable {
     out
 }
 
+/// phongo_manager_prep_compressors: the "compressors" URI option as the comma-separated string
+/// it is encoded as (a list of strings is joined); Err after the exception was thrown.
+unsafe fn prep_compressors(v: *mut sys::zval) -> Result<Option<sys::zval>, ()> {
+    const NUL: &str = "\"compressors\" URI option cannot contain null bytes";
+    if zval::is(v, sys::IS_STRING) {
+        if zval::str_bytes(v).contains(&0) {
+            throw(E::InvalidArgument, NUL);
+            return Err(());
+        }
+        return Ok(None);
+    }
+    if !zval::is(v, sys::IS_ARRAY) {
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected string or array of strings for \"compressors\" URI option, {} given",
+                zval::type_name(v)
+            ),
+        );
+        return Err(());
+    }
+    let ht = (*v).value.arr;
+    if !hash::is_list(ht) {
+        throw(
+            E::InvalidArgument,
+            "Expected \"compressors\" URI option to be a list",
+        );
+        return Err(());
+    }
+    let mut joined = Vec::new();
+    let mut err = None;
+    hash::each(ht, true, |k, c| {
+        let hash::Key::Index(i) = k else { return true };
+        let c = zval::deref(c);
+        err = if !zval::is(c, sys::IS_STRING) {
+            Some(format!(
+                "Expected string for element {i} of \"compressors\" URI option, {} given",
+                zval::type_name(c)
+            ))
+        } else if zval::str_bytes(c).contains(&0) {
+            Some(NUL.to_owned())
+        } else if zval::str_bytes(c).contains(&b',') {
+            Some("Compressor names cannot contain commas".to_owned())
+        } else {
+            if !joined.is_empty() {
+                joined.push(b',');
+            }
+            joined.extend_from_slice(zval::str_bytes(c));
+            None
+        };
+        err.is_none()
+    });
+    if let Some(m) = err {
+        throw(E::InvalidArgument, m);
+        return Err(());
+    }
+    Ok(Some(zval::string(&joined)))
+}
+
 /// phongo_manager_prep_uri_options on a copy (the caller's array is not changed): the
 /// elements of readPreferenceTags become objects (an empty array encodes as an empty
-/// document), and a non-string true CANONICALIZE_HOST_NAME property becomes "true".
-unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
+/// document), a non-string true CANONICALIZE_HOST_NAME property becomes "true", and a list of
+/// compressors their comma-separated string. Err after an exception was thrown.
+unsafe fn prep_uri_options(options: *mut sys::zval) -> Result<sys::zval, ()> {
     let out = dup((*options).value.arr);
     let mut buf = String::new();
     let mut updates: Vec<(Vec<u8>, sys::zval)> = Vec::new();
+    let mut failed = false;
     hash::each(out, true, |k, v| {
         let hash::Key::Str(_) = k else { return true };
         let key = hash::key_bytes(k, &mut buf).to_vec();
@@ -273,13 +334,23 @@ unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
                 hash::str_update(props, &name, zval::string(b"true"));
             }
             updates.push((key, zval::arr(props)));
+        } else if key.eq_ignore_ascii_case(b"compressors") {
+            match prep_compressors(v) {
+                Ok(Some(joined)) => updates.push((key, joined)),
+                Ok(None) => {}
+                Err(()) => {
+                    failed = true;
+                    return false;
+                }
+            }
         }
         true
     });
     for (k, v) in updates {
         hash::str_update(out, &k, v);
     }
-    zval::arr(out)
+    let out = zval::arr(out);
+    if failed { Err(()) } else { Ok(out) }
 }
 
 /// phongo_manager_make_client_hash: serialize(['pid' => getpid(), 'uri' => sha256(uri),
@@ -392,7 +463,10 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     let mut prepared = if options.is_null() {
         None
     } else {
-        Some(prep_uri_options(options))
+        match prep_uri_options(options) {
+            Ok(o) => Some(o),
+            Err(()) => return,
+        }
     };
     let options: *mut sys::zval = prepared
         .as_mut()
