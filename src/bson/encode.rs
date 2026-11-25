@@ -164,7 +164,11 @@ impl Enc {
                 return;
             }
             if (*oce).ce_flags & sys::ZEND_ACC_ENUM != 0 {
-                if (*oce).enum_backing_type == sys::IS_UNDEF {
+                #[allow(
+                    clippy::unnecessary_cast,
+                    reason = "the field's type differs between PHP versions"
+                )]
+                if (*oce).enum_backing_type as u32 == sys::IS_UNDEF {
                     throw(
                         E::UnexpectedValue,
                         format!(

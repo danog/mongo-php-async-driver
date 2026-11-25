@@ -6,7 +6,7 @@ use std::mem::offset_of;
 /// The bytes of a zend_string.
 #[inline]
 pub unsafe fn bytes<'a>(s: *const sys::zend_string) -> &'a [u8] {
-    std::slice::from_raw_parts((*s).val.as_ptr() as *const u8, (*s).len)
+    std::slice::from_raw_parts((*s).val.as_ptr().cast::<u8>(), (*s).len)
 }
 
 /// The zend_string as &str (lossy: invalid UTF-8 yields "?").
@@ -25,7 +25,7 @@ pub unsafe fn new(b: &[u8]) -> *mut sys::zend_string {
     (*s).gc.u.type_info = sys::GC_STRING;
     (*s).h = 0;
     (*s).len = b.len();
-    let p = (*s).val.as_mut_ptr() as *mut u8;
+    let p = (*s).val.as_mut_ptr().cast::<u8>();
     std::ptr::copy_nonoverlapping(b.as_ptr(), p, b.len());
     *p.add(b.len()) = 0;
     s

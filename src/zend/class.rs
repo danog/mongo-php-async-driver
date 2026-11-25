@@ -40,13 +40,14 @@ pub unsafe fn register_class(
     parent: *mut sys::zend_class_entry,
     flags: u32,
 ) -> *mut sys::zend_class_entry {
-    let ce = class_entry(name, functions);
+    // a raw pointer: the parameter is `const zend_class_entry *` from PHP 8.6 on, non-const before
+    let mut ce = class_entry(name, functions);
     #[cfg(php84)]
-    return sys::zend_register_internal_class_with_flags(&ce, parent, flags);
+    return sys::zend_register_internal_class_with_flags(&raw mut ce, parent, flags);
     // before 8.4 (zend_register_internal_class_with_flags is new there): register, then flag
     #[cfg(not(php84))]
     {
-        let c = sys::zend_register_internal_class_ex(&mut ce, parent);
+        let c = sys::zend_register_internal_class_ex(&raw mut ce, parent);
         (*c).ce_flags |= flags;
         c
     }
@@ -86,8 +87,9 @@ pub unsafe fn register_interface(
     name: &CStr,
     functions: *const sys::zend_function_entry,
 ) -> *mut sys::zend_class_entry {
-    let ce = class_entry(name, functions);
-    sys::zend_register_internal_interface(&ce)
+    // a raw pointer: the parameter is `const zend_class_entry *` from PHP 8.6 on, non-const before
+    let mut ce = class_entry(name, functions);
+    sys::zend_register_internal_interface(&raw mut ce)
 }
 
 /// A pure (not backed) enum.
