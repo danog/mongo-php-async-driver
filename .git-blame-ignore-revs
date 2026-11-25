@@ -1,0 +1,4 @@
+# Formatting-only commits, skipped by `git blame` (GitHub reads this file; locally:
+# git config blame.ignoreRevsFile .git-blame-ignore-revs)
+# cargo fmt (rustfmt defaults)
+a48a3679b3e3fda8cbed1a18f28392364760d23a

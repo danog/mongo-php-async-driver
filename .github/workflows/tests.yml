@@ -309,6 +309,49 @@ jobs:
       # libmongoc 2.5.9's URI diagnostics tests (no server, no submodule)
       - run: cargo test --locked -p mongo-core --test uri_disclosure
 
+  # code style: rustfmt (its defaults; the generated modules are #[rustfmt::skip]) and clippy with
+  # warnings as errors (the allowed lints are in Cargo.toml's [workspace.lints])
+  lint:
+    name: "rustfmt and clippy (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the whole workspace: the extension's crate needs PHP and libclang, as its build
+          - os: ubuntu-24.04
+            packages: --workspace
+          # the Apple-only and Windows-only code of the crates without the PHP bindings
+          - os: macos-15
+            packages: -p mongo-core -p mongo-crypt
+          - os: windows-2022
+            packages: -p mongo-core -p mongo-crypt
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      - uses: shivammathur/setup-php@v2
+        if: runner.os == 'Linux'
+        with:
+          php-version: "8.4"
+          extensions: :mongodb
+          coverage: none
+      - name: libclang (for the Zend Engine bindings)
+        if: runner.os == 'Linux'
+        run: ls /usr/lib/llvm-*/lib/libclang.so* >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq libclang-dev; }
+      - name: clippy
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then export PHP=$(command -v php) PHP_CONFIG=$(command -v php-config); fi
+          cargo clippy --locked ${{ matrix.packages }} --all-targets -- -D warnings
+
   # the official driver's FrankenPHP test (PHPC-2797): FrankenPHP reboots its PHP threads in-process
   # (GSHUTDOWN and MINIT again in one process) and the extension must keep working; run against
   # this extension built into the FrankenPHP image (thread-safe PHP 8.5)
