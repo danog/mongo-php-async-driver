@@ -81,6 +81,56 @@ macro_rules! zh {
 pub struct Static<T>(pub T);
 unsafe impl<T> Sync for Static<T> {}
 
+/// Engine data PHP is handed a pointer to and that is written in place: the handler tables
+/// (filled at MINIT), the module entry, the ZTS globals id (written by the engine).
+#[repr(transparent)]
+pub struct EngineCell<T>(std::cell::UnsafeCell<T>);
+
+// SAFETY: written only during module startup (by the extension or by the engine), before any
+// request runs on any thread; only read afterwards
+unsafe impl<T> Sync for EngineCell<T> {}
+
+impl<T> EngineCell<T> {
+    pub const fn new(v: T) -> Self {
+        EngineCell(std::cell::UnsafeCell::new(v))
+    }
+
+    /// The address PHP is given (and MINIT writes through).
+    #[inline]
+    pub const fn get(&self) -> *mut T {
+        self.0.get()
+    }
+}
+
+impl EngineCell<sys::zend_object_handlers> {
+    /// An empty handler table, filled at MINIT (`obj::handlers`).
+    pub const fn handlers() -> Self {
+        // SAFETY: integers and Option<fn> pointers: all zero is valid (the offset 0, no handlers)
+        EngineCell::new(unsafe { std::mem::zeroed() })
+    }
+}
+
+/// A class entry, registered at MINIT and read from then on (a relaxed load: a plain load,
+/// as from a `static mut`; the request threads of a ZTS build start after MINIT).
+pub struct ClassEntry(std::sync::atomic::AtomicPtr<sys::zend_class_entry>);
+
+impl ClassEntry {
+    #[allow(clippy::new_without_default, reason = "used in statics: const")]
+    pub const fn new() -> Self {
+        ClassEntry(std::sync::atomic::AtomicPtr::new(std::ptr::null_mut()))
+    }
+
+    #[inline]
+    pub fn get(&self) -> *mut sys::zend_class_entry {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set(&self, c: *mut sys::zend_class_entry) {
+        self.0.store(c, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// Stub for an ext-mongodb method or function not ported yet: throws Error.
 pub unsafe fn not_implemented(handler: &CStr) {
     sys::zend_throw_error(std::ptr::null_mut(), c"%s is not implemented yet by this mongodb extension".as_ptr(), handler.as_ptr());

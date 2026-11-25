@@ -6,11 +6,11 @@
 use super::ClientRef;
 use crate::bson::{encode, throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval};
+use crate::zend::{hash, obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bulkwrite::{BulkWrite, BulkWriteResult, ExecOpts, ModelOpts};
 use mongo_core::topology::OpType;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 pub struct BulkWriteCommand {
     pub bw: BulkWrite,
@@ -32,11 +32,11 @@ impl Default for BulkWriteCommand {
     }
 }
 
-static mut H_BWC: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_BWC: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, BulkWriteCommand::default(), addr_of_mut!(H_BWC))
+    obj::alloc(c, BulkWriteCommand::default(), H_BWC.get())
 }
 
 /// phongo_bulkwritecommand_get_debug_info
@@ -69,9 +69,9 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
 }
 
 pub unsafe fn init_MongoDB_Driver_BulkWriteCommand(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<BulkWriteCommand>(addr_of_mut!(H_BWC));
+    let h = obj::handlers::<BulkWriteCommand>(H_BWC.get());
     h.get_debug_info = Some(get_debug_info);
     h.get_gc = Some(get_gc);
 }
@@ -340,11 +340,11 @@ pub struct CommandResult {
     pub delete_results: Option<Vec<u8>>,
 }
 
-static mut H_RES: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut RES_CE: *mut sys::zend_class_entry = null_mut();
+static H_RES: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static RES_CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create_result(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, CommandResult::default(), addr_of_mut!(H_RES))
+    obj::alloc(c, CommandResult::default(), H_RES.get())
 }
 
 fn opt_doc(d: &Option<Vec<u8>>) -> sys::zval {
@@ -368,9 +368,9 @@ unsafe extern "C" fn result_debug_info(o: *mut sys::zend_object, is_temp: *mut i
 }
 
 pub unsafe fn init_MongoDB_Driver_BulkWriteCommandResult(c: *mut sys::zend_class_entry) {
-    RES_CE = c;
+    RES_CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create_result);
-    obj::handlers::<CommandResult>(addr_of_mut!(H_RES)).get_debug_info = Some(result_debug_info);
+    obj::handlers::<CommandResult>(H_RES.get()).get_debug_info = Some(result_debug_info);
 }
 
 /// phongo_bulkwritecommandresult_init (None: unacknowledged)
@@ -388,7 +388,7 @@ unsafe fn new_result(res: Option<&BulkWriteResult>) -> sys::zval {
             r.delete_results = Some(d);
         }
     }
-    zval::obj(obj::alloc(RES_CE, r, addr_of_mut!(H_RES)))
+    zval::obj(obj::alloc(RES_CE.get(), r, H_RES.get()))
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommandResult___construct(_ex: Ex, _rv: *mut sys::zval) {
@@ -522,7 +522,7 @@ fn for_each_doc(doc: &[u8], mut f: impl FnMut(&[u8], &[u8]) -> bool) {
 pub unsafe fn execute(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>) {
     let mut zbwc: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"O|z!".as_ptr(), &mut zbwc, CE, &mut options) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"O|z!".as_ptr(), &mut zbwc, CE.get(), &mut options) != 0 {
         return;
     }
     let Ok(session) = super::parse_session(options, &client) else { return };

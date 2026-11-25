@@ -2,16 +2,16 @@
 
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zval};
-use std::ptr::{addr_of_mut, null_mut};
+use crate::zend::{class, hash, obj, sys, zval, ClassEntry, EngineCell};
+use std::ptr::null_mut;
 
 pub use mongo_core::concern::ReadConcern;
 
-static mut H_RC: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_RC: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ReadConcern::default(), addr_of_mut!(H_RC))
+    obj::alloc(c, ReadConcern::default(), H_RC.get())
 }
 
 unsafe extern "C" fn clone(o: *mut sys::zend_object) -> *mut sys::zend_object {
@@ -22,24 +22,24 @@ unsafe extern "C" fn clone(o: *mut sys::zend_object) -> *mut sys::zend_object {
 }
 
 pub unsafe fn init_MongoDB_Driver_ReadConcern(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<ReadConcern>(addr_of_mut!(H_RC)).clone_obj = Some(clone);
+    obj::handlers::<ReadConcern>(H_RC.get()).clone_obj = Some(clone);
 }
 
 unsafe fn update_properties(o: *mut sys::zend_object) {
     match obj::data::<ReadConcern>(o).level.clone() {
         Some(l) => {
             let mut z = zval::string(&l);
-            sys::zend_update_property(CE, o, c"level".as_ptr(), 5, &mut z);
+            sys::zend_update_property(CE.get(), o, c"level".as_ptr(), 5, &mut z);
         }
-        None => sys::zend_update_property_null(CE, o, c"level".as_ptr(), 5),
+        None => sys::zend_update_property_null(CE.get(), o, c"level".as_ptr(), 5),
     }
 }
 
 /// phongo_readconcern_init
 pub unsafe fn new_readconcern(rc: ReadConcern) -> sys::zval {
-    let o = obj::alloc(CE, rc, addr_of_mut!(H_RC));
+    let o = obj::alloc(CE.get(), rc, H_RC.get());
     update_properties(o);
     zval::obj(o)
 }
@@ -65,7 +65,7 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
         if zval::is(l, sys::IS_STRING) {
             rc.level = Some(crate::zend::zstr::c_part(zval::str_bytes(l)).to_vec());
         } else if !zval::is(l, sys::IS_NULL) {
-            throw(E::InvalidArgument, format!("{} initialization requires \"level\" string field", class::name(CE)));
+            throw(E::InvalidArgument, format!("{} initialization requires \"level\" string field", class::name(CE.get())));
             return false;
         }
     }
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___set_state(ex: Ex, rv: 
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let z = obj::new_zval(CE);
+    let z = obj::new_zval(CE.get());
     init_from_hash(z.value.obj, (*a).value.arr);
     zval::write(rv, z);
 }

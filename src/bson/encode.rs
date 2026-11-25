@@ -24,7 +24,7 @@ fn length_ok(len: usize, fp: &FieldPath, what: &str) -> bool {
 /// phongo_is_array_or_document: true for "array"
 unsafe fn is_array(z: *mut sys::zval) -> bool {
     if !zval::is(z, sys::IS_ARRAY) {
-        return zval::is(z, sys::IS_OBJECT) && obj::instanceof(zval::obj_ce(z), ce().packedarray);
+        return zval::is(z, sys::IS_OBJECT) && obj::instanceof(zval::obj_ce(z), ce().packedarray.get());
     }
     hash::is_list((*z).value.arr)
 }
@@ -61,19 +61,19 @@ impl Enc {
         let c = ce();
         if zval::is(z, sys::IS_OBJECT) {
             let oce = zval::obj_ce(z);
-            if obj::instanceof(oce, c.type_) {
+            if obj::instanceof(oce, c.type_.get()) {
                 let o = (*z).value.obj;
-                if obj::instanceof(oce, c.document) {
+                if obj::instanceof(oce, c.document.get()) {
                     w.document(key, &obj::data::<document::Bson>(o).bson);
                     return;
                 }
-                if obj::instanceof(oce, c.packedarray) {
+                if obj::instanceof(oce, c.packedarray.get()) {
                     w.array(key, &obj::data::<document::PackedArray>(o).0.bson);
                     return;
                 }
-                if obj::instanceof(oce, c.serializable) {
+                if obj::instanceof(oce, c.serializable.get()) {
                     let Some(mut data) = bson_serialize(z) else { return };
-                    let persist = obj::instanceof(oce, c.persistable);
+                    let persist = obj::instanceof(oce, c.persistable.get());
                     if persist || !is_array(&mut data) {
                         if persist && !length_ok(class_name(oce).len(), &self.fp, "class name") {
                             return;
@@ -91,47 +91,47 @@ impl Enc {
                     }
                     return;
                 }
-                if obj::instanceof(oce, c.objectid) {
+                if obj::instanceof(oce, c.objectid.get()) {
                     w.oid(key, &obj::data::<types::ObjectId>(o).oid);
-                } else if obj::instanceof(oce, c.utcdatetime) {
+                } else if obj::instanceof(oce, c.utcdatetime.get()) {
                     w.date_time(key, obj::data::<types::UTCDateTime>(o).ms);
-                } else if obj::instanceof(oce, c.binary) {
+                } else if obj::instanceof(oce, c.binary.get()) {
                     let b = obj::data::<types::Binary>(o);
                     if length_ok(b.data.len(), &self.fp, "binary data") {
                         w.binary(key, b.ty, &b.data);
                     }
-                } else if obj::instanceof(oce, c.decimal128) {
+                } else if obj::instanceof(oce, c.decimal128.get()) {
                     w.decimal128(key, &obj::data::<types::Decimal128>(o).dec);
-                } else if obj::instanceof(oce, c.int64) {
+                } else if obj::instanceof(oce, c.int64.get()) {
                     w.int64(key, obj::data::<types::Int64>(o).v);
-                } else if obj::instanceof(oce, c.regex) {
+                } else if obj::instanceof(oce, c.regex.get()) {
                     let r = obj::data::<types::Regex>(o);
                     w.regex(key, &r.pattern, &r.flags);
-                } else if obj::instanceof(oce, c.javascript) {
+                } else if obj::instanceof(oce, c.javascript.get()) {
                     let j = obj::data::<types::Javascript>(o);
                     match &j.scope {
                         Some(s) => w.code_with_scope(key, &j.code, s),
                         None => w.code(key, &j.code),
                     }
-                } else if obj::instanceof(oce, c.timestamp) {
+                } else if obj::instanceof(oce, c.timestamp.get()) {
                     let t = obj::data::<types::Timestamp>(o);
                     w.timestamp(key, t.timestamp, t.increment);
-                } else if obj::instanceof(oce, c.maxkey) {
+                } else if obj::instanceof(oce, c.maxkey.get()) {
                     w.maxkey(key);
-                } else if obj::instanceof(oce, c.minkey) {
+                } else if obj::instanceof(oce, c.minkey.get()) {
                     w.minkey(key);
-                } else if obj::instanceof(oce, c.dbpointer) {
+                } else if obj::instanceof(oce, c.dbpointer.get()) {
                     let d = obj::data::<types::DBPointer>(o);
                     w.dbpointer(key, &d.ref_, &d.id);
-                } else if obj::instanceof(oce, c.symbol) {
+                } else if obj::instanceof(oce, c.symbol.get()) {
                     let s = obj::data::<types::Symbol>(o);
                     if length_ok(s.symbol.len(), &self.fp, "symbol") {
                         w.symbol(key, &s.symbol);
                     }
-                } else if obj::instanceof(oce, c.undefined) {
+                } else if obj::instanceof(oce, c.undefined.get()) {
                     w.undefined(key);
                 } else {
-                    throw(E::UnexpectedValue, format!("Unexpected {} instance: {}", crate::zend::class::name(c.type_), crate::zend::class::name(oce)));
+                    throw(E::UnexpectedValue, format!("Unexpected {} instance: {}", crate::zend::class::name(c.type_.get()), crate::zend::class::name(oce)));
                 }
                 return;
             }
@@ -257,14 +257,14 @@ impl Enc {
             sys::IS_OBJECT => {
                 let oce = zval::obj_ce(data);
                 let o = (*data).value.obj;
-                if obj::instanceof(oce, c.document) {
+                if obj::instanceof(oce, c.document.get()) {
                     copy_elements(&obj::data::<document::Bson>(o).bson, w);
                     if flags & ADD_ID != 0 && w.with_doc(|d| Iter::new(d).unwrap().find(b"_id")) {
                         flags &= !ADD_ID;
                     }
                     return self.done(flags, w, id_out);
                 }
-                if obj::instanceof(oce, c.packedarray) {
+                if obj::instanceof(oce, c.packedarray.get()) {
                     if self.fp.size == 0 && flags & ALLOW_ROOT_ARRAY == 0 {
                         throw(E::UnexpectedValue, format!("{} cannot be serialized as a root document", crate::zend::class::name(oce)));
                         return;
@@ -272,17 +272,17 @@ impl Enc {
                     copy_elements(&obj::data::<document::PackedArray>(o).0.bson, w);
                     return self.done(flags, w, id_out);
                 }
-                if obj::instanceof(oce, c.serializable) {
+                if obj::instanceof(oce, c.serializable.get()) {
                     let Some(d) = bson_serialize(data) else { return };
                     obj_data = d;
-                    if obj::instanceof(oce, c.persistable) {
+                    if obj::instanceof(oce, c.persistable.get()) {
                         if !length_ok(class_name(oce).len(), &self.fp, "class name") {
                             return;
                         }
                         w.binary(b"__pclass", 0x80, class_name(oce));
                         skip_odm = true;
                     }
-                    if zval::is(&obj_data, sys::IS_OBJECT) && (obj::instanceof(zval::obj_ce(&obj_data), c.document) || obj::instanceof(zval::obj_ce(&obj_data), c.packedarray)) {
+                    if zval::is(&obj_data, sys::IS_OBJECT) && (obj::instanceof(zval::obj_ce(&obj_data), c.document.get()) || obj::instanceof(zval::obj_ce(&obj_data), c.packedarray.get())) {
                         self.internal(&mut obj_data, flags, w, id_out, std::ptr::null_mut());
                         return;
                     }
@@ -293,8 +293,8 @@ impl Enc {
                 } else if (*oce).ce_flags & sys::ZEND_ACC_ENUM != 0 {
                     throw(E::UnexpectedValue, format!("Enum {} cannot be serialized as a root element", crate::zend::class::name(oce)));
                     return;
-                } else if obj::instanceof(oce, c.type_) {
-                    throw(E::UnexpectedValue, format!("{} instance {} cannot be serialized as a root element", crate::zend::class::name(c.type_), crate::zend::class::name(oce)));
+                } else if obj::instanceof(oce, c.type_.get()) {
+                    throw(E::UnexpectedValue, format!("{} instance {} cannot be serialized as a root element", crate::zend::class::name(c.type_.get()), crate::zend::class::name(oce)));
                     return;
                 } else {
                     ht = if held.is_null() { ((*(*o).handlers).get_properties.unwrap())(o) } else { held };

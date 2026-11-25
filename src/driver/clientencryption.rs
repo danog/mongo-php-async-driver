@@ -7,13 +7,13 @@ use super::cursor::Cursor;
 use super::ClientRef;
 use crate::bson::{encode, throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zstr, zval};
+use crate::zend::{hash, obj, sys, zstr, zval, ClassEntry, EngineCell};
 use mongo_core::bson::iter::{Iter, Value, T_ARRAY, T_DOCUMENT};
 use mongo_core::bson::writer::Writer;
 use mongo_core::error::{code, domain, Error};
 use mongo_core::topology::OpType;
 use mongo_crypt::engine::{Crypt, ExplicitOpts, Io};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 use std::rc::Rc;
 
 /// The key vault collection (mongoc_client_encryption_t.keyvault_coll)
@@ -46,11 +46,11 @@ impl Drop for ClientEncryption {
     }
 }
 
-static mut H_CLIENTENCRYPTION: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_CLIENTENCRYPTION: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ClientEncryption::default(), addr_of_mut!(H_CLIENTENCRYPTION))
+    obj::alloc(c, ClientEncryption::default(), H_CLIENTENCRYPTION.get())
 }
 
 /// phongo_clientencryption_get_debug_info: an empty array
@@ -65,7 +65,7 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
 }
 
 pub unsafe fn init_MongoDB_Driver_ClientEncryption(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     // added after 2.5.6 (PHPC-2795): the String algorithm and its query types
     for (name, value) in [
         (c"ALGORITHM_STRING", c"String"),
@@ -76,7 +76,7 @@ pub unsafe fn init_MongoDB_Driver_ClientEncryption(c: *mut sys::zend_class_entry
         crate::zend::class::const_str(c, name, value, sys::ZEND_ACC_PUBLIC);
     }
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<ClientEncryption>(addr_of_mut!(H_CLIENTENCRYPTION));
+    let h = obj::handlers::<ClientEncryption>(H_CLIENTENCRYPTION.get());
     h.get_debug_info = Some(get_debug_info);
     h.get_gc = Some(get_gc);
 }
@@ -420,7 +420,7 @@ pub unsafe fn init(ce: &mut ClientEncryption, options: *mut sys::zval, default_k
     let (mut kv_ns, mut kms, mut tls): (Option<(String, String)>, Option<Vec<u8>>, Option<Vec<u8>>) = (None, None, None);
     if !options.is_null() && zval::is(options, sys::IS_ARRAY) {
         if let Some(z) = opt(options, b"keyVaultClient") {
-            if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::manager::CE) {
+            if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::manager::CE.get()) {
                 throw(E::InvalidArgument, format!("Expected \"keyVaultClient\" option to be MongoDB\\Driver\\Manager, {} given", zval::type_name(z)));
                 return false;
             }
@@ -518,7 +518,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(ex: E
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let z = obj::new_zval(CE);
+    let z = obj::new_zval(CE.get());
     if init(obj::data::<ClientEncryption>(z.value.obj), a, call::this(ex)) {
         zval::write(rv, z);
     }
@@ -583,7 +583,7 @@ fn fam_value(reply: &[u8]) -> Result<Option<Vec<u8>>, Error> {
 unsafe fn parse_keyid_and_name(ex: Ex) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut z: *mut sys::zval = null_mut();
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
-    if sys::zend_parse_parameters(call::num_args(ex), c"Os".as_ptr(), &mut z, crate::bson::ce().binary, &mut p, &mut l) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"Os".as_ptr(), &mut z, crate::bson::ce().binary.get(), &mut p, &mut l) != 0 {
         return None;
     }
     let id = keyid_arg(z)?;
@@ -688,7 +688,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
         }
     }
     if let Some(z) = opt(options, b"keyMaterial") {
-        if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, crate::bson::ce().binary) {
+        if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, crate::bson::ce().binary.get()) {
             throw(E::InvalidArgument, format!("Expected \"keyMaterial\" option to be MongoDB\\BSON\\Binary, {} given", zval::type_name(z)));
             return;
         }
@@ -745,7 +745,7 @@ fn create_datakey(crypt: &Crypt, kv: &KeyVault, provider: &[u8], master_key: Opt
 /// ClientEncryption::deleteKey(Binary $keyId): the deleteOne result
 pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_deleteKey(ex: Ex, rv: *mut sys::zval) {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, crate::bson::ce().binary) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, crate::bson::ce().binary.get()) != 0 {
         return;
     }
     let Some(id) = keyid_arg(z) else { return };
@@ -764,7 +764,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_deleteKey(ex: Ex, r
 /// ClientEncryption::getKey(Binary $keyId)
 pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKey(ex: Ex, rv: *mut sys::zval) {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, crate::bson::ce().binary) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, crate::bson::ce().binary.get()) != 0 {
         return;
     }
     let Some(id) = keyid_arg(z) else { return };
@@ -1203,7 +1203,7 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
     }
     let mut kv: Option<ClientRef> = None;
     if let Some(v) = opt(z, b"keyVaultClient") {
-        if !zval::is(v, sys::IS_OBJECT) || !obj::instanceof((*(*v).value.obj).ce, super::manager::CE) {
+        if !zval::is(v, sys::IS_OBJECT) || !obj::instanceof((*(*v).value.obj).ce, super::manager::CE.get()) {
             throw(E::InvalidArgument, format!("Expected \"keyVaultClient\" autoEncryption option to be MongoDB\\Driver\\Manager, {} given", zval::type_name(v)));
             return None;
         }

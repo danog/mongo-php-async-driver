@@ -4,10 +4,10 @@
 use crate::bson::types::Props;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval};
+use crate::zend::{hash, obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::sdam::{ServerDescription, RTT_UNSET};
 use mongo_core::topology::{OpType, TopologyDescription};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 /// An empty BSON document (the hello response of a server not heard from yet).
 const EMPTY_DOC: [u8; 5] = [5, 0, 0, 0, 0];
@@ -25,15 +25,15 @@ pub struct TopologyDesc {
     props: Props,
 }
 
-static mut H_SD: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-static mut H_TD: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE_SD: *mut sys::zend_class_entry = null_mut();
-pub static mut CE_TD: *mut sys::zend_class_entry = null_mut();
+static H_SD: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+static H_TD: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE_SD: ClassEntry = ClassEntry::new();
+pub static CE_TD: ClassEntry = ClassEntry::new();
 
 // ---------------------------------------------------------------- ServerDescription
 
 unsafe extern "C" fn create_sd(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ServerDesc::default(), addr_of_mut!(H_SD))
+    obj::alloc(c, ServerDesc::default(), H_SD.get())
 }
 
 /// The hello response, decoded with the debug type map (arrays); None after throwing.
@@ -70,16 +70,16 @@ unsafe extern "C" fn sd_get_debug_info(o: *mut sys::zend_object, is_temp: *mut i
 }
 
 pub unsafe fn init_MongoDB_Driver_ServerDescription(c: *mut sys::zend_class_entry) {
-    CE_SD = c;
+    CE_SD.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create_sd);
-    let h = obj::handlers::<ServerDesc>(addr_of_mut!(H_SD));
+    let h = obj::handlers::<ServerDesc>(H_SD.get());
     h.get_properties = Some(sd_get_properties);
     h.get_debug_info = Some(sd_get_debug_info);
 }
 
 /// phongo_serverdescription_init: a ServerDescription object holding a copy of `sd`.
 pub unsafe fn new_serverdescription(sd: ServerDescription) -> sys::zval {
-    zval::obj(obj::alloc(CE_SD, ServerDesc { sd: Some(sd), props: Props::default() }, addr_of_mut!(H_SD)))
+    zval::obj(obj::alloc(CE_SD.get(), ServerDesc { sd: Some(sd), props: Props::default() }, H_SD.get()))
 }
 
 /// The description of `$this` (phongo dereferences NULL for an object not made by the driver;
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getServerDescription(ex: Ex, 
 // ---------------------------------------------------------------- TopologyDescription
 
 unsafe extern "C" fn create_td(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, TopologyDesc::default(), addr_of_mut!(H_TD))
+    obj::alloc(c, TopologyDesc::default(), H_TD.get())
 }
 
 /// getServers(): the known servers' descriptions (mongoc_topology_description_get_servers).
@@ -188,16 +188,16 @@ unsafe extern "C" fn td_get_debug_info(o: *mut sys::zend_object, is_temp: *mut i
 }
 
 pub unsafe fn init_MongoDB_Driver_TopologyDescription(c: *mut sys::zend_class_entry) {
-    CE_TD = c;
+    CE_TD.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create_td);
-    let h = obj::handlers::<TopologyDesc>(addr_of_mut!(H_TD));
+    let h = obj::handlers::<TopologyDesc>(H_TD.get());
     h.get_properties = Some(td_get_properties);
     h.get_debug_info = Some(td_get_debug_info);
 }
 
 /// phongo_topologydescription_init: a TopologyDescription object holding a copy of `td`.
 pub unsafe fn new_topologydescription(td: TopologyDescription) -> sys::zval {
-    zval::obj(obj::alloc(CE_TD, TopologyDesc { td: Some(td), props: Props::default() }, addr_of_mut!(H_TD)))
+    zval::obj(obj::alloc(CE_TD.get(), TopologyDesc { td: Some(td), props: Props::default() }, H_TD.get()))
 }
 
 unsafe fn this_td<'a>(ex: Ex) -> Option<&'a TopologyDescription> {
@@ -238,7 +238,7 @@ fn selectable(td: &TopologyDescription, op: OpType, rp: Option<&mongo_core::topo
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasReadableServer(ex: Ex, rv: *mut sys::zval) {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"|O".as_ptr(), &mut z, super::readpref::CE) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"|O".as_ptr(), &mut z, super::readpref::CE.get()) != 0 {
         return;
     }
     let Some(td) = this_td(ex) else { return };

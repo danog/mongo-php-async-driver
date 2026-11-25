@@ -4,11 +4,11 @@ use super::readpref::ReadPreference;
 use super::ClientRef;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval};
+use crate::zend::{hash, obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::session::{ClientSession, TxnOpts, TxnState};
 use mongo_core::uri::ReadMode;
 use std::cell::RefCell;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 use std::rc::Rc;
 
 #[derive(Default)]
@@ -55,17 +55,17 @@ fn end(s: &mut Session) {
     unsafe { super::apm::flush(c) };
 }
 
-static mut H_SESSION: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_SESSION: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, Session::default(), addr_of_mut!(H_SESSION))
+    obj::alloc(c, Session::default(), H_SESSION.get())
 }
 
 pub unsafe fn init_MongoDB_Driver_Session(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<Session>(addr_of_mut!(H_SESSION));
+    let h = obj::handlers::<Session>(H_SESSION.get());
     h.get_debug_info = Some(debug_info);
     h.get_gc = Some(get_gc);
     h.free_obj = Some(super::free_obj::<Session>);
@@ -79,7 +79,7 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
 /// phongo_session_init
 pub unsafe fn new_session(client: ClientRef, cs: ClientSession, default_rp: ReadPreference, manager: *mut sys::zend_object) -> sys::zval {
     let s = Session { cs: Some(Rc::new(RefCell::new(cs))), client: Some(client), txn_rp: default_rp.clone(), default_rp, manager: super::ManagerRef::new(manager), created_in: Default::default() };
-    zval::obj(obj::alloc(CE, s, addr_of_mut!(H_SESSION)))
+    zval::obj(obj::alloc(CE.get(), s, H_SESSION.get()))
 }
 
 /// The Session state of the object in `z`.
@@ -141,15 +141,15 @@ pub unsafe fn parse_txn_options(options: *mut sys::zval) -> Result<(Option<TxnOp
         }
         Ok(Some(z))
     };
-    if let Some(z) = typed(b"readConcern", super::readconcern::CE, "MongoDB\\Driver\\ReadConcern")? {
+    if let Some(z) = typed(b"readConcern", super::readconcern::CE.get(), "MongoDB\\Driver\\ReadConcern")? {
         opts.get_or_insert_with(Default::default).read_concern = Some(obj::data::<super::readconcern::ReadConcern>((*z).value.obj).clone());
     }
-    if let Some(z) = typed(b"readPreference", super::readpref::CE, "MongoDB\\Driver\\ReadPreference")? {
+    if let Some(z) = typed(b"readPreference", super::readpref::CE.get(), "MongoDB\\Driver\\ReadPreference")? {
         let r = obj::data::<ReadPreference>((*z).value.obj).clone();
         opts.get_or_insert_with(Default::default).read_primary = Some(r.mode == ReadMode::Primary);
         rp = Some(r);
     }
-    if let Some(z) = typed(b"writeConcern", super::writeconcern::CE, "MongoDB\\Driver\\WriteConcern")? {
+    if let Some(z) = typed(b"writeConcern", super::writeconcern::CE.get(), "MongoDB\\Driver\\WriteConcern")? {
         opts.get_or_insert_with(Default::default).write_concern = Some(obj::data::<super::writeconcern::WriteConcern>((*z).value.obj).clone());
     }
     Ok((opts, rp))

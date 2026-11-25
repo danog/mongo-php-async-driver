@@ -8,12 +8,12 @@ use mongo_core::uri::ReadMode;
 use super::ClientRef;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zstr, zval};
+use crate::zend::{hash, obj, sys, zstr, zval, ClassEntry, EngineCell};
 use mongo_core::client::{Client, Settings};
 use mongo_core::error::{code, domain, Error};
 use mongo_core::topology::OpType;
 use mongo_core::uri::Uri;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 const URI_DEFAULT: &str = "mongodb://127.0.0.1/";
 
@@ -89,11 +89,11 @@ pub unsafe fn subscribers_of<'a>(o: *mut sys::zend_object) -> &'a mut super::apm
     &mut obj::data::<Manager>(o).subscribers
 }
 
-static mut H_MANAGER: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_MANAGER: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, Manager::default(), addr_of_mut!(H_MANAGER))
+    obj::alloc(c, Manager::default(), H_MANAGER.get())
 }
 
 /// phongo_manager_get_debug_info: the URI (redacted), a Server for every known server, and the
@@ -116,9 +116,9 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
 }
 
 pub unsafe fn init_MongoDB_Driver_Manager(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<Manager>(addr_of_mut!(H_MANAGER));
+    let h = obj::handlers::<Manager>(H_MANAGER.get());
     h.free_obj = Some(free);
     h.get_debug_info = Some(get_debug_info);
     h.get_gc = Some(get_gc);
@@ -250,7 +250,7 @@ unsafe fn client_hash(uri_string: &str, options: *mut sys::zval, driver_options:
             .filter(|a| zval::is(*a, sys::IS_ARRAY))
             .and_then(|a| hash::find((*a).value.arr, b"keyVaultClient"))
             .map(|k| zval::deref(k))
-            .filter(|k| zval::is(*k, sys::IS_OBJECT) && obj::instanceof((*(**k).value.obj).ce, CE));
+            .filter(|k| zval::is(*k, sys::IS_OBJECT) && obj::instanceof((*(**k).value.obj).ce, CE.get()));
         if let Some(k) = kvc {
             let h = obj::data::<Manager>((*k).value.obj).client_hash.clone();
             let src = hash::find((*driver_options).value.arr, b"autoEncryption").map(|a| zval::deref(a)).expect("checked above");
@@ -537,7 +537,7 @@ unsafe fn parse_read_concern(options: *mut sys::zval) -> Result<Option<super::re
     }
     let Some(z) = hash::sym_find((*options).value.arr, b"readConcern") else { return Ok(None) };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readconcern::CE) {
+    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readconcern::CE.get()) {
         throw(E::InvalidArgument, format!("Expected \"readConcern\" option to be MongoDB\\Driver\\ReadConcern, {} given", zval::type_name(z)));
         return Err(());
     }
@@ -563,7 +563,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     let mut command: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
     let spec = if ty == CmdType::Raw { c"sO|z!" } else { c"sO|a!" };
-    if sys::zend_parse_parameters(call::num_args(ex), spec.as_ptr(), &mut p, &mut l, &mut command, super::command::CE, &mut options) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), spec.as_ptr(), &mut p, &mut l, &mut command, super::command::CE.get(), &mut options) != 0 {
         return;
     }
     let dbb = std::slice::from_raw_parts(p, l);
@@ -800,7 +800,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
 unsafe fn parse_read_preference(options: *mut sys::HashTable) -> Result<Option<ReadPreference>, ()> {
     let Some(z) = hash::find(options, b"readPreference") else { return Ok(None) };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readpref::CE) {
+    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readpref::CE.get()) {
         throw(E::InvalidArgument, format!("Expected \"readPreference\" option to be MongoDB\\Driver\\ReadPreference, {} given", zval::type_name(z)));
         return Err(());
     }
@@ -855,7 +855,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
     // an argument, NULL read prefs (primary), not the client's read preference
     let prefs = if rp.is_null() {
         None
-    } else if zval::is(rp, sys::IS_OBJECT) && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE) {
+    } else if zval::is(rp, sys::IS_OBJECT) && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE.get()) {
         Some(obj::data::<ReadPreference>((*rp).value.obj).prefs())
     } else {
         sys::zend_argument_type_error(1, c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(), zval::value_name(rp));
@@ -970,7 +970,7 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut zbulk: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zbulk, super::bulkwrite::CE, &mut options) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zbulk, super::bulkwrite::CE.get(), &mut options) != 0 {
         return;
     }
     let ns = std::slice::from_raw_parts(p, l).to_vec();
@@ -1063,7 +1063,7 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut zquery: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zquery, super::query::CE, &mut options) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zquery, super::query::CE.get(), &mut options) != 0 {
         return;
     }
     let ns = std::slice::from_raw_parts(p, l).to_vec();

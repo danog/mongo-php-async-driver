@@ -1,10 +1,10 @@
 //! The module entry: registered as `mongodb`, with ext-mongodb's version, dependencies, INI
 //! settings and phpinfo() rows (phongo.c, phongo_ini.c).
 
-use crate::zend::{self, sys};
+use crate::zend::{self, sys, EngineCell};
 use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOCRYPT_VERSION, LIBMONGOC_VERSION};
 use std::ffi::{c_char, c_int, c_void, CStr};
-use std::ptr::{addr_of, addr_of_mut, null, null_mut};
+use std::ptr::{addr_of, null, null_mut};
 
 const VERSION: &CStr = c"2.5.8";
 const _: () = assert!(VERSION.to_bytes().len() == EXT_VERSION.len());
@@ -128,7 +128,7 @@ unsafe extern "C" fn minfo(module: *mut sys::zend_module_entry) {
     sys::display_ini_entries(module);
 }
 
-static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
+static MODULE: EngineCell<sys::zend_module_entry> = EngineCell::new(sys::zend_module_entry {
     size: std::mem::size_of::<sys::zend_module_entry>() as u16,
     zend_api: const_parse(env!("PHP_MODULE_API")),
     zend_debug: 0,
@@ -154,7 +154,7 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     #[cfg(php_zts)]
     globals_size: std::mem::size_of::<usize>(),
     #[cfg(php_zts)]
-    globals_id_ptr: addr_of_mut!(GLOBALS_ID),
+    globals_id_ptr: GLOBALS_ID.get(),
     #[cfg(php_zts)]
     globals_ctor: Some(gctor),
     #[cfg(php_zts)]
@@ -165,13 +165,13 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     handle: null_mut(),
     module_number: 0,
     build_id: concat!(env!("PHP_BUILD_ID"), "\0").as_ptr() as *const c_char,
-};
+});
 
 /// ZTS: the TSRM id of the module's per-thread globals, which hold nothing but the thread they
 /// were made for: their destructor (GSHUTDOWN) destroys that thread's persistent clients
 /// (phongo_pclient_destroy_all at GSHUTDOWN), as each thread has its own (thread_local).
 #[cfg(php_zts)]
-static mut GLOBALS_ID: c_int = 0;
+static GLOBALS_ID: EngineCell<c_int> = EngineCell::new(0);
 
 /// A per-thread address: the identity of the calling thread while it lives.
 #[cfg(php_zts)]
@@ -213,6 +213,6 @@ const fn const_parse(s: &str) -> u32 {
 /// The entry point PHP looks up when loading the extension.
 #[unsafe(no_mangle)]
 pub extern "C" fn get_module() -> *mut sys::zend_module_entry {
-    unsafe { (*addr_of_mut!(MODULE)).functions = crate::r#gen::api::functions() };
-    addr_of_mut!(MODULE)
+    unsafe { (*MODULE.get()).functions = crate::r#gen::api::functions() };
+    MODULE.get()
 }

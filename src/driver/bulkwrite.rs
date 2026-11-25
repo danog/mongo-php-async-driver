@@ -5,11 +5,11 @@ use super::writeconcern::WriteConcern;
 use crate::bson::types::{cls, Cls, Props};
 use crate::bson::{encode, throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval};
+use crate::zend::{hash, obj, sys, zval, ClassEntry};
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bson::writer::Writer;
 use mongo_core::bulk::{BulkOperation, UpdateOpts};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 pub struct BulkWrite {
     pub bulk: BulkOperation,
@@ -92,10 +92,10 @@ impl Cls for BulkWrite {
     }
 }
 
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+pub static CE: ClassEntry = ClassEntry::new();
 
 pub unsafe fn init_MongoDB_Driver_BulkWrite(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     let h = crate::bson::types::setup::<BulkWrite>(c);
     h.get_properties = sys::std_object_handlers.get_properties;
     h.clone_obj = None;
@@ -325,5 +325,5 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWrite_count(ex: Ex, rv: *mut sys
 
 #[allow(dead_code)]
 fn _h() -> *mut sys::zend_object_handlers {
-    addr_of_mut!(H_BULKWRITE)
+    H_BULKWRITE.get()
 }

@@ -351,7 +351,7 @@ pub unsafe fn parse_write_concern(options: *mut sys::zval) -> Result<Option<writ
     }
     let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"writeConcern") else { return Ok(None) };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !crate::zend::obj::instanceof((*(*z).value.obj).ce, writeconcern::CE) {
+    if !zval::is(z, sys::IS_OBJECT) || !crate::zend::obj::instanceof((*(*z).value.obj).ce, writeconcern::CE.get()) {
         crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected \"writeConcern\" option to be MongoDB\\Driver\\WriteConcern, {} given", zval::type_name(z)));
         return Err(());
     }

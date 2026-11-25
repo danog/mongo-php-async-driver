@@ -8,12 +8,11 @@
 use super::apm::{prop, set};
 use crate::bson::types::new_objectid;
 use crate::zend::call::{self, Ex};
-use crate::zend::{obj, sys, zval};
+use crate::zend::{obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::apm::Event;
 use mongo_core::sdam::ServerDescription;
 use mongo_core::topology::TopologyDescription;
 use std::ffi::CStr;
-use std::ptr::{addr_of_mut, null_mut};
 
 #[derive(Default)]
 pub struct ServerChanged {
@@ -30,29 +29,29 @@ pub struct TopologyChanged {
     new: Option<Box<TopologyDescription>>,
 }
 
-static mut H_SC: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-static mut H_TC: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-static mut CE_SC: *mut sys::zend_class_entry = null_mut();
-static mut CE_TC: *mut sys::zend_class_entry = null_mut();
+static H_SC: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+static H_TC: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+static CE_SC: ClassEntry = ClassEntry::new();
+static CE_TC: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create_sc(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ServerChanged::default(), addr_of_mut!(H_SC))
+    obj::alloc(c, ServerChanged::default(), H_SC.get())
 }
 
 unsafe extern "C" fn create_tc(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, TopologyChanged::default(), addr_of_mut!(H_TC))
+    obj::alloc(c, TopologyChanged::default(), H_TC.get())
 }
 
 pub unsafe fn init_MongoDB_Driver_Monitoring_ServerChangedEvent(c: *mut sys::zend_class_entry) {
-    CE_SC = c;
+    CE_SC.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create_sc);
-    obj::handlers::<ServerChanged>(addr_of_mut!(H_SC));
+    obj::handlers::<ServerChanged>(H_SC.get());
 }
 
 pub unsafe fn init_MongoDB_Driver_Monitoring_TopologyChangedEvent(c: *mut sys::zend_class_entry) {
-    CE_TC = c;
+    CE_TC.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create_tc);
-    obj::handlers::<TopologyChanged>(addr_of_mut!(H_TC));
+    obj::handlers::<TopologyChanged>(H_TC.get());
 }
 
 unsafe fn ce(n: &CStr) -> *mut sys::zend_class_entry {
@@ -70,7 +69,7 @@ unsafe fn host_port(o: *mut sys::zend_object, addr: &str) {
 pub unsafe fn event_object(ev: Event) -> Option<(&'static CStr, sys::zval)> {
     Some(match ev {
         Event::ServerChanged { topology_id, addr, previous, new } => {
-            let z = zval::obj(obj::alloc(CE_SC, ServerChanged::default(), addr_of_mut!(H_SC)));
+            let z = zval::obj(obj::alloc(CE_SC.get(), ServerChanged::default(), H_SC.get()));
             let o = z.value.obj;
             host_port(o, &addr);
             set(o, b"topologyId", new_objectid(&topology_id));
@@ -80,7 +79,7 @@ pub unsafe fn event_object(ev: Event) -> Option<(&'static CStr, sys::zval)> {
             (c"serverChanged", z)
         }
         Event::TopologyChanged { topology_id, previous, new } => {
-            let z = zval::obj(obj::alloc(CE_TC, TopologyChanged::default(), addr_of_mut!(H_TC)));
+            let z = zval::obj(obj::alloc(CE_TC.get(), TopologyChanged::default(), H_TC.get()));
             let o = z.value.obj;
             set(o, b"topologyId", new_objectid(&topology_id));
             set(o, b"newDescription", super::sdam::new_topologydescription((*new).clone()));

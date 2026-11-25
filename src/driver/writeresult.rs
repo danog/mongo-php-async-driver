@@ -6,9 +6,9 @@ use super::writeconcern::WriteConcern;
 use super::ClientRef;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zval};
+use crate::zend::{class, hash, obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::bson::iter::{Iter, Value};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 #[derive(Default)]
 pub struct WriteResult {
@@ -27,17 +27,17 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
     obj::get_gc_with(o, table, n, [w.manager.gc()])
 }
 
-static mut H_WR: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_WR: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, WriteResult::default(), addr_of_mut!(H_WR))
+    obj::alloc(c, WriteResult::default(), H_WR.get())
 }
 
 pub unsafe fn init_MongoDB_Driver_WriteResult(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<WriteResult>(addr_of_mut!(H_WR)).get_gc = Some(get_gc);
+    obj::handlers::<WriteResult>(H_WR.get()).get_gc = Some(get_gc);
 }
 
 fn find<'a>(d: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
@@ -176,7 +176,7 @@ unsafe fn server_zval(w: &WriteResult) -> sys::zval {
 
 /// phongo_writeresult_init
 pub unsafe fn new_writeresult(reply: Vec<u8>, client: ClientRef, server_id: u32, wc: WriteConcern, manager: *mut sys::zend_object) -> sys::zval {
-    let o = obj::alloc(CE, WriteResult { reply, server_id, write_concern: Some(wc), client: Some(client), manager: super::ManagerRef::new(manager) }, addr_of_mut!(H_WR));
+    let o = obj::alloc(CE.get(), WriteResult { reply, server_id, write_concern: Some(wc), client: Some(client), manager: super::ManagerRef::new(manager) }, H_WR.get());
     let w = obj::data::<WriteResult>(o);
     let acked = w.acknowledged();
     // one pass over the reply for all the fields read here
@@ -189,22 +189,22 @@ pub unsafe fn new_writeresult(reply: Vec<u8>, client: ClientRef, server_id: u32,
             Some(Value::Int32(n)) if acked => zval::long(n as i64),
             _ => zval::null(),
         };
-        set_prop(CE, o, prop, v);
+        set_prop(CE.get(), o, prop, v);
     }
-    set_prop(CE, o, "upsertedIds", upserted_ids(upserted));
+    set_prop(CE.get(), o, "upsertedIds", upserted_ids(upserted));
     if let Some(e) = write_errors(write_errs) {
-        set_prop(CE, o, "writeErrors", e);
+        set_prop(CE.get(), o, "writeErrors", e);
     }
     if let Some(e) = write_concern_error(wc_errs) {
-        set_prop(CE, o, "writeConcernError", e);
+        set_prop(CE.get(), o, "writeConcernError", e);
     }
     let wcz = match &w.write_concern {
         Some(wc) => super::writeconcern::new_writeconcern(wc.clone()),
         None => zval::null(),
     };
-    set_prop(CE, o, "writeConcern", wcz);
-    set_prop(CE, o, "errorReplies", error_replies(err_replies));
-    set_prop(CE, o, "server", server_zval(w));
+    set_prop(CE.get(), o, "writeConcern", wcz);
+    set_prop(CE.get(), o, "errorReplies", error_replies(err_replies));
+    set_prop(CE.get(), o, "server", server_zval(w));
     zval::obj(o)
 }
 

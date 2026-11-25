@@ -5,7 +5,7 @@ use super::ClientRef;
 use crate::bson::decode::TypeMap;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval};
+use crate::zend::{hash, obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bson::writer::Writer;
 use mongo_core::cmdparts::{Failure, Parts};
@@ -14,7 +14,7 @@ use mongo_core::session::ClientSession;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 /// mongoc_cursor_t's cursor-level options
 #[derive(Clone, Debug, Default)]
@@ -172,17 +172,17 @@ impl Drop for Cursor {
     }
 }
 
-static mut H_CURSOR: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_CURSOR: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, Cursor::default(), addr_of_mut!(H_CURSOR))
+    obj::alloc(c, Cursor::default(), H_CURSOR.get())
 }
 
 /// A Cursor object holding `c`, of the Manager object `manager`.
 pub unsafe fn new_cursor(mut c: Cursor, manager: *mut sys::zend_object) -> sys::zval {
     c.manager = super::ManagerRef::new(manager);
-    zval::obj(obj::alloc(CE, c, addr_of_mut!(H_CURSOR)))
+    zval::obj(obj::alloc(CE.get(), c, H_CURSOR.get()))
 }
 
 /// The PHP values it holds, for the GC.
@@ -214,9 +214,9 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
 }
 
 pub unsafe fn init_MongoDB_Driver_Cursor(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<Cursor>(addr_of_mut!(H_CURSOR));
+    let h = obj::handlers::<Cursor>(H_CURSOR.get());
     h.get_debug_info = Some(get_debug_info);
     h.get_gc = Some(get_gc);
     h.free_obj = Some(super::free_obj::<Cursor>);

@@ -91,7 +91,7 @@ pub unsafe fn get_gc_with(o: *mut sys::zend_object, table: *mut *mut sys::zval, 
 }
 
 /// phongo_std_object_handlers: std handlers without clone, with phongo's get_gc.
-pub static mut STD: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
+pub static STD: super::EngineCell<sys::zend_object_handlers> = super::EngineCell::handlers();
 
 unsafe extern "C" fn std_get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
     if !(*(*o).handlers).get_properties.is_some_and(|f| std::ptr::fn_addr_eq(f, sys::zend_std_get_properties as unsafe extern "C" fn(_) -> _)) {
@@ -103,7 +103,7 @@ unsafe extern "C" fn std_get_gc(o: *mut sys::zend_object, table: *mut *mut sys::
 }
 
 pub unsafe fn init_std() {
-    let s = &mut *addr_of_mut!(STD);
+    let s = &mut *STD.get();
     *s = sys::std_object_handlers;
     s.clone_obj = None;
     s.get_gc = Some(std_get_gc);
@@ -111,7 +111,7 @@ pub unsafe fn init_std() {
 
 /// A handler table for `Obj<T>` based on phongo's std handlers (offset and free_obj set).
 pub unsafe fn handlers<T>(h: *mut sys::zend_object_handlers) -> &'static mut sys::zend_object_handlers {
-    *h = *addr_of_mut!(STD);
+    *h = *STD.get();
     (*h).offset = offset::<T>() as _;
     (*h).free_obj = Some(free::<T>);
     &mut *h

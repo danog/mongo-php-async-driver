@@ -3,10 +3,10 @@
 use super::ClientRef;
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{obj, sys, zval};
+use crate::zend::{obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::sdam::{ServerDescription, ServerType, RTT_UNSET};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 #[derive(Default)]
 pub struct Server {
@@ -16,11 +16,11 @@ pub struct Server {
     pub manager: super::ManagerRef,
 }
 
-static mut H_SERVER: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_SERVER: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, Server::default(), addr_of_mut!(H_SERVER))
+    obj::alloc(c, Server::default(), H_SERVER.get())
 }
 
 /// The current description of a Server object's server (mongoc_client_get_server_description).
@@ -136,9 +136,9 @@ fn hello_tags(sd: &ServerDescription) -> Option<&[u8]> {
 }
 
 pub unsafe fn init_MongoDB_Driver_Server(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<Server>(addr_of_mut!(H_SERVER));
+    let h = obj::handlers::<Server>(H_SERVER.get());
     h.compare = Some(compare);
     h.get_debug_info = Some(get_debug_info);
     h.get_gc = Some(get_gc);
@@ -151,7 +151,7 @@ unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval
 
 /// phongo_server_init: a Server of the Manager object `manager`.
 pub unsafe fn new_server(client: ClientRef, server_id: u32, manager: *mut sys::zend_object) -> sys::zval {
-    zval::obj(obj::alloc(CE, Server { client: Some(client), server_id, manager: super::ManagerRef::new(manager) }, addr_of_mut!(H_SERVER)))
+    zval::obj(obj::alloc(CE.get(), Server { client: Some(client), server_id, manager: super::ManagerRef::new(manager) }, H_SERVER.get()))
 }
 
 #[inline]

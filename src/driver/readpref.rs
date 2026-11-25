@@ -2,12 +2,12 @@
 
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zstr, zval};
+use crate::zend::{class, hash, obj, sys, zstr, zval, ClassEntry, EngineCell};
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bson::writer::Writer;
 use mongo_core::topology::{ReadPrefs, SMALLEST_MAX_STALENESS_SECONDS};
 use mongo_core::uri::{ReadMode, NO_MAX_STALENESS};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 pub const EMPTY: [u8; 5] = [5, 0, 0, 0, 0];
 
@@ -89,11 +89,11 @@ impl ReadPreference {
     }
 }
 
-static mut H_RP: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_RP: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ReadPreference::default(), addr_of_mut!(H_RP))
+    obj::alloc(c, ReadPreference::default(), H_RP.get())
 }
 
 unsafe extern "C" fn clone(o: *mut sys::zend_object) -> *mut sys::zend_object {
@@ -111,16 +111,16 @@ unsafe extern "C" fn read_property(o: *mut sys::zend_object, name: *mut sys::zen
 }
 
 pub unsafe fn init_MongoDB_Driver_ReadPreference(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<ReadPreference>(addr_of_mut!(H_RP));
+    let h = obj::handlers::<ReadPreference>(H_RP.get());
     h.clone_obj = Some(clone);
     h.read_property = Some(read_property);
 }
 
 /// A ReadPreference object for `rp` (phongo_readpreference_init).
 pub unsafe fn new_readpreference(rp: ReadPreference) -> sys::zval {
-    let o = obj::alloc(CE, rp, addr_of_mut!(H_RP));
+    let o = obj::alloc(CE.get(), rp, H_RP.get());
     update_properties(o);
     zval::obj(o)
 }
@@ -128,22 +128,22 @@ pub unsafe fn new_readpreference(rp: ReadPreference) -> sys::zval {
 unsafe fn update_properties(o: *mut sys::zend_object) {
     let rp = obj::data::<ReadPreference>(o).clone();
     let m = mode_str(rp.mode);
-    sys::zend_update_property_string(CE, o, c"mode".as_ptr(), 4, call::cs(m).as_ptr());
-    sys::zend_update_property_long(CE, o, c"maxStalenessSeconds".as_ptr(), 19, rp.max_staleness_seconds);
+    sys::zend_update_property_string(CE.get(), o, c"mode".as_ptr(), 4, call::cs(m).as_ptr());
+    sys::zend_update_property_long(CE.get(), o, c"maxStalenessSeconds".as_ptr(), 19, rp.max_staleness_seconds);
     if rp.tags.len() > 5 {
         let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
         let mut st = crate::bson::decode::State::new(&tm);
         st.is_visiting_array = false;
         match crate::bson::decode::to_zval(&rp.tags, &st) {
-            Some(mut z) => sys::zend_update_property(CE, o, c"tags".as_ptr(), 4, &mut z),
+            Some(mut z) => sys::zend_update_property(CE.get(), o, c"tags".as_ptr(), 4, &mut z),
             None => return,
         }
     } else {
-        sys::zend_update_property_null(CE, o, c"tags".as_ptr(), 4);
+        sys::zend_update_property_null(CE.get(), o, c"tags".as_ptr(), 4);
     }
     match rp.hedge.filter(|h| h.len() > 5) {
-        Some(h) => if let Some(mut z) = super::to_zval(&h, &Default::default()) { sys::zend_update_property(CE, o, c"hedge".as_ptr(), 5, &mut z) },
-        None => sys::zend_update_property_null(CE, o, c"hedge".as_ptr(), 5),
+        Some(h) => if let Some(mut z) = super::to_zval(&h, &Default::default()) { sys::zend_update_property(CE.get(), o, c"hedge".as_ptr(), 5, &mut z) },
+        None => sys::zend_update_property_null(CE.get(), o, c"hedge".as_ptr(), 5),
     }
 }
 
@@ -241,7 +241,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference___construct(ex: Ex, _
                 let Some(b) = crate::bson::encode::to_bson(h, crate::bson::encode::NONE) else { return };
                 rp.hedge = Some(b);
             } else {
-                throw(E::InvalidArgument, format!("{} initialization requires \"hedge\" field to be an array or object", class::name(CE)));
+                throw(E::InvalidArgument, format!("{} initialization requires \"hedge\" field to be an array or object", class::name(CE.get())));
                 return;
             }
         }
@@ -255,7 +255,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference___construct(ex: Ex, _
 
 /// phongo_readpreference_init_from_hash
 unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -> bool {
-    let name = class::name(CE);
+    let name = class::name(CE.get());
     let rp = obj::data::<ReadPreference>(o);
     *rp = ReadPreference::default();
     match hash::find(props, b"mode") {
@@ -339,7 +339,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadPreference___set_state(ex: Ex, r
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let z = obj::new_zval(CE);
+    let z = obj::new_zval(CE.get());
     init_from_hash(z.value.obj, (*a).value.arr);
     zval::write(rv, z);
 }

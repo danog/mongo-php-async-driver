@@ -166,13 +166,13 @@ impl V<'_, '_> {
             Value::Binary(st, data) => {
                 if !self.st.skip_odm && st == 0x80 && key == b"__pclass" {
                     let c = fetch_class(data);
-                    if !c.is_null() && instantiatable(c) && obj::instanceof(c, ce().persistable) {
+                    if !c.is_null() && instantiatable(c) && obj::instanceof(c, ce().persistable.get()) {
                         self.odm = Some(c);
                     }
                 }
                 types::new_binary(data, st)
             }
-            Value::Undefined => obj::new_zval(ce().undefined),
+            Value::Undefined => obj::new_zval(ce().undefined.get()),
             Value::Oid(o) => types::new_objectid(o),
             Value::Bool(b) => zval::bool(b),
             Value::DateTime(ms) => types::new_utcdatetime(ms),
@@ -205,8 +205,8 @@ impl V<'_, '_> {
                 add(ht, ia, key, z);
                 return false;
             }
-            Value::MaxKey => obj::new_zval(ce().maxkey),
-            Value::MinKey => obj::new_zval(ce().minkey),
+            Value::MaxKey => obj::new_zval(ce().maxkey.get()),
+            Value::MinKey => obj::new_zval(ce().minkey.get()),
             Value::Document(d) => return self.container(key, d, false),
             Value::Array(d) => return self.container(key, d, true),
         };
@@ -365,9 +365,9 @@ pub unsafe fn value_to_zval(v: Value) -> Option<sys::zval> {
         Value::Symbol(s) => types::new_symbol(s),
         Value::Timestamp(t, i) => types::new_timestamp(i, t),
         Value::Decimal128(d) => types::new_decimal128(d),
-        Value::MaxKey => obj::new_zval(ce().maxkey),
-        Value::MinKey => obj::new_zval(ce().minkey),
-        Value::Undefined => obj::new_zval(ce().undefined),
+        Value::MaxKey => obj::new_zval(ce().maxkey.get()),
+        Value::MinKey => obj::new_zval(ce().minkey.get()),
+        Value::Undefined => obj::new_zval(ce().undefined.get()),
         Value::Array(d) => {
             if !iter::is_valid_static(d) {
                 throw(E::UnexpectedValue, "Invalid BSON received for BSON_TYPE_ARRAY");
@@ -421,8 +421,8 @@ unsafe fn parse_type(ht: *const sys::HashTable, name: &[u8], el: &mut TM) -> boo
                 let kind = std::ffi::CStr::from_ptr(sys::zend_get_object_type_case(c, true)).to_string_lossy().into_owned();
                 throw(E::InvalidArgument, format!("{} {} is not instantiatable", kind, name));
                 return false;
-            } else if !obj::instanceof(c, ce().unserializable) {
-                throw(E::InvalidArgument, format!("Class {} does not implement {}", name, crate::zend::class::name(ce().unserializable)));
+            } else if !obj::instanceof(c, ce().unserializable.get()) {
+                throw(E::InvalidArgument, format!("Class {} does not implement {}", name, crate::zend::class::name(ce().unserializable.get())));
                 return false;
             }
             TM::Class(c)

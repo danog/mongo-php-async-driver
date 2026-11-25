@@ -25,7 +25,7 @@ unsafe fn class_entry(name: &CStr, functions: *const sys::zend_function_entry) -
     // the field exists from PHP 8.3 on (objects get their handlers in obj::alloc anyway)
     #[cfg(php83)]
     {
-        ce.default_object_handlers = std::ptr::addr_of!(super::obj::STD);
+        ce.default_object_handlers = super::obj::STD.get();
     }
     ce.info.internal.builtin_functions = functions;
     ce

@@ -2,17 +2,17 @@
 
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zval};
+use crate::zend::{class, hash, obj, sys, zval, ClassEntry, EngineCell};
 use mongo_core::uri::{W_DEFAULT, W_MAJORITY, W_UNACKNOWLEDGED};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 pub use mongo_core::concern::WriteConcern;
 
-static mut H_WC: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_WC: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, WriteConcern::default(), addr_of_mut!(H_WC))
+    obj::alloc(c, WriteConcern::default(), H_WC.get())
 }
 
 unsafe extern "C" fn clone(o: *mut sys::zend_object) -> *mut sys::zend_object {
@@ -23,13 +23,13 @@ unsafe extern "C" fn clone(o: *mut sys::zend_object) -> *mut sys::zend_object {
 }
 
 pub unsafe fn init_MongoDB_Driver_WriteConcern(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    obj::handlers::<WriteConcern>(addr_of_mut!(H_WC)).clone_obj = Some(clone);
+    obj::handlers::<WriteConcern>(H_WC.get()).clone_obj = Some(clone);
 }
 
 pub unsafe fn new_writeconcern(wc: WriteConcern) -> sys::zval {
-    let o = obj::alloc(CE, wc, addr_of_mut!(H_WC));
+    let o = obj::alloc(CE.get(), wc, H_WC.get());
     update_properties(o);
     zval::obj(o)
 }
@@ -50,13 +50,13 @@ unsafe fn w_zval(wc: &WriteConcern) -> sys::zval {
 unsafe fn update_properties(o: *mut sys::zend_object) {
     let wc = obj::data::<WriteConcern>(o).clone();
     let mut w = w_zval(&wc);
-    sys::zend_update_property(CE, o, c"w".as_ptr(), 1, &mut w);
+    sys::zend_update_property(CE.get(), o, c"w".as_ptr(), 1, &mut w);
     drop(w);
     match wc.journal {
-        Some(j) => sys::zend_update_property_bool(CE, o, c"j".as_ptr(), 1, j as i64),
-        None => sys::zend_update_property_null(CE, o, c"j".as_ptr(), 1),
+        Some(j) => sys::zend_update_property_bool(CE.get(), o, c"j".as_ptr(), 1, j as i64),
+        None => sys::zend_update_property_null(CE.get(), o, c"j".as_ptr(), 1),
     }
-    sys::zend_update_property_long(CE, o, c"wtimeout".as_ptr(), 8, wc.wtimeout);
+    sys::zend_update_property_long(CE.get(), o, c"wtimeout".as_ptr(), 8, wc.wtimeout);
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -116,7 +116,7 @@ fn parse_int64(s: &[u8]) -> Option<i64> {
 }
 
 unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -> bool {
-    let name = class::name(CE);
+    let name = class::name(CE.get());
     let wc = obj::data::<WriteConcern>(o);
     *wc = WriteConcern::default();
     if let Some(w) = hash::find(props, b"w") {
@@ -184,7 +184,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___set_state(ex: Ex, rv:
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let z = obj::new_zval(CE);
+    let z = obj::new_zval(CE.get());
     init_from_hash(z.value.obj, (*a).value.arr);
     zval::write(rv, z);
 }

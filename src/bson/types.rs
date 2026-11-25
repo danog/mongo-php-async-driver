@@ -4,12 +4,12 @@
 #![allow(non_snake_case)]
 
 use super::decode::{self, State, TypeMap};
-use super::{ce, ce_mut, encode, throw, E};
+use super::{ce, encode, throw, E};
 use crate::zend::call::{self, Ex};
 use crate::zend::{hash, obj, sys, zstr, zval};
 use mongo_core::bson::decimal128::Decimal128 as Dec;
 use mongo_core::bson::{fmt, oid, writer::Writer};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 
 /// phongo's `intern->properties` cache.
 pub struct Props(*mut sys::HashTable);
@@ -53,11 +53,11 @@ pub trait Cls: Sized + Default + 'static {
 
 macro_rules! cls {
     ($t:ty, $h:ident) => {
-        static mut $h: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
+        static $h: $crate::zend::EngineCell<sys::zend_object_handlers> = $crate::zend::EngineCell::handlers();
         impl $t {
             #[allow(dead_code)]
             pub fn h() -> *mut sys::zend_object_handlers {
-                addr_of_mut!($h)
+                $h.get()
             }
         }
     };
@@ -345,7 +345,7 @@ impl Binary {
         if let (Some(d), Some(t)) = (find_t(ht, b"data", sys::IS_STRING), find_t(ht, b"type", sys::IS_LONG)) {
             return self.set(zval::str_bytes(d), (*t).value.lval);
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"data\" string and \"type\" integer fields", cname(ce().binary)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"data\" string and \"type\" integer fields", cname(ce().binary.get())));
         false
     }
     /// phongo_binary_get_vector_as_array
@@ -378,7 +378,7 @@ unsafe fn vector_case(t: VT) -> *mut sys::zend_object {
         VT::Float32 => c"Float32",
         _ => c"PackedBit",
     };
-    sys::zend_enum_get_case_cstr(ce().vectortype, name.as_ptr())
+    sys::zend_enum_get_case_cstr(ce().vectortype.get(), name.as_ptr())
 }
 
 unsafe extern "C" fn binary_debug(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
@@ -411,14 +411,14 @@ unsafe extern "C" fn binary_compare(a: *mut sys::zval, b: *mut sys::zval) -> i32
 }
 
 pub unsafe fn init_MongoDB_BSON_Binary(c: *mut sys::zend_class_entry) {
-    ce_mut().binary = c;
+    ce().binary.set(c);
     let h = setup::<Binary>(c);
     h.get_debug_info = Some(binary_debug);
     h.compare = Some(binary_compare);
 }
 
 pub unsafe fn new_binary(data: &[u8], ty: u8) -> sys::zval {
-    new(ce().binary, Binary { data: data.to_vec(), ty, init: true, props: Props::default() })
+    new(ce().binary.get(), Binary { data: data.to_vec(), ty, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -429,7 +429,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___construct(ex: Ex, _rv: *mut s
     this::<Binary>(ex).set(std::slice::from_raw_parts(p, l), t);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Binary>(ex, rv, ce().binary, Binary::init_from_hash);
+    set_state::<Binary>(ex, rv, ce().binary.get(), Binary::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -461,9 +461,9 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___unserialize(ex: Ex, _rv: *mut
     unserialize::<Binary>(ex, Binary::init_from_hash)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(ex: Ex, rv: *mut sys::zval) {
-    zval::write(rv, new(ce().binary, Binary::default()));
+    zval::write(rv, new(ce().binary.get(), Binary::default()));
     let (mut ht, mut t): (*mut sys::HashTable, *mut sys::zval) = (null_mut(), null_mut());
-    if sys::zend_parse_parameters(call::num_args(ex), c"hO".as_ptr(), &mut ht, &mut t, ce().vectortype) != 0 {
+    if sys::zend_parse_parameters(call::num_args(ex), c"hO".as_ptr(), &mut ht, &mut t, ce().vectortype.get()) != 0 {
         return;
     }
     let case_name = zval::str_bytes((*(*t).value.obj).properties_table.as_ptr());
@@ -638,7 +638,7 @@ impl DBPointer {
         if let (Some(r), Some(i)) = (find_t(ht, b"ref", sys::IS_STRING), find_t(ht, b"id", sys::IS_STRING)) {
             return self.set(zval::str_bytes(r), zval::str_bytes(i));
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"ref\" and \"id\" string fields", cname(ce().dbpointer)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"ref\" and \"id\" string fields", cname(ce().dbpointer.get())));
         false
     }
 }
@@ -656,12 +656,12 @@ unsafe extern "C" fn dbpointer_compare(a: *mut sys::zval, b: *mut sys::zval) -> 
 }
 
 pub unsafe fn init_MongoDB_BSON_DBPointer(c: *mut sys::zend_class_entry) {
-    ce_mut().dbpointer = c;
+    ce().dbpointer.set(c);
     setup::<DBPointer>(c).compare = Some(dbpointer_compare);
 }
 
 pub unsafe fn new_dbpointer(coll: &[u8], id: &[u8; 12]) -> sys::zval {
-    new(ce().dbpointer, DBPointer { ref_: coll.to_vec(), id: *id, init: true, props: Props::default() })
+    new(ce().dbpointer.get(), DBPointer { ref_: coll.to_vec(), id: *id, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___construct(_ex: Ex, _rv: *mut sys::zval) {}
@@ -677,7 +677,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___toString(ex: Ex, rv: *mut 
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<DBPointer>(ex, rv, ce().dbpointer, DBPointer::init_from_hash);
+    set_state::<DBPointer>(ex, rv, ce().dbpointer.get(), DBPointer::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if !call::none(ex) {
@@ -751,18 +751,18 @@ impl Decimal128 {
         if let Some(d) = find_t(ht, b"dec", sys::IS_STRING) {
             return self.set(zval::str_bytes(d));
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"dec\" string field", cname(ce().decimal128)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"dec\" string field", cname(ce().decimal128.get())));
         false
     }
 }
 
 pub unsafe fn init_MongoDB_BSON_Decimal128(c: *mut sys::zend_class_entry) {
-    ce_mut().decimal128 = c;
+    ce().decimal128.set(c);
     setup::<Decimal128>(c);
 }
 
 pub unsafe fn new_decimal128(d: Dec) -> sys::zval {
-    new(ce().decimal128, Decimal128 { dec: d, init: true, props: Props::default() })
+    new(ce().decimal128.get(), Decimal128 { dec: d, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -773,7 +773,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___construct(ex: Ex, _rv: *m
     this::<Decimal128>(ex).set(std::slice::from_raw_parts(p, l));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Decimal128>(ex, rv, ce().decimal128, Decimal128::init_from_hash);
+    set_state::<Decimal128>(ex, rv, ce().decimal128.get(), Decimal128::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -831,7 +831,7 @@ impl Int64 {
                 true
             }
             None => {
-                throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer for {} initialization", super::cstr_lossy(s), cname(ce().int64)));
+                throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer for {} initialization", super::cstr_lossy(s), cname(ce().int64.get())));
                 false
             }
         }
@@ -840,13 +840,13 @@ impl Int64 {
         if let Some(d) = find_t(ht, b"integer", sys::IS_STRING) {
             return self.set_str(zval::str_bytes(d));
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"integer\" string field", cname(ce().int64)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"integer\" string field", cname(ce().int64.get())));
         false
     }
 }
 
 unsafe fn is_int64(z: *mut sys::zval) -> bool {
-    zval::is(z, sys::IS_OBJECT) && zval::obj_ce(z) == ce().int64
+    zval::is(z, sys::IS_OBJECT) && zval::obj_ce(z) == ce().int64.get()
 }
 unsafe fn is_num(z: *mut sys::zval) -> bool {
     zval::is(z, sys::IS_LONG) || zval::is(z, sys::IS_DOUBLE)
@@ -1022,7 +1022,7 @@ unsafe extern "C" fn int64_do_operation(op: u8, result: *mut sys::zval, mut a: *
 }
 
 pub unsafe fn init_MongoDB_BSON_Int64(c: *mut sys::zend_class_entry) {
-    ce_mut().int64 = c;
+    ce().int64.set(c);
     let h = setup::<Int64>(c);
     h.compare = Some(int64_compare);
     h.cast_object = Some(int64_cast);
@@ -1030,7 +1030,7 @@ pub unsafe fn init_MongoDB_BSON_Int64(c: *mut sys::zend_class_entry) {
 }
 
 pub unsafe fn new_int64(v: i64) -> sys::zval {
-    new(ce().int64, Int64 { v, init: true, props: Props::default() })
+    new(ce().int64.get(), Int64 { v, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -1056,7 +1056,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___toString(ex: Ex, rv: *mut sys:
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Int64>(ex, rv, ce().int64, Int64::init_from_hash);
+    set_state::<Int64>(ex, rv, ce().int64.get(), Int64::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1148,7 +1148,7 @@ impl Javascript {
             let s = hash::find(ht, b"scope").unwrap_or(null_mut());
             return self.set(zval::str_bytes(c), s);
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"code\" string field", cname(ce().javascript)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"code\" string field", cname(ce().javascript.get())));
         false
     }
 }
@@ -1161,7 +1161,7 @@ unsafe extern "C" fn javascript_compare(a: *mut sys::zval, b: *mut sys::zval) ->
 }
 
 pub unsafe fn init_MongoDB_BSON_Javascript(c: *mut sys::zend_class_entry) {
-    ce_mut().javascript = c;
+    ce().javascript.set(c);
     setup::<Javascript>(c).compare = Some(javascript_compare);
 }
 
@@ -1172,7 +1172,7 @@ pub unsafe fn new_javascript(code: &[u8], scope: Option<&[u8]>, depth: usize) ->
         let st = State { nesting_depth: depth, ..State::new(&map) };
         drop(decode::to_zval(s, &st)?);
     }
-    Some(new(ce().javascript, Javascript { code: code.to_vec(), scope: scope.map(|s| s.to_vec()), init: true, props: Props::default(), retired: Default::default() }))
+    Some(new(ce().javascript.get(), Javascript { code: code.to_vec(), scope: scope.map(|s| s.to_vec()), init: true, props: Props::default(), retired: Default::default() }))
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -1183,7 +1183,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___construct(ex: Ex, _rv: *m
     this::<Javascript>(ex).set(std::slice::from_raw_parts(p, l), s);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Javascript>(ex, rv, ce().javascript, Javascript::init_from_hash);
+    set_state::<Javascript>(ex, rv, ce().javascript.get(), Javascript::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1261,12 +1261,12 @@ macro_rules! unit_class {
             }
         }
         pub unsafe fn $init(c: *mut sys::zend_class_entry) {
-            ce_mut().$field = c;
+            ce().$field.set(c);
             setup::<$t>(c);
         }
         pub unsafe extern "C" fn $ss(ex: Ex, rv: *mut sys::zval) {
             if arg_array(ex).is_some() {
-                zval::write(rv, obj::new_zval(ce().$field));
+                zval::write(rv, obj::new_zval(ce().$field.get()));
             }
         }
         pub unsafe extern "C" fn $js(ex: Ex, rv: *mut sys::zval) {
@@ -1344,7 +1344,7 @@ impl ObjectId {
         if let Some(z) = find_t(ht, b"oid", sys::IS_STRING) {
             return self.set_hex(zval::str_bytes(z));
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"oid\" string field", cname(ce().objectid)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"oid\" string field", cname(ce().objectid.get())));
         false
     }
 }
@@ -1357,12 +1357,12 @@ unsafe extern "C" fn objectid_compare(a: *mut sys::zval, b: *mut sys::zval) -> i
 }
 
 pub unsafe fn init_MongoDB_BSON_ObjectId(c: *mut sys::zend_class_entry) {
-    ce_mut().objectid = c;
+    ce().objectid.set(c);
     setup::<ObjectId>(c).compare = Some(objectid_compare);
 }
 
 pub unsafe fn new_objectid(o: &[u8; 12]) -> sys::zval {
-    new(ce().objectid, ObjectId { oid: *o, init: true, props: Props::default() })
+    new(ce().objectid.get(), ObjectId { oid: *o, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -1385,7 +1385,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId_getTimestamp(ex: Ex, rv: *mut
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<ObjectId>(ex, rv, ce().objectid, ObjectId::init_from_hash);
+    set_state::<ObjectId>(ex, rv, ce().objectid.get(), ObjectId::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1460,7 +1460,7 @@ impl Regex {
         if let (Some(p), Some(f)) = (find_t(ht, b"pattern", sys::IS_STRING), find_t(ht, b"flags", sys::IS_STRING)) {
             return self.set(zval::str_bytes(p), zval::str_bytes(f));
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"pattern\" and \"flags\" string fields", cname(ce().regex)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"pattern\" and \"flags\" string fields", cname(ce().regex.get())));
         false
     }
 }
@@ -1478,7 +1478,7 @@ unsafe extern "C" fn regex_compare(a: *mut sys::zval, b: *mut sys::zval) -> i32 
 }
 
 pub unsafe fn init_MongoDB_BSON_Regex(c: *mut sys::zend_class_entry) {
-    ce_mut().regex = c;
+    ce().regex.set(c);
     setup::<Regex>(c).compare = Some(regex_compare);
 }
 
@@ -1486,7 +1486,7 @@ pub unsafe fn init_MongoDB_BSON_Regex(c: *mut sys::zend_class_entry) {
 pub unsafe fn new_regex(p: &[u8], f: &[u8]) -> sys::zval {
     let mut fl = f.to_vec();
     fl.sort_unstable();
-    new(ce().regex, Regex { pattern: p.to_vec(), flags: fl, init: true, props: Props::default() })
+    new(ce().regex.get(), Regex { pattern: p.to_vec(), flags: fl, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -1508,7 +1508,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_getFlags(ex: Ex, rv: *mut sys::z
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Regex>(ex, rv, ce().regex, Regex::init_from_hash);
+    set_state::<Regex>(ex, rv, ce().regex.get(), Regex::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1579,7 +1579,7 @@ impl Symbol {
             self.init = true;
             return true;
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"symbol\" string field", cname(ce().symbol)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"symbol\" string field", cname(ce().symbol.get())));
         false
     }
 }
@@ -1592,12 +1592,12 @@ unsafe extern "C" fn symbol_compare(a: *mut sys::zval, b: *mut sys::zval) -> i32
 }
 
 pub unsafe fn init_MongoDB_BSON_Symbol(c: *mut sys::zend_class_entry) {
-    ce_mut().symbol = c;
+    ce().symbol.set(c);
     setup::<Symbol>(c).compare = Some(symbol_compare);
 }
 
 pub unsafe fn new_symbol(s: &[u8]) -> sys::zval {
-    new(ce().symbol, Symbol { symbol: s.to_vec(), init: true, props: Props::default() })
+    new(ce().symbol.get(), Symbol { symbol: s.to_vec(), init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___construct(_ex: Ex, _rv: *mut sys::zval) {}
@@ -1607,7 +1607,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___toString(ex: Ex, rv: *mut sys
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Symbol>(ex, rv, ce().symbol, Symbol::init_from_hash);
+    set_state::<Symbol>(ex, rv, ce().symbol.get(), Symbol::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1670,11 +1670,11 @@ impl Timestamp {
     }
     unsafe fn set_str(&mut self, inc: &[u8], ts: &[u8]) -> bool {
         let Some(i) = parse_int64(inc) else {
-            throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer increment for {} initialization", super::cstr_lossy(inc), cname(ce().timestamp)));
+            throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer increment for {} initialization", super::cstr_lossy(inc), cname(ce().timestamp.get())));
             return false;
         };
         let Some(t) = parse_int64(ts) else {
-            throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer timestamp for {} initialization", super::cstr_lossy(ts), cname(ce().timestamp)));
+            throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer timestamp for {} initialization", super::cstr_lossy(ts), cname(ce().timestamp.get())));
             return false;
         };
         self.set(i, t)
@@ -1686,7 +1686,7 @@ impl Timestamp {
         if let (Some(i), Some(t)) = (find_t(ht, b"increment", sys::IS_STRING), find_t(ht, b"timestamp", sys::IS_STRING)) {
             return self.set_str(zval::str_bytes(i), zval::str_bytes(t));
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"increment\" and \"timestamp\" integer or numeric string fields", cname(ce().timestamp)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"increment\" and \"timestamp\" integer or numeric string fields", cname(ce().timestamp.get())));
         false
     }
 }
@@ -1703,12 +1703,12 @@ unsafe extern "C" fn timestamp_compare(a: *mut sys::zval, b: *mut sys::zval) -> 
 }
 
 pub unsafe fn init_MongoDB_BSON_Timestamp(c: *mut sys::zend_class_entry) {
-    ce_mut().timestamp = c;
+    ce().timestamp.set(c);
     setup::<Timestamp>(c).compare = Some(timestamp_compare);
 }
 
 pub unsafe fn new_timestamp(inc: u32, ts: u32) -> sys::zval {
-    new(ce().timestamp, Timestamp { increment: inc, timestamp: ts, init: true, props: Props::default() })
+    new(ce().timestamp.get(), Timestamp { increment: inc, timestamp: ts, init: true, props: Props::default() })
 }
 
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -1723,7 +1723,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___construct(ex: Ex, _rv: *mu
             sys::IS_STRING => match parse_int64(zval::str_bytes(z)) {
                 Some(v) => Some(v),
                 None => {
-                    throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer {} for {} initialization", super::cstr_lossy(zval::str_bytes(z)), what, cname(ce().timestamp)));
+                    throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer {} for {} initialization", super::cstr_lossy(zval::str_bytes(z)), what, cname(ce().timestamp.get())));
                     None
                 }
             },
@@ -1748,7 +1748,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_getTimestamp(ex: Ex, rv: *mu
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Timestamp>(ex, rv, ce().timestamp, Timestamp::init_from_hash);
+    set_state::<Timestamp>(ex, rv, ce().timestamp.get(), Timestamp::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1817,12 +1817,12 @@ impl UTCDateTime {
             return match parse_int64(s) {
                 Some(v) => self.set(v),
                 None => {
-                    throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer for {} initialization", super::cstr_lossy(s), cname(ce().utcdatetime)));
+                    throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit integer for {} initialization", super::cstr_lossy(s), cname(ce().utcdatetime.get())));
                     false
                 }
             };
         }
-        throw(E::InvalidArgument, format!("{} initialization requires \"milliseconds\" integer or numeric string field", cname(ce().utcdatetime)));
+        throw(E::InvalidArgument, format!("{} initialization requires \"milliseconds\" integer or numeric string field", cname(ce().utcdatetime.get())));
         false
     }
 }
@@ -1835,12 +1835,12 @@ unsafe extern "C" fn utcdatetime_compare(a: *mut sys::zval, b: *mut sys::zval) -
 }
 
 pub unsafe fn init_MongoDB_BSON_UTCDateTime(c: *mut sys::zend_class_entry) {
-    ce_mut().utcdatetime = c;
+    ce().utcdatetime.set(c);
     setup::<UTCDateTime>(c).compare = Some(utcdatetime_compare);
 }
 
 pub unsafe fn new_utcdatetime(ms: i64) -> sys::zval {
-    new(ce().utcdatetime, UTCDateTime { ms, init: true, props: Props::default() })
+    new(ce().utcdatetime.get(), UTCDateTime { ms, init: true, props: Props::default() })
 }
 
 unsafe fn date_obj(o: *mut sys::zend_object) -> *mut sys::php_date_obj {
@@ -1869,10 +1869,10 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___construct(ex: Ex, _rv: *
                     return;
                 }
                 me.set((*t).sse.wrapping_mul(1000).wrapping_add((*t).us / 1000));
-            } else if obj::instanceof((*o).ce, ce().int64) {
+            } else if obj::instanceof((*o).ce, ce().int64.get()) {
                 me.set(obj::data::<Int64>(o).v);
             } else {
-                throw(E::InvalidArgument, format!("Expected instance of {} or {}, {} given", cname(sys::php_date_get_interface_ce()), cname(ce().int64), cname((*o).ce)));
+                throw(E::InvalidArgument, format!("Expected instance of {} or {}, {} given", cname(sys::php_date_get_interface_ce()), cname(ce().int64.get()), cname((*o).ce)));
             }
         }
         sys::IS_LONG => {
@@ -1882,7 +1882,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___construct(ex: Ex, _rv: *
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<UTCDateTime>(ex, rv, ce().utcdatetime, UTCDateTime::init_from_hash);
+    set_state::<UTCDateTime>(ex, rv, ce().utcdatetime.get(), UTCDateTime::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1905,7 +1905,7 @@ unsafe fn to_php_date(ex: Ex, rv: *mut sys::zval, c: *mut sys::zend_class_entry)
     let s = format!("@{}", sec);
     if !sys::php_date_initialize(d, s.as_ptr() as *const _, s.len(), null_mut(), null_mut(), 0) || (*d).time.is_null() {
         zval::release(rv);
-        throw(E::Runtime, format!("Could not initialize {} object from {}", cname(c), cname(ce().utcdatetime)));
+        throw(E::Runtime, format!("Could not initialize {} object from {}", cname(c), cname(ce().utcdatetime.get())));
         return;
     }
     (*(*d).time).us = usec;

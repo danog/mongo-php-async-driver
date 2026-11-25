@@ -3,8 +3,8 @@
 
 use crate::bson::{throw, E};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zstr, zval};
-use std::ptr::{addr_of_mut, null_mut};
+use crate::zend::{class, hash, obj, sys, zstr, zval, ClassEntry, EngineCell};
+use std::ptr::null_mut;
 
 /// mongoc_server_api_t
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -23,11 +23,11 @@ pub struct ServerApi {
     props: crate::bson::types::Props,
 }
 
-static mut H_SERVERAPI: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_SERVERAPI: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ServerApi::default(), addr_of_mut!(H_SERVERAPI))
+    obj::alloc(c, ServerApi::default(), H_SERVERAPI.get())
 }
 
 /// phongo_serverapi_get_properties_hash: into `ht` (a fresh table, or the object's own one).
@@ -61,9 +61,9 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
 }
 
 pub unsafe fn init_MongoDB_Driver_ServerApi(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<ServerApi>(addr_of_mut!(H_SERVERAPI));
+    let h = obj::handlers::<ServerApi>(H_SERVERAPI.get());
     h.get_properties = Some(get_properties);
     h.get_debug_info = Some(get_debug_info);
 }
@@ -86,7 +86,7 @@ unsafe fn create_api(s: &mut ServerApi, version: &[u8], strict: Option<bool>, de
 
 /// phongo_serverapi_init_from_hash
 unsafe fn init_from_hash(s: &mut ServerApi, props: *mut sys::HashTable) -> bool {
-    let name = class::name(CE);
+    let name = class::name(CE.get());
     let version = match hash::find(props, b"version") {
         Some(v) if zval::is(v, sys::IS_STRING) => zval::str_bytes(v).to_vec(),
         _ => {
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ServerApi___set_state(ex: Ex, rv: *m
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let z = obj::new_zval(CE);
+    let z = obj::new_zval(CE.get());
     init_from_hash(obj::data::<ServerApi>(z.value.obj), (*a).value.arr);
     zval::write(rv, z);
 }
@@ -161,8 +161,8 @@ pub unsafe fn from_driver_options(driver_options: *mut sys::zval) -> Result<Opti
     }
     let Some(z) = hash::find((*driver_options).value.arr, b"serverApi") else { return Ok(None) };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof(zval::obj_ce(z), CE) {
-        return Err(format!("Expected \"serverApi\" driver option to be {}, {} given", class::name(CE), zval::type_name(z)));
+    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof(zval::obj_ce(z), CE.get()) {
+        return Err(format!("Expected \"serverApi\" driver option to be {}, {} given", class::name(CE.get()), zval::type_name(z)));
     }
     Ok(obj::data::<ServerApi>((*z).value.obj).api.clone())
 }

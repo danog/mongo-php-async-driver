@@ -8,73 +8,62 @@ pub mod document;
 pub mod encode;
 pub mod types;
 
-use crate::zend::{call, class, sys};
+use crate::zend::{call, class, sys, ClassEntry};
 use std::ffi::CStr;
-use std::ptr::null_mut;
 
 /// The class entries phongo keeps in globals (phongo_*_ce).
 pub struct Ces {
-    pub type_: *mut sys::zend_class_entry,
-    pub serializable: *mut sys::zend_class_entry,
-    pub unserializable: *mut sys::zend_class_entry,
-    pub persistable: *mut sys::zend_class_entry,
-    pub binary: *mut sys::zend_class_entry,
-    pub dbpointer: *mut sys::zend_class_entry,
-    pub decimal128: *mut sys::zend_class_entry,
-    pub document: *mut sys::zend_class_entry,
-    pub packedarray: *mut sys::zend_class_entry,
-    pub iterator: *mut sys::zend_class_entry,
-    pub int64: *mut sys::zend_class_entry,
-    pub javascript: *mut sys::zend_class_entry,
-    pub maxkey: *mut sys::zend_class_entry,
-    pub minkey: *mut sys::zend_class_entry,
-    pub objectid: *mut sys::zend_class_entry,
-    pub regex: *mut sys::zend_class_entry,
-    pub symbol: *mut sys::zend_class_entry,
-    pub timestamp: *mut sys::zend_class_entry,
-    pub undefined: *mut sys::zend_class_entry,
-    pub utcdatetime: *mut sys::zend_class_entry,
-    pub vectortype: *mut sys::zend_class_entry,
+    pub type_: ClassEntry,
+    pub serializable: ClassEntry,
+    pub unserializable: ClassEntry,
+    pub persistable: ClassEntry,
+    pub binary: ClassEntry,
+    pub dbpointer: ClassEntry,
+    pub decimal128: ClassEntry,
+    pub document: ClassEntry,
+    pub packedarray: ClassEntry,
+    pub iterator: ClassEntry,
+    pub int64: ClassEntry,
+    pub javascript: ClassEntry,
+    pub maxkey: ClassEntry,
+    pub minkey: ClassEntry,
+    pub objectid: ClassEntry,
+    pub regex: ClassEntry,
+    pub symbol: ClassEntry,
+    pub timestamp: ClassEntry,
+    pub undefined: ClassEntry,
+    pub utcdatetime: ClassEntry,
+    pub vectortype: ClassEntry,
 }
 
-pub static mut CE: Ces = Ces {
-    type_: null_mut(),
-    serializable: null_mut(),
-    unserializable: null_mut(),
-    persistable: null_mut(),
-    binary: null_mut(),
-    dbpointer: null_mut(),
-    decimal128: null_mut(),
-    document: null_mut(),
-    packedarray: null_mut(),
-    iterator: null_mut(),
-    int64: null_mut(),
-    javascript: null_mut(),
-    maxkey: null_mut(),
-    minkey: null_mut(),
-    objectid: null_mut(),
-    regex: null_mut(),
-    symbol: null_mut(),
-    timestamp: null_mut(),
-    undefined: null_mut(),
-    utcdatetime: null_mut(),
-    vectortype: null_mut(),
+pub static CE: Ces = Ces {
+    type_: ClassEntry::new(),
+    serializable: ClassEntry::new(),
+    unserializable: ClassEntry::new(),
+    persistable: ClassEntry::new(),
+    binary: ClassEntry::new(),
+    dbpointer: ClassEntry::new(),
+    decimal128: ClassEntry::new(),
+    document: ClassEntry::new(),
+    packedarray: ClassEntry::new(),
+    iterator: ClassEntry::new(),
+    int64: ClassEntry::new(),
+    javascript: ClassEntry::new(),
+    maxkey: ClassEntry::new(),
+    minkey: ClassEntry::new(),
+    objectid: ClassEntry::new(),
+    regex: ClassEntry::new(),
+    symbol: ClassEntry::new(),
+    timestamp: ClassEntry::new(),
+    undefined: ClassEntry::new(),
+    utcdatetime: ClassEntry::new(),
+    vectortype: ClassEntry::new(),
 };
 
-/// The class entries (all set at MINIT, by `ce_mut`, then only read).
+/// The class entries (set at MINIT).
 #[inline]
 pub fn ce() -> &'static Ces {
-    // SAFETY: CE is only written through `ce_mut`, during MINIT, before any `ce()` borrow exists
-    unsafe { &*std::ptr::addr_of!(CE) }
-}
-
-/// For the class registrations of MINIT.
-///
-/// # Safety
-/// Only during MINIT, while no reference `ce()` returned is alive (no request has run yet).
-#[inline]
-pub unsafe fn ce_mut() -> &'static mut Ces {
-    &mut *std::ptr::addr_of_mut!(CE)
+    &CE
 }
 
 /// phongo_error_domain_t
@@ -107,13 +96,13 @@ pub fn cstr_lossy(b: &[u8]) -> String {
 }
 
 pub unsafe fn init_MongoDB_BSON_Type(ce: *mut sys::zend_class_entry) {
-    ce_mut().type_ = ce;
+    CE.type_.set(ce);
 }
 pub unsafe fn init_MongoDB_BSON_Serializable(ce: *mut sys::zend_class_entry) {
-    ce_mut().serializable = ce;
+    CE.serializable.set(ce);
 }
 pub unsafe fn init_MongoDB_BSON_Unserializable(ce: *mut sys::zend_class_entry) {
-    ce_mut().unserializable = ce;
+    CE.unserializable.set(ce);
     (*ce).__bindgen_anon_2.interface_gets_implemented = Some(implement_unserializable);
 }
 
@@ -122,8 +111,8 @@ unsafe extern "C" fn implement_unserializable(iface: *mut sys::zend_class_entry,
     if (*class).ce_flags & sys::ZEND_ACC_ENUM != 0 {
         let c = ce();
         let mut err = iface;
-        if iface == c.unserializable && !c.persistable.is_null() && crate::zend::obj::instanceof(class, c.persistable) {
-            err = c.persistable;
+        if iface == c.unserializable.get() && !c.persistable.get().is_null() && crate::zend::obj::instanceof(class, c.persistable.get()) {
+            err = c.persistable.get();
         }
         sys::zend_error_noreturn(
             sys::E_ERROR as i32,
@@ -135,8 +124,8 @@ unsafe extern "C" fn implement_unserializable(iface: *mut sys::zend_class_entry,
     0
 }
 pub unsafe fn init_MongoDB_BSON_Persistable(ce: *mut sys::zend_class_entry) {
-    ce_mut().persistable = ce;
+    CE.persistable.set(ce);
 }
 pub unsafe fn init_MongoDB_BSON_VectorType(ce: *mut sys::zend_class_entry) {
-    ce_mut().vectortype = ce;
+    CE.vectortype.set(ce);
 }
