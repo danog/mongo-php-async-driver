@@ -1920,7 +1920,7 @@ enum Kind {
 /// A cluster checked out of a pool, returned when dropped.
 pub struct Lease<'a> {
     pool: &'a ClientPool,
-    client: std::mem::ManuallyDrop<Box<Client>>,
+    client: Option<Box<Client>>,
     kind: Kind,
 }
 
@@ -1969,7 +1969,7 @@ impl ClientPool {
         self.leased.set(self.leased.get() + 1);
         Lease {
             pool: self,
-            client: std::mem::ManuallyDrop::new(c),
+            client: Some(c),
             kind,
         }
     }
@@ -2115,22 +2115,21 @@ impl std::ops::Deref for Lease<'_> {
     type Target = Client;
     #[inline]
     fn deref(&self) -> &Client {
-        &self.client
+        self.client.as_deref().expect("lease used after drop")
     }
 }
 
 impl std::ops::DerefMut for Lease<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Client {
-        &mut self.client
+        self.client.as_deref_mut().expect("lease used after drop")
     }
 }
 
 impl Drop for Lease<'_> {
     #[inline]
     fn drop(&mut self) {
-        // SAFETY: taken once, here; the field is never used again
-        let c = unsafe { std::mem::ManuallyDrop::take(&mut self.client) };
+        let Some(c) = self.client.take() else { return };
         self.pool.leased.set(self.pool.leased.get() - 1);
         match self.kind {
             Kind::Pool => {}
