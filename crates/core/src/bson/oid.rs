@@ -16,7 +16,11 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
             return v;
         }
     }
-    let mut x = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) ^ (std::process::id() as u64) << 32;
+    let mut x = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1)
+        ^ (std::process::id() as u64) << 32;
     for b in v.iter_mut() {
         x ^= x << 13;
         x ^= x >> 7;
@@ -27,7 +31,10 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
 }
 
 pub fn now_secs() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// `bson_oid_init(oid, NULL)`. The random part is re-drawn after fork (crate::os::fork_epoch).
@@ -107,7 +114,10 @@ mod tests {
             }
         }
         let mut child = [0u8; 12];
-        assert_eq!(unsafe { libc::read(fds[0], child.as_mut_ptr().cast(), 12) }, 12);
+        assert_eq!(
+            unsafe { libc::read(fds[0], child.as_mut_ptr().cast(), 12) },
+            12
+        );
         unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) };
         assert_ne!(parent[4..9], child[4..9]);
         // the parent keeps its own

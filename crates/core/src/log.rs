@@ -8,7 +8,7 @@
 //! produced: they name libmongoc's C functions, and the dumps contain credentials and documents.
 //! Only explicit TRACE messages (`MongoDB\Driver\Monitoring\mongoc_log()`) reach the stream.
 
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::OnceLock;
 
 /// mongoc_log_level_t
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -54,7 +54,7 @@ impl Level {
 /// The handler: (level, domain, message).
 pub type Handler = fn(Level, &str, &str);
 
-static HANDLER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+static HANDLER: OnceLock<Handler> = OnceLock::new();
 thread_local! {
     /// The most verbose level anyone on this thread listens to, plus one (0: nobody listens;
     /// a thread-safe PHP's threads each have their own listeners).
@@ -63,7 +63,8 @@ thread_local! {
 
 /// Installs the handler (once, at module startup).
 pub fn set_handler(h: Handler) {
-    HANDLER.store(h as *mut (), Ordering::Relaxed);
+    // the extension installs the same handler at every startup: a later call changes nothing
+    let _ = HANDLER.set(h);
 }
 
 /// Sets the most verbose level that is listened to (None: logging is off).
@@ -80,12 +81,7 @@ pub fn log(l: Level, domain: &str, msg: impl FnOnce() -> String) {
     if !enabled(l) {
         return;
     }
-    let p = HANDLER.load(Ordering::Relaxed);
-    if p.is_null() {
-        return;
-    }
-    // SAFETY: only `set_handler` stores into HANDLER, always a `Handler`
-    let h: Handler = unsafe { std::mem::transmute::<*mut (), Handler>(p) };
+    let Some(h) = HANDLER.get() else { return };
     h(l, domain, &msg());
 }
 

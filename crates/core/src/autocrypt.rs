@@ -22,7 +22,12 @@ pub trait AutoCrypt {
 
     /// The command to send instead of `cmd` (None: `cmd` unchanged); `cmd` has its document
     /// sequences as arrays
-    fn encrypt(&mut self, client: &mut Client, db: &str, cmd: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+    fn encrypt(
+        &mut self,
+        client: &mut Client,
+        db: &str,
+        cmd: &[u8],
+    ) -> Result<Option<Vec<u8>>, Error> {
         let _ = (client, db, cmd);
         Ok(None)
     }

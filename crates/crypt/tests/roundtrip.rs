@@ -3,7 +3,10 @@ use mongo_crypt::crypto::{Algorithm, IV_LEN};
 use serde_json::Value;
 
 fn hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 fn algo(s: &str) -> Algorithm {
@@ -38,17 +41,26 @@ fn roundtrip_vectors() {
             let enc = a.encrypt(&iv, Some(&aad), &key, &plaintext);
             if let Some(err) = t.get("encrypt_error").and_then(Value::as_str) {
                 let got = enc.expect_err(name);
-                assert!(got.contains(err), "{name}: encrypt error {got:?} lacks {err:?}");
+                assert!(
+                    got.contains(err),
+                    "{name}: encrypt error {got:?} lacks {err:?}"
+                );
                 n += 1;
                 continue;
             }
-            if t.get("ignore_ciphertext_mismatch_on_encrypt").and_then(Value::as_bool) != Some(true) {
+            if t.get("ignore_ciphertext_mismatch_on_encrypt")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
                 assert_eq!(enc.expect(name), ciphertext, "{name}: ciphertext");
             }
             let dec = a.decrypt(Some(&aad), &key, &ciphertext);
             if let Some(err) = t.get("decrypt_error").and_then(Value::as_str) {
                 let got = dec.expect_err(name);
-                assert!(got.contains(err), "{name}: decrypt error {got:?} lacks {err:?}");
+                assert!(
+                    got.contains(err),
+                    "{name}: decrypt error {got:?} lacks {err:?}"
+                );
                 n += 1;
                 continue;
             }

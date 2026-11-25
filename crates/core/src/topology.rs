@@ -1,9 +1,12 @@
 //! Topology descriptions: SDAM state transitions and server selection (port of libmongoc's
 //! mongoc-topology-description.c, plus the application-error rules of mongoc-topology.c).
 
-use crate::error::{code, domain, Error};
-use crate::sdam::{topology_version_cmp, ServerDescription, ServerType, NO_SESSIONS, NO_SET_VERSION, WIRE_VERSION_5_0, WIRE_VERSION_6_0, WIRE_VERSION_MAX, WIRE_VERSION_MIN, ZERO_OID};
-use crate::uri::{ReadMode, NO_MAX_STALENESS};
+use crate::error::{Error, code, domain};
+use crate::sdam::{
+    NO_SESSIONS, NO_SET_VERSION, ServerDescription, ServerType, WIRE_VERSION_5_0, WIRE_VERSION_6_0,
+    WIRE_VERSION_MAX, WIRE_VERSION_MIN, ZERO_OID, topology_version_cmp,
+};
+use crate::uri::{NO_MAX_STALENESS, ReadMode};
 
 /// mongoc_topology_description_type_t
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,7 +52,11 @@ pub struct ReadPrefs {
 
 impl Default for ReadPrefs {
     fn default() -> Self {
-        ReadPrefs { mode: ReadMode::Primary, tags: Vec::new(), max_staleness_seconds: NO_MAX_STALENESS as i64 }
+        ReadPrefs {
+            mode: ReadMode::Primary,
+            tags: Vec::new(),
+            max_staleness_seconds: NO_MAX_STALENESS as i64,
+        }
     }
 }
 
@@ -69,7 +76,9 @@ pub const DEFAULT_CONNECT_TIMEOUT_MS: i64 = 10_000;
 impl ReadPrefs {
     /// mongoc_read_prefs_is_valid (hedge is not kept: deprecated, ignored by servers 8.0+)
     pub fn is_valid(&self) -> bool {
-        if self.mode == ReadMode::Primary && (!self.tags.is_empty() || self.max_staleness_seconds != NO_MAX_STALENESS as i64) {
+        if self.mode == ReadMode::Primary
+            && (!self.tags.is_empty() || self.max_staleness_seconds != NO_MAX_STALENESS as i64)
+        {
             return false;
         }
         !(self.max_staleness_seconds != NO_MAX_STALENESS as i64 && self.max_staleness_seconds <= 0)
@@ -172,8 +181,15 @@ impl TopologyDescription {
 
     /// mongoc_topology_new's description for `uri` (seeded with the URI's hosts).
     pub fn from_uri(uri: &crate::uri::Uri, single_threaded: bool) -> Self {
-        let hb_default = if single_threaded { HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED } else { HEARTBEAT_FREQUENCY_MS_MULTI_THREADED };
-        let mut td = Self::new(Self::initial_type(uri), uri.get_int32("heartbeatfrequencyms", hb_default as i32) as i64);
+        let hb_default = if single_threaded {
+            HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED
+        } else {
+            HEARTBEAT_FREQUENCY_MS_MULTI_THREADED
+        };
+        let mut td = Self::new(
+            Self::initial_type(uri),
+            uri.get_int32("heartbeatfrequencyms", hb_default as i32) as i64,
+        );
         td.topology_id = crate::bson::oid::generate();
         td.set_name = uri.options.str("replicaset").map(str::to_owned);
         td.max_hosts = uri.get_int32("srvmaxhosts", 0);
@@ -221,7 +237,8 @@ impl TopologyDescription {
         }
         self.opened = true;
         let topology_id = self.topology_id;
-        self.events.push(|| crate::apm::Event::TopologyOpening { topology_id });
+        self.events
+            .push(|| crate::apm::Event::TopologyOpening { topology_id });
         // the initial "previous" description: Unknown, no servers, zero id
         let initial = TopologyDescription::new(TopologyType::Unknown, self.heartbeat_msec);
         self.monitor_changed(Box::new(initial));
@@ -235,7 +252,12 @@ impl TopologyDescription {
                 let prev_sd = s.clone();
                 s.ty = ServerType::LoadBalancer;
                 let new_sd = s.clone();
-                self.events.push(|| crate::apm::Event::ServerChanged { topology_id, addr: new_sd.addr.clone(), previous: Box::new(prev_sd), new: Box::new(new_sd) });
+                self.events.push(|| crate::apm::Event::ServerChanged {
+                    topology_id,
+                    addr: new_sd.addr.clone(),
+                    previous: Box::new(prev_sd),
+                    new: Box::new(new_sd),
+                });
             }
             self.monitor_changed(previous);
         }
@@ -246,18 +268,25 @@ impl TopologyDescription {
         let topology_id = self.topology_id;
         if crate::apm::enabled() {
             let new = Box::new(self.clone());
-            self.events.push(|| crate::apm::Event::TopologyChanged { topology_id, previous, new });
+            self.events.push(|| crate::apm::Event::TopologyChanged {
+                topology_id,
+                previous,
+                new,
+            });
         }
     }
 
     /// _mongoc_topology_description_monitor_server_opening: deferred until the topology opened.
     fn monitor_server_opening(&mut self, id: u32) {
         let (opened, topology_id) = (self.opened, self.topology_id);
-        let Some(sd) = self.servers.iter_mut().find(|s| s.id == id) else { return };
+        let Some(sd) = self.servers.iter_mut().find(|s| s.id == id) else {
+            return;
+        };
         if opened && !sd.opened {
             sd.opened = true;
             let addr = sd.addr.clone();
-            self.events.push(|| crate::apm::Event::ServerOpening { topology_id, addr });
+            self.events
+                .push(|| crate::apm::Event::ServerOpening { topology_id, addr });
         }
     }
 
@@ -265,19 +294,30 @@ impl TopologyDescription {
     /// TopologyChanged to an empty Unknown description, then TopologyClosed if opened.
     pub fn close(&mut self) {
         let topology_id = self.topology_id;
-        let opened: Vec<String> = self.servers.iter().filter(|s| s.opened).map(|s| s.addr.clone()).collect();
+        let opened: Vec<String> = self
+            .servers
+            .iter()
+            .filter(|s| s.opened)
+            .map(|s| s.addr.clone())
+            .collect();
         for addr in opened {
-            self.events.push(|| crate::apm::Event::ServerClosed { topology_id, addr });
+            self.events
+                .push(|| crate::apm::Event::ServerClosed { topology_id, addr });
         }
         if crate::apm::enabled() {
             let mut next = TopologyDescription::new(TopologyType::Unknown, self.heartbeat_msec);
             next.topology_id = topology_id;
             next.opened = self.opened;
             let previous = Box::new(self.clone());
-            self.events.push(|| crate::apm::Event::TopologyChanged { topology_id, previous, new: Box::new(next) });
+            self.events.push(|| crate::apm::Event::TopologyChanged {
+                topology_id,
+                previous,
+                new: Box::new(next),
+            });
         }
         if self.opened {
-            self.events.push(|| crate::apm::Event::TopologyClosed { topology_id });
+            self.events
+                .push(|| crate::apm::Event::TopologyClosed { topology_id });
         }
     }
 
@@ -288,7 +328,9 @@ impl TopologyDescription {
         self.servers.iter_mut().find(|s| s.id == id)
     }
     pub fn server_by_address(&self, address: &str) -> Option<&ServerDescription> {
-        self.servers.iter().find(|s| s.addr.eq_ignore_ascii_case(address))
+        self.servers
+            .iter()
+            .find(|s| s.addr.eq_ignore_ascii_case(address))
     }
     fn id_of(&self, address: &str) -> Option<u32> {
         self.server_by_address(address).map(|s| s.id)
@@ -310,11 +352,14 @@ impl TopologyDescription {
     fn remove_server(&mut self, id: u32) {
         if let Some(sd) = self.server(id).filter(|s| s.opened) {
             let (topology_id, addr) = (self.topology_id, sd.addr.clone());
-            self.events.push(|| crate::apm::Event::ServerClosed { topology_id, addr });
+            self.events
+                .push(|| crate::apm::Event::ServerClosed { topology_id, addr });
         }
         self.servers.retain(|s| s.id != id);
         if self.servers.is_empty() {
-            crate::log::warning(crate::log::MONGOC, || "Last server removed from topology".to_owned());
+            crate::log::warning(crate::log::MONGOC, || {
+                "Last server removed from topology".to_owned()
+            });
         }
     }
 
@@ -323,11 +368,19 @@ impl TopologyDescription {
     }
 
     fn update_rs_type(&mut self) {
-        self.ty = if self.has_primary() { TopologyType::RsWithPrimary } else { TopologyType::RsNoPrimary };
+        self.ty = if self.has_primary() {
+            TopologyType::RsWithPrimary
+        } else {
+            TopologyType::RsNoPrimary
+        };
     }
 
     fn label_unknown_member(&mut self, address: &str, ty: ServerType) {
-        if let Some(s) = self.servers.iter_mut().find(|s| s.addr.eq_ignore_ascii_case(address) && s.ty == ServerType::Unknown) {
+        if let Some(s) = self
+            .servers
+            .iter_mut()
+            .find(|s| s.addr.eq_ignore_ascii_case(address) && s.ty == ServerType::Unknown)
+        {
             s.ty = ty;
         }
     }
@@ -368,9 +421,17 @@ impl TopologyDescription {
                 _ => {}
             }
         }
-        let stale = || Error::new(domain::STREAM, code::STREAM_CONNECT, "member's setVersion or electionId is stale");
+        let stale = || {
+            Error::new(
+                domain::STREAM,
+                code::STREAM_CONNECT,
+                "member's setVersion or electionId is stale",
+            )
+        };
         if sd.max_wire_version >= WIRE_VERSION_6_0 {
-            let not_stale = sd.election_id > self.max_election_id || (sd.election_id == self.max_election_id && sd.set_version >= self.max_set_version);
+            let not_stale = sd.election_id > self.max_election_id
+                || (sd.election_id == self.max_election_id
+                    && sd.set_version >= self.max_set_version);
             if not_stale {
                 self.max_election_id = sd.election_id;
                 self.max_set_version = sd.set_version;
@@ -381,7 +442,9 @@ impl TopologyDescription {
             }
         } else {
             if sd.set_version != NO_SET_VERSION && sd.election_id != ZERO_OID {
-                let later = self.max_set_version > sd.set_version || (self.max_set_version == sd.set_version && self.max_election_id > sd.election_id);
+                let later = self.max_set_version > sd.set_version
+                    || (self.max_set_version == sd.set_version
+                        && self.max_election_id > sd.election_id);
                 if later {
                     self.invalidate_server(sd.id, &stale());
                     self.update_rs_type();
@@ -389,7 +452,9 @@ impl TopologyDescription {
                 }
                 self.max_election_id = sd.election_id;
             }
-            if sd.set_version != NO_SET_VERSION && (self.max_set_version == NO_SET_VERSION || sd.set_version > self.max_set_version) {
+            if sd.set_version != NO_SET_VERSION
+                && (self.max_set_version == NO_SET_VERSION || sd.set_version > self.max_set_version)
+            {
                 self.max_set_version = sd.set_version;
             }
         }
@@ -403,7 +468,12 @@ impl TopologyDescription {
             }
         }
         self.add_new_servers(sd);
-        let to_remove: Vec<u32> = self.servers.iter().filter(|m| !sd.has_rs_member(&m.addr)).map(|m| m.id).collect();
+        let to_remove: Vec<u32> = self
+            .servers
+            .iter()
+            .filter(|m| !sd.has_rs_member(&m.addr))
+            .map(|m| m.id)
+            .collect();
         for id in to_remove {
             self.remove_server(id);
         }
@@ -411,7 +481,9 @@ impl TopologyDescription {
     }
 
     fn matches_me(sd: &ServerDescription) -> bool {
-        sd.me.as_ref().is_none_or(|me| sd.addr.eq_ignore_ascii_case(me))
+        sd.me
+            .as_ref()
+            .is_none_or(|me| sd.addr.eq_ignore_ascii_case(me))
     }
 
     fn update_rs_without_primary(&mut self, sd: &ServerDescription) {
@@ -450,11 +522,11 @@ impl TopologyDescription {
             self.remove_server(sd.id);
             return;
         }
-        if !self.has_primary() {
-            if let Some(p) = &sd.primary {
-                self.ty = TopologyType::RsNoPrimary;
-                self.label_unknown_member(p, ServerType::PossiblePrimary);
-            }
+        if !self.has_primary()
+            && let Some(p) = &sd.primary
+        {
+            self.ty = TopologyType::RsNoPrimary;
+            self.label_unknown_member(p, ServerType::PossiblePrimary);
         }
     }
 
@@ -474,7 +546,9 @@ impl TopologyDescription {
         use ServerType as S;
         use TopologyType as T;
         match (sd.ty, self.ty) {
-            (S::Unknown, T::RsWithPrimary) | (S::RsGhost, T::RsWithPrimary) => self.update_rs_type(),
+            (S::Unknown, T::RsWithPrimary) | (S::RsGhost, T::RsWithPrimary) => {
+                self.update_rs_type()
+            }
             (S::Standalone, T::Unknown) => self.update_unknown_with_standalone(sd),
             (S::Standalone | S::Mongos, T::RsNoPrimary) => self.remove_server(sd.id),
             (S::Standalone, T::Sharded) => self.remove_server(sd.id),
@@ -483,14 +557,23 @@ impl TopologyDescription {
                 self.update_rs_type();
             }
             (S::Mongos, T::Unknown) => self.ty = T::Sharded,
-            (S::RsPrimary, T::Unknown | T::RsNoPrimary | T::RsWithPrimary) => self.update_rs_from_primary(sd),
-            (S::RsPrimary | S::RsSecondary | S::RsArbiter | S::RsOther | S::RsGhost, T::Sharded) => self.remove_server(sd.id),
+            (S::RsPrimary, T::Unknown | T::RsNoPrimary | T::RsWithPrimary) => {
+                self.update_rs_from_primary(sd)
+            }
+            (
+                S::RsPrimary | S::RsSecondary | S::RsArbiter | S::RsOther | S::RsGhost,
+                T::Sharded,
+            ) => self.remove_server(sd.id),
             (S::RsSecondary | S::RsArbiter | S::RsOther, T::Unknown) => {
                 self.ty = T::RsNoPrimary;
                 self.update_rs_without_primary(sd);
             }
-            (S::RsSecondary | S::RsArbiter | S::RsOther, T::RsNoPrimary) => self.update_rs_without_primary(sd),
-            (S::RsSecondary | S::RsArbiter | S::RsOther, T::RsWithPrimary) => self.update_rs_with_primary_from_member(sd),
+            (S::RsSecondary | S::RsArbiter | S::RsOther, T::RsNoPrimary) => {
+                self.update_rs_without_primary(sd)
+            }
+            (S::RsSecondary | S::RsArbiter | S::RsOther, T::RsWithPrimary) => {
+                self.update_rs_with_primary_from_member(sd)
+            }
             _ => {}
         }
     }
@@ -505,7 +588,9 @@ impl TopologyDescription {
             if sd.session_timeout_minutes == NO_SESSIONS {
                 self.session_timeout_minutes = NO_SESSIONS;
                 return;
-            } else if self.session_timeout_minutes == NO_SESSIONS || self.session_timeout_minutes > sd.session_timeout_minutes {
+            } else if self.session_timeout_minutes == NO_SESSIONS
+                || self.session_timeout_minutes > sd.session_timeout_minutes
+            {
                 self.session_timeout_minutes = sd.session_timeout_minutes;
             }
         }
@@ -519,9 +604,26 @@ impl TopologyDescription {
                 continue;
             }
             if sd.min_wire_version > WIRE_VERSION_MAX {
-                self.compatibility_error = Some(Error::new(domain::PROTOCOL, code::PROTOCOL_BAD_WIRE_VERSION, format!("Server at {} requires wire version {}, but this version of libmongoc only supports up to {}", sd.addr, sd.min_wire_version, WIRE_VERSION_MAX)));
+                self.compatibility_error = Some(Error::new(
+                    domain::PROTOCOL,
+                    code::PROTOCOL_BAD_WIRE_VERSION,
+                    format!(
+                        "Server at {} requires wire version {}, but this version of libmongoc only supports up to {}",
+                        sd.addr, sd.min_wire_version, WIRE_VERSION_MAX
+                    ),
+                ));
             } else if sd.max_wire_version < WIRE_VERSION_MIN {
-                self.compatibility_error = Some(Error::new(domain::PROTOCOL, code::PROTOCOL_BAD_WIRE_VERSION, format!("Server at {} reports wire version {}, but this version of libmongoc requires at least {} (MongoDB {})", sd.addr, sd.max_wire_version, WIRE_VERSION_MIN, wire_version_to_server_version(WIRE_VERSION_MIN))));
+                self.compatibility_error = Some(Error::new(
+                    domain::PROTOCOL,
+                    code::PROTOCOL_BAD_WIRE_VERSION,
+                    format!(
+                        "Server at {} reports wire version {}, but this version of libmongoc requires at least {} (MongoDB {})",
+                        sd.addr,
+                        sd.max_wire_version,
+                        WIRE_VERSION_MIN,
+                        wire_version_to_server_version(WIRE_VERSION_MIN)
+                    ),
+                ));
             }
         }
     }
@@ -529,12 +631,18 @@ impl TopologyDescription {
     /// mongoc_topology_description_update_cluster_time
     pub fn update_cluster_time(&mut self, reply: &[u8]) {
         use crate::bson::iter::{Iter, Value};
-        let Some(mut it) = Iter::new(reply) else { return };
+        let Some(mut it) = Iter::new(reply) else {
+            return;
+        };
         if !it.find(b"$clusterTime") {
             return;
         }
         if let Value::Document(d) = it.value() {
-            if self.cluster_time.as_deref().is_none_or(|cur| cluster_time_greater(d, cur)) {
+            if self
+                .cluster_time
+                .as_deref()
+                .is_none_or(|cur| cluster_time_greater(d, cur))
+            {
                 self.cluster_time = Some(d.to_vec());
             }
         } else {
@@ -544,30 +652,57 @@ impl TopologyDescription {
 
     /// mongoc_topology_description_handle_hello. `wrong_set_name_check`: the Single-topology
     /// replicaSet check (always on in libmongoc).
-    pub fn handle_hello(&mut self, id: u32, reply: Option<&[u8]>, rtt_ms: i64, error: Option<&Error>) {
+    pub fn handle_hello(
+        &mut self,
+        id: u32,
+        reply: Option<&[u8]>,
+        rtt_ms: i64,
+        error: Option<&Error>,
+    ) {
         let set_name = self.set_name.clone();
         let ty = self.ty;
         let monitoring = crate::apm::enabled();
         let prev_td = (monitoring && self.server(id).is_some()).then(|| Box::new(self.clone()));
         let topology_id = self.topology_id;
-        let Some(sd) = self.server_mut(id) else { return };
-        if let Some(r) = reply {
-            if let Some(tv) = crate::bson::iter::Iter::new(r).and_then(|mut it| if it.find(b"topologyVersion") { if let crate::bson::iter::Value::Document(d) = it.value() { Some(d.to_vec()) } else { None } } else { None }) {
-                if topology_version_cmp(&sd.topology_version, &tv) == 1 {
-                    return;
+        let Some(sd) = self.server_mut(id) else {
+            return;
+        };
+        if let Some(r) = reply
+            && let Some(tv) = crate::bson::iter::Iter::new(r).and_then(|mut it| {
+                if it.find(b"topologyVersion") {
+                    if let crate::bson::iter::Value::Document(d) = it.value() {
+                        Some(d.to_vec())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
-            }
+            })
+            && topology_version_cmp(&sd.topology_version, &tv) == 1
+        {
+            return;
         }
         let prev_sd = monitoring.then(|| sd.clone());
         sd.handle_hello(reply, rtt_ms, error);
         if let (Some(want), TopologyType::Single) = (&set_name, ty) {
             let err = match &sd.set_name {
                 None => Some(format!("no reported set name, but expected '{want}'")),
-                Some(got) if got != want => Some(format!("reported set name '{got}' does not match '{want}'")),
+                Some(got) if got != want => {
+                    Some(format!("reported set name '{got}' does not match '{want}'"))
+                }
                 _ => None,
             };
             if let Some(m) = err {
-                sd.handle_hello(None, crate::sdam::RTT_UNSET, Some(&Error::new(domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE, m)));
+                sd.handle_hello(
+                    None,
+                    crate::sdam::RTT_UNSET,
+                    Some(&Error::new(
+                        domain::SERVER_SELECTION,
+                        code::SERVER_SELECTION_FAILURE,
+                        m,
+                    )),
+                );
             }
         }
         let sd = sd.clone();
@@ -575,7 +710,12 @@ impl TopologyDescription {
         let changed = prev_sd.filter(|p| !p.sdam_equal(&sd));
         if let Some(previous) = &changed {
             let (previous, new) = (Box::new(previous.clone()), Box::new(sd.clone()));
-            self.events.push(|| crate::apm::Event::ServerChanged { topology_id, addr: new.addr.clone(), previous, new });
+            self.events.push(|| crate::apm::Event::ServerChanged {
+                topology_id,
+                addr: new.addr.clone(),
+                previous,
+                new,
+            });
         }
         self.transition(&sd);
         self.update_session_timeout();
@@ -589,9 +729,20 @@ impl TopologyDescription {
 
     /// _mongoc_topology_handle_app_error. `kind`: what failed; `reply`: the server reply (command
     /// errors; labels for network errors). Returns whether the pool was cleared.
-    pub fn handle_app_error(&mut self, id: u32, handshake_complete: bool, kind: AppError, reply: &[u8], why: &Error, generation: u32, service_id: &[u8; 12]) -> AppErrorOutcome {
+    pub fn handle_app_error(
+        &mut self,
+        id: u32,
+        handshake_complete: bool,
+        kind: AppError,
+        reply: &[u8],
+        why: &Error,
+        generation: u32,
+        service_id: &[u8; 12],
+    ) -> AppErrorOutcome {
         let mut out = AppErrorOutcome::default();
-        let Some(sd) = self.server(id) else { return out };
+        let Some(sd) = self.server(id) else {
+            return out;
+        };
         if self.ty == TopologyType::LoadBalanced && !handshake_complete {
             return out;
         }
@@ -602,7 +753,9 @@ impl TopologyDescription {
             return out;
         }
         if kind == AppError::Command {
-            let Err(cmd_error) = crate::cmd::check_ok_no_wce(reply) else { return out };
+            let Err(cmd_error) = crate::cmd::check_ok_no_wce(reply) else {
+                return out;
+            };
             let cmd_error = cmd_error.into_error();
             if !cmd_error.is_state_change() {
                 return out;
@@ -632,24 +785,49 @@ impl TopologyDescription {
 
     /// mongoc_topology_description_lowest_max_wire_version
     pub fn lowest_max_wire_version(&self) -> i32 {
-        self.servers.iter().filter(|s| !matches!(s.ty, ServerType::Unknown | ServerType::PossiblePrimary)).map(|s| s.max_wire_version).min().unwrap_or(i32::MAX)
+        self.servers
+            .iter()
+            .filter(|s| !matches!(s.ty, ServerType::Unknown | ServerType::PossiblePrimary))
+            .map(|s| s.max_wire_version)
+            .min()
+            .unwrap_or(i32::MAX)
     }
 
     /// mongoc_topology_description_all_sds_have_write_date
     pub fn all_sds_have_write_date(&self) -> bool {
-        self.servers.iter().all(|s| s.last_write_date_ms > 0 || !matches!(s.ty, ServerType::RsPrimary | ServerType::RsSecondary))
+        self.servers.iter().all(|s| {
+            s.last_write_date_ms > 0
+                || !matches!(s.ty, ServerType::RsPrimary | ServerType::RsSecondary)
+        })
     }
 
     /// _mongoc_topology_description_validate_max_staleness
     pub fn validate_max_staleness(&self, max_staleness_seconds: i64) -> Result<(), Error> {
-        if !matches!(self.ty, TopologyType::RsWithPrimary | TopologyType::RsNoPrimary) {
+        if !matches!(
+            self.ty,
+            TopologyType::RsWithPrimary | TopologyType::RsNoPrimary
+        ) {
             return Ok(());
         }
         if max_staleness_seconds * 1000 < self.heartbeat_msec + IDLE_WRITE_PERIOD_MS {
-            return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("maxStalenessSeconds is set to {max_staleness_seconds}, it must be at least heartbeatFrequencyMS ({}) + server's idle write period ({} seconds)", self.heartbeat_msec, IDLE_WRITE_PERIOD_MS / 1000)));
+            return Err(Error::new(
+                domain::COMMAND,
+                code::COMMAND_INVALID_ARG,
+                format!(
+                    "maxStalenessSeconds is set to {max_staleness_seconds}, it must be at least heartbeatFrequencyMS ({}) + server's idle write period ({} seconds)",
+                    self.heartbeat_msec,
+                    IDLE_WRITE_PERIOD_MS / 1000
+                ),
+            ));
         }
         if max_staleness_seconds < SMALLEST_MAX_STALENESS_SECONDS {
-            return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("maxStalenessSeconds is set to {max_staleness_seconds}, it must be at least {SMALLEST_MAX_STALENESS_SECONDS} seconds")));
+            return Err(Error::new(
+                domain::COMMAND,
+                code::COMMAND_INVALID_ARG,
+                format!(
+                    "maxStalenessSeconds is set to {max_staleness_seconds}, it must be at least {SMALLEST_MAX_STALENESS_SECONDS} seconds"
+                ),
+            ));
         }
         Ok(())
     }
@@ -662,7 +840,11 @@ impl TopologyDescription {
         let Some(rp) = rp else { return Ok(()) };
         if rp.max_staleness_seconds != NO_MAX_STALENESS as i64 {
             if !self.all_sds_have_write_date() {
-                return Err(Error::new(domain::COMMAND, code::PROTOCOL_BAD_WIRE_VERSION, "Not all servers have lastWriteDate"));
+                return Err(Error::new(
+                    domain::COMMAND,
+                    code::PROTOCOL_BAD_WIRE_VERSION,
+                    "Not all servers have lastWriteDate",
+                ));
             }
             self.validate_max_staleness(rp.max_staleness_seconds)?;
         }
@@ -676,19 +858,32 @@ impl TopologyDescription {
         }
         match optype {
             OpType::Write | OpType::Read => false,
-            OpType::AggregateWithWrite => self.servers.iter().any(|s| s.ty != ServerType::Unknown && s.max_wire_version < WIRE_VERSION_5_0),
+            OpType::AggregateWithWrite => self
+                .servers
+                .iter()
+                .any(|s| s.ty != ServerType::Unknown && s.max_wire_version < WIRE_VERSION_5_0),
         }
     }
 
     /// mongoc_topology_description_suitable_servers: the suitable servers' indexes into
     /// `self.servers`, and whether the read preference was overridden to primary.
-    pub fn suitable_servers(&self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32], local_threshold_ms: i64) -> (Vec<usize>, bool) {
+    pub fn suitable_servers(
+        &self,
+        optype: OpType,
+        rp: Option<&ReadPrefs>,
+        deprioritized: &[u32],
+        local_threshold_ms: i64,
+    ) -> (Vec<usize>, bool) {
         if self.servers.is_empty() {
             return (Vec::new(), false);
         }
         let given = rp.map_or(ReadMode::Primary, |r| r.mode);
         let must_use_primary = self.must_use_primary(optype, given);
-        let mode = if must_use_primary { ReadMode::Primary } else { given };
+        let mode = if must_use_primary {
+            ReadMode::Primary
+        } else {
+            given
+        };
         let ds = (!deprioritized.is_empty()).then_some(deprioritized);
         let mut set = Vec::new();
         if !self.filter_by_topology(&mut set, ds, optype, rp, mode, local_threshold_ms) {
@@ -714,9 +909,16 @@ impl TopologyDescription {
     }
 
     fn by_rtt(&self, set: &mut Vec<usize>, cands: &[usize], local_threshold_ms: i64) {
-        let Some(nearest) = cands.iter().map(|&i| self.servers[i].rtt_ms).min() else { return };
+        let Some(nearest) = cands.iter().map(|&i| self.servers[i].rtt_ms).min() else {
+            return;
+        };
         let limit = nearest.saturating_add(local_threshold_ms);
-        set.extend(cands.iter().copied().filter(|&i| self.servers[i].rtt_ms <= limit));
+        set.extend(
+            cands
+                .iter()
+                .copied()
+                .filter(|&i| self.servers[i].rtt_ms <= limit),
+        );
     }
 
     fn filter_deprioritized(&self, cands: &mut Vec<usize>, ds: &[u32]) {
@@ -739,12 +941,23 @@ impl TopologyDescription {
                     return true;
                 }
                 let s = &self.servers[i];
-                let staleness = p.last_write_date_ms * 1000 + (s.last_update_time_usec - p.last_update_time_usec) - s.last_write_date_ms * 1000 + hb_usec;
+                let staleness = p.last_write_date_ms * 1000
+                    + (s.last_update_time_usec - p.last_update_time_usec)
+                    - s.last_write_date_ms * 1000
+                    + hb_usec;
                 staleness <= max_usec
             });
         } else {
-            let max_lwd = cands.iter().filter(|&&i| sec(i)).map(|&i| self.servers[i].last_write_date_ms * 1000).max().unwrap_or(0).max(0);
-            cands.retain(|&i| !sec(i) || max_lwd - self.servers[i].last_write_date_ms * 1000 + hb_usec <= max_usec);
+            let max_lwd = cands
+                .iter()
+                .filter(|&&i| sec(i))
+                .map(|&i| self.servers[i].last_write_date_ms * 1000)
+                .max()
+                .unwrap_or(0)
+                .max(0);
+            cands.retain(|&i| {
+                !sec(i) || max_lwd - self.servers[i].last_write_date_ms * 1000 + hb_usec <= max_usec
+            });
         }
     }
 
@@ -755,7 +968,11 @@ impl TopologyDescription {
             return;
         }
         for set in &rp.tags {
-            let matched: Vec<usize> = cands.iter().copied().filter(|&i| match_tag_set(&self.servers[i].tags, set)).collect();
+            let matched: Vec<usize> = cands
+                .iter()
+                .copied()
+                .filter(|&i| match_tag_set(&self.servers[i].tags, set))
+                .collect();
             if !matched.is_empty() {
                 *cands = matched;
                 return;
@@ -765,7 +982,15 @@ impl TopologyDescription {
     }
 
     /// _filter_suitable_servers_with_read_mode_secondary; false = retry without deprioritization
-    fn secondary_filter(&self, set: &mut Vec<usize>, cands: &mut Vec<usize>, primary: Option<usize>, ds: Option<&[u32]>, rp: Option<&ReadPrefs>, local_threshold_ms: i64) -> bool {
+    fn secondary_filter(
+        &self,
+        set: &mut Vec<usize>,
+        cands: &mut Vec<usize>,
+        primary: Option<usize>,
+        ds: Option<&[u32]>,
+        rp: Option<&ReadPrefs>,
+        local_threshold_ms: i64,
+    ) -> bool {
         if let Some(ds) = ds {
             self.filter_deprioritized(cands, ds);
             if cands.is_empty() {
@@ -783,7 +1008,15 @@ impl TopologyDescription {
     }
 
     /// _filter_suitable_servers_by_topology; false = retry without deprioritization
-    fn filter_by_topology(&self, set: &mut Vec<usize>, ds: Option<&[u32]>, optype: OpType, rp: Option<&ReadPrefs>, mode: ReadMode, local_threshold_ms: i64) -> bool {
+    fn filter_by_topology(
+        &self,
+        set: &mut Vec<usize>,
+        ds: Option<&[u32]>,
+        optype: OpType,
+        rp: Option<&ReadPrefs>,
+        mode: ReadMode,
+        local_threshold_ms: i64,
+    ) -> bool {
         match self.ty {
             TopologyType::Single => {
                 if self.is_candidate(self.servers[0].ty, mode) {
@@ -814,11 +1047,11 @@ impl TopologyDescription {
                             true
                         }
                         ReadMode::PrimaryPreferred | ReadMode::Nearest => {
-                            if mode == ReadMode::PrimaryPreferred {
-                                if let Some(p) = primary.filter(|_| !primary_deprioritized) {
-                                    set.push(p);
-                                    return true;
-                                }
+                            if mode == ReadMode::PrimaryPreferred
+                                && let Some(p) = primary.filter(|_| !primary_deprioritized)
+                            {
+                                set.push(p);
+                                return true;
                             }
                             if let Some(ds) = ds {
                                 self.filter_deprioritized(&mut cands, ds);
@@ -836,7 +1069,14 @@ impl TopologyDescription {
                         }
                         ReadMode::SecondaryPreferred => {
                             let (inner_primary, mut inner) = rs_scan(ReadMode::Secondary);
-                            self.secondary_filter(set, &mut inner, inner_primary, ds, rp, local_threshold_ms);
+                            self.secondary_filter(
+                                set,
+                                &mut inner,
+                                inner_primary,
+                                ds,
+                                rp,
+                                local_threshold_ms,
+                            );
                             if !set.is_empty() {
                                 return true;
                             }
@@ -846,18 +1086,31 @@ impl TopologyDescription {
                             }
                             ds.is_none()
                         }
-                        ReadMode::Secondary => self.secondary_filter(set, &mut cands, primary, ds, rp, local_threshold_ms),
+                        ReadMode::Secondary => self.secondary_filter(
+                            set,
+                            &mut cands,
+                            primary,
+                            ds,
+                            rp,
+                            local_threshold_ms,
+                        ),
                     }
                 }
                 OpType::Write => {
                     if self.ty == TopologyType::RsWithPrimary {
-                        set.extend(self.servers.iter().position(|s| s.ty == ServerType::RsPrimary));
+                        set.extend(
+                            self.servers
+                                .iter()
+                                .position(|s| s.ty == ServerType::RsPrimary),
+                        );
                     }
                     true
                 }
             },
             TopologyType::Sharded => {
-                let mut cands: Vec<usize> = (0..self.servers.len()).filter(|&i| self.is_candidate(self.servers[i].ty, mode)).collect();
+                let mut cands: Vec<usize> = (0..self.servers.len())
+                    .filter(|&i| self.is_candidate(self.servers[i].ty, mode))
+                    .collect();
                 if let Some(ds) = ds {
                     self.filter_deprioritized(&mut cands, ds);
                     if cands.is_empty() {
@@ -877,10 +1130,18 @@ impl TopologyDescription {
 
     /// mongoc_topology_description_select: the selected server's id, and whether the read
     /// preference must be overridden to primary.
-    pub fn select(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32], local_threshold_ms: i64) -> (Option<u32>, bool) {
+    pub fn select(
+        &mut self,
+        optype: OpType,
+        rp: Option<&ReadPrefs>,
+        deprioritized: &[u32],
+        local_threshold_ms: i64,
+    ) -> (Option<u32>, bool) {
         if self.ty == TopologyType::Single {
             let sd = &self.servers[0];
-            let must = optype == OpType::AggregateWithWrite && sd.ty != ServerType::Unknown && sd.max_wire_version < WIRE_VERSION_5_0;
+            let must = optype == OpType::AggregateWithWrite
+                && sd.ty != ServerType::Unknown
+                && sd.max_wire_version < WIRE_VERSION_5_0;
             return (sd.has_hello_response.then_some(sd.id), must);
         }
         let (set, must) = self.suitable_servers(optype, rp, deprioritized, local_threshold_ms);
@@ -904,7 +1165,11 @@ impl TopologyDescription {
     /// mongoc_topology_description_reconcile (SRV polling): `hosts` = host_and_port strings,
     /// already shuffled for srvMaxHosts as libmongoc does.
     pub fn reconcile(&mut self, hosts: &[String]) {
-        let num_missing = self.servers.iter().filter(|s| !hosts.iter().any(|h| h.eq_ignore_ascii_case(&s.addr))).count();
+        let num_missing = self
+            .servers
+            .iter()
+            .filter(|s| !hosts.iter().any(|h| h.eq_ignore_ascii_case(&s.addr)))
+            .count();
         if self.max_hosts == 0 || self.max_hosts as usize >= hosts.len() {
             for h in hosts {
                 self.add_server(h);
@@ -918,7 +1183,12 @@ impl TopologyDescription {
                 self.add_server(h);
             }
         }
-        let gone: Vec<u32> = self.servers.iter().filter(|s| !hosts.iter().any(|h| h.eq_ignore_ascii_case(&s.addr))).map(|s| s.id).collect();
+        let gone: Vec<u32> = self
+            .servers
+            .iter()
+            .filter(|s| !hosts.iter().any(|h| h.eq_ignore_ascii_case(&s.addr)))
+            .map(|s| s.id)
+            .collect();
         for id in gone {
             self.remove_server(id);
         }
@@ -945,7 +1215,9 @@ pub struct AppErrorOutcome {
 fn match_tag_set(tags: &[u8], set: &[(String, String)]) -> bool {
     use crate::bson::iter::{Iter, Value};
     set.iter().all(|(k, v)| {
-        let Some(mut it) = Iter::new(tags) else { return false };
+        let Some(mut it) = Iter::new(tags) else {
+            return false;
+        };
         it.find(k.as_bytes())
             && match it.value() {
                 Value::Utf8(s) => s == v.as_bytes(),
@@ -957,12 +1229,11 @@ fn match_tag_set(tags: &[u8], set: &[(String, String)]) -> bool {
 /// _find_topology_version: the reply's topologyVersion (empty document when absent).
 fn find_topology_version(reply: &[u8]) -> Vec<u8> {
     use crate::bson::iter::{Iter, Value};
-    if let Some(mut it) = Iter::new(reply) {
-        if it.find(b"topologyVersion") {
-            if let Value::Document(d) = it.value() {
-                return d.to_vec();
-            }
-        }
+    if let Some(mut it) = Iter::new(reply)
+        && it.find(b"topologyVersion")
+        && let Value::Document(d) = it.value()
+    {
+        return d.to_vec();
     }
     vec![5, 0, 0, 0, 0]
 }
@@ -1023,7 +1294,11 @@ mod tests {
         w.utf8(b"empty", b"");
         w.int32(b"n", 1);
         let tags = w.finish();
-        let set = |p: &[(&str, &str)]| p.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        let set = |p: &[(&str, &str)]| {
+            p.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<Vec<_>>()
+        };
         assert!(match_tag_set(&tags, &set(&[("dc", "ny")])));
         assert!(!match_tag_set(&tags, &set(&[("dc", "NY")])));
         assert!(!match_tag_set(&tags, &set(&[("rack", "")])));

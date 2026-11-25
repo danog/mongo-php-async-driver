@@ -20,13 +20,25 @@ fn get<'a>(doc: &'a [u8], key: &[u8]) -> Option<Value<'a>> {
 }
 
 fn md() -> Metadata {
-    Metadata { appname: Some("core-live".into()), driver_name: "ext-mongodb:PHP".into(), driver_version: "2.5.8".into(), platform: "PHP test".into() }
+    Metadata {
+        appname: Some("core-live".into()),
+        driver_name: "ext-mongodb:PHP".into(),
+        driver_version: "2.5.8".into(),
+        platform: "PHP test".into(),
+    }
 }
 
 #[test]
 fn handshake_and_crud() {
     let Some((h, p)) = server() else { return };
-    let (mut c, sd) = handshake::connect_and_hello(&h, p, Some(Duration::from_secs(5)), &md(), &HelloOpts::default()).unwrap();
+    let (mut c, sd) = handshake::connect_and_hello(
+        &h,
+        p,
+        Some(Duration::from_secs(5)),
+        &md(),
+        &HelloOpts::default(),
+    )
+    .unwrap();
     assert_eq!(sd.ty, ServerType::Standalone, "{sd:?}");
     assert!(sd.max_wire_version >= 8);
     assert!(sd.hello_ok);
@@ -44,11 +56,13 @@ fn handshake_and_crud() {
     let _ = handshake::run_command(&mut c, &w.finish(), t).unwrap();
 
     // insert with a document sequence
-    let docs: Vec<Vec<u8>> = (0..3).map(|i| {
-        let mut d = Writer::new();
-        d.int32(b"_id", i);
-        d.finish()
-    }).collect();
+    let docs: Vec<Vec<u8>> = (0..3)
+        .map(|i| {
+            let mut d = Writer::new();
+            d.int32(b"_id", i);
+            d.finish()
+        })
+        .collect();
     let mut w = Writer::new();
     w.utf8(b"insert", b"live");
     w.utf8(b"$db", b"core_test");
@@ -74,10 +88,24 @@ fn handshake_and_crud() {
 fn nonblocking_with_poll() {
     use mongo_core::{net, os};
     let Some((h, p)) = server() else { return };
-    let (mut c, _) = handshake::connect_and_hello(&h, p, Some(Duration::from_secs(5)), &md(), &HelloOpts::default()).unwrap();
+    let (mut c, _) = handshake::connect_and_hello(
+        &h,
+        p,
+        Some(Duration::from_secs(5)),
+        &md(),
+        &HelloOpts::default(),
+    )
+    .unwrap();
     let wait = |c: &net::Conn, events: i16| {
         let mut fds = [os::pollfd(c.raw_fd(), events)];
-        assert_eq!(net::poll_fds(&mut fds, Some(std::time::Instant::now() + Duration::from_secs(5))).unwrap(), 1);
+        assert_eq!(
+            net::poll_fds(
+                &mut fds,
+                Some(std::time::Instant::now() + Duration::from_secs(5))
+            )
+            .unwrap(),
+            1
+        );
     };
     c.set_nonblocking().unwrap();
     let mut w = Writer::new();
@@ -108,10 +136,17 @@ fn client_select_and_command() {
     let s = Settings::from_uri(&uri);
     let mut c = Client::new(uri, s).unwrap();
     let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
-    assert_eq!(e.message, "No suitable servers found (`serverSelectionTryOnce` set): [connection refused calling hello on '127.0.0.1:28099']. Topology type: Single");
+    assert_eq!(
+        e.message,
+        "No suitable servers found (`serverSelectionTryOnce` set): [connection refused calling hello on '127.0.0.1:28099']. Topology type: Single"
+    );
     // in cooldown right after: no rescan
     let e = c.select_server_id(OpType::Read, None, &[]).unwrap_err();
-    assert!(e.message.starts_with("No servers yet eligible for rescan"), "{}", e.message);
+    assert!(
+        e.message.starts_with("No servers yet eligible for rescan"),
+        "{}",
+        e.message
+    );
     let Some((h, p)) = server() else { return };
     let uri = Uri::parse(&format!("mongodb://{h}:{p}/")).unwrap();
     let s = Settings::from_uri(&uri);
@@ -161,7 +196,10 @@ fn client_fork() {
     }
     let mut status = 0;
     unsafe { libc::waitpid(pid, &mut status, 0) };
-    assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0, "child failed: {status}");
+    assert!(
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+        "child failed: {status}"
+    );
     for _ in 0..20 {
         c.run_command(id, "ping", "admin", &ping()).unwrap();
     }

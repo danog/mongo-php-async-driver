@@ -105,10 +105,14 @@ impl AwsRequest {
     /// `finalize`: the default Host header and Content-Length
     fn finalize(&mut self) {
         if !self.headers.iter().any(|(k, _)| k == "Host") {
-            self.headers.push(("Host".into(), format!("{}.{}.amazonaws.com", self.service, self.region)));
+            self.headers.push((
+                "Host".into(),
+                format!("{}.{}.amazonaws.com", self.service, self.region),
+            ));
         }
         if !self.headers.iter().any(|(k, _)| k == "Content-Length") && !self.payload.is_empty() {
-            self.headers.push(("Content-Length".into(), self.payload.len().to_string()));
+            self.headers
+                .push(("Content-Length".into(), self.payload.len().to_string()));
         }
     }
 
@@ -137,7 +141,11 @@ impl AwsRequest {
         let mut s = String::from("POST\n/\n\n");
         let mut prev: Option<String> = None;
         let mut first = true;
-        for (k, v) in self.sorted().into_iter().filter(|(k, _)| !k.eq_ignore_ascii_case("connection")) {
+        for (k, v) in self
+            .sorted()
+            .into_iter()
+            .filter(|(k, _)| !k.eq_ignore_ascii_case("connection"))
+        {
             let l = k.to_ascii_lowercase();
             if prev.as_deref() == Some(&l) {
                 s.push(',');
@@ -219,10 +227,18 @@ impl AwsRequest {
 
 /// The current time as "YYYYmmDDTHHMMSSZ"
 pub fn amz_datetime() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     let (y, mo, d) = mongo_core::bson::fmt::civil_from_days(secs.div_euclid(86400));
     let t = secs.rem_euclid(86400);
-    format!("{y:04}{mo:02}{d:02}T{:02}{:02}{:02}Z", t / 3600, t % 3600 / 60, t % 60)
+    format!(
+        "{y:04}{mo:02}{d:02}T{:02}{:02}{:02}Z",
+        t / 3600,
+        t % 3600 / 60,
+        t % 60
+    )
 }
 
 /// `kms_decrypt_request_new` / `kms_encrypt_request_new` + the credentials (`_mongocrypt_kms_ctx_init_aws_*`)
@@ -244,31 +260,46 @@ pub fn aws_request(
     } else {
         // kms-message formats the key id in unescaped: here it is JSON-escaped, so a key id (from a
         // key document when rewrapping) cannot add fields to the request (safety divergence)
-        ("Encrypt", format!("{{\"Plaintext\": \"{b64}\", \"KeyId\": \"{}\"}}", json_escape(cmk.unwrap_or_default())))
+        (
+            "Encrypt",
+            format!(
+                "{{\"Plaintext\": \"{b64}\", \"KeyId\": \"{}\"}}",
+                json_escape(cmk.unwrap_or_default())
+            ),
+        )
     };
     let mut r = AwsRequest::new(datetime, target, payload);
     // kms_request_opt_set_connection_close (not signed)
     r.headers.insert(1, ("Connection".into(), "close".into()));
     r.service = "kms".into();
     if let Some(t) = session_token {
-        check_header_value("header value", t).map_err(|e| format!("failed to set session token: {e}"))?;
+        check_header_value("header value", t)
+            .map_err(|e| format!("failed to set session token: {e}"))?;
         r.headers.push(("X-Amz-Security-Token".into(), t.into()));
     }
     if let Some(h) = host_header {
-        check_header_value("header value", h).map_err(|e| format!("error constructing KMS message: {e}"))?;
+        check_header_value("header value", h)
+            .map_err(|e| format!("error constructing KMS message: {e}"))?;
         r.headers.push(("Host".into(), h.into()));
     }
     check_header_value("region", region).map_err(|e| format!("failed to set region: {e}"))?;
-    check_header_value("access key id", access_key_id).map_err(|e| format!("failed to set aws access key id: {e}"))?;
+    check_header_value("access key id", access_key_id)
+        .map_err(|e| format!("failed to set aws access key id: {e}"))?;
     r.region = region.into();
     r.access_key_id = access_key_id.into();
     r.secret_key = secret_access_key.into();
-    r.signed().map_err(|e| format!("failed to create KMS message: {e}"))
+    r.signed()
+        .map_err(|e| format!("failed to create KMS message: {e}"))
 }
 
 /// `kms_request_to_string` for a request that is not signed (Azure, GCP): the request line, the
 /// headers sorted by name (Content-Length added), the body. Every header is checked for CR/LF.
-fn plain_request(method: &str, path_and_query: &str, mut headers: Vec<(String, String)>, payload: &str) -> Result<String> {
+fn plain_request(
+    method: &str,
+    path_and_query: &str,
+    mut headers: Vec<(String, String)>,
+    payload: &str,
+) -> Result<String> {
     if path_and_query.contains([' ', '\r', '\n']) {
         return Err("HTTP path contains invalid characters".into());
     }
@@ -297,7 +328,10 @@ fn plain_request(method: &str, path_and_query: &str, mut headers: Vec<(String, S
 
 /// kms-message's `_check_path_segment`: unreserved characters only, at least one alphanumeric
 fn check_path_segment(name: &str, value: &str) -> Result<()> {
-    if !value.bytes().all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c)) {
+    if !value
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c))
+    {
         return Err(format!("Invalid character in Azure KMS identifier: {name}"));
     }
     if !value.bytes().any(|c| c.is_ascii_alphanumeric()) {
@@ -313,29 +347,60 @@ fn b64url(data: &[u8]) -> String {
 
 /// `kms_azure_request_oauth_new` (`_mongocrypt_kms_ctx_init_azure_auth`): the client credentials
 /// token request; `scope` is already %-encoded
-pub fn azure_oauth_request(host: &str, scope: &str, tenant_id: &str, client_id: &str, client_secret: &str) -> Result<Vec<u8>> {
+pub fn azure_oauth_request(
+    host: &str,
+    scope: &str,
+    tenant_id: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<Vec<u8>> {
     let err = |e: String| format!("error constructing KMS message: {e}");
     check_path_segment("tenantId", tenant_id).map_err(err)?;
-    let payload = format!("client_id={client_id}&scope={scope}&client_secret={client_secret}&grant_type=client_credentials");
+    let payload = format!(
+        "client_id={client_id}&scope={scope}&client_secret={client_secret}&grant_type=client_credentials"
+    );
     let headers = vec![
         ("Connection".into(), "close".into()),
-        ("Content-Type".into(), "application/x-www-form-urlencoded".into()),
+        (
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        ),
         ("Host".into(), host.into()),
         ("Accept".into(), "application/json".into()),
     ];
-    Ok(plain_request("POST", &format!("/{tenant_id}/oauth2/v2.0/token"), headers, &payload).map_err(err)?.into_bytes())
+    Ok(plain_request(
+        "POST",
+        &format!("/{tenant_id}/oauth2/v2.0/token"),
+        headers,
+        &payload,
+    )
+    .map_err(err)?
+    .into_bytes())
 }
 
 /// `kms_azure_request_wrapkey_new` / `_unwrapkey_new`
-pub fn azure_wrap_request(wrap: bool, host: &str, access_token: &str, key_name: &str, key_version: Option<&str>, value: &[u8]) -> Result<Vec<u8>> {
+pub fn azure_wrap_request(
+    wrap: bool,
+    host: &str,
+    access_token: &str,
+    key_name: &str,
+    key_version: Option<&str>,
+    value: &[u8],
+) -> Result<Vec<u8>> {
     let op = if wrap { "wrapkey" } else { "unwrapkey" };
     let err = |e: String| format!("error constructing KMS {op} message: {e}");
     check_path_segment("keyName", key_name).map_err(err)?;
     if let Some(v) = key_version.filter(|v| !v.is_empty()) {
         check_path_segment("keyVersion", v).map_err(err)?;
     }
-    let path = format!("/keys/{key_name}/{}/{op}?api-version=7.1", key_version.unwrap_or_default());
-    let payload = format!("{{\"alg\": \"RSA-OAEP-256\", \"value\": \"{}\"}}", b64url(value));
+    let path = format!(
+        "/keys/{key_name}/{}/{op}?api-version=7.1",
+        key_version.unwrap_or_default()
+    );
+    let payload = format!(
+        "{{\"alg\": \"RSA-OAEP-256\", \"value\": \"{}\"}}",
+        b64url(value)
+    );
     let headers = vec![
         ("Connection".into(), "close".into()),
         ("Authorization".into(), format!("Bearer {access_token}")),
@@ -343,12 +408,16 @@ pub fn azure_wrap_request(wrap: bool, host: &str, access_token: &str, key_name: 
         ("Host".into(), host.into()),
         ("Accept".into(), "application/json".into()),
     ];
-    Ok(plain_request("POST", &path, headers, &payload).map_err(err)?.into_bytes())
+    Ok(plain_request("POST", &path, headers, &payload)
+        .map_err(err)?
+        .into_bytes())
 }
 
 /// kms-message's `_oauth_field_chars_are_valid`: printable ASCII without `"` and `\\`
 fn check_oauth_field(name: &str, v: &str) -> Result<()> {
-    if v.bytes().any(|c| !(b' '..=b'~').contains(&c) || c == b'"' || c == b'\\') {
+    if v.bytes()
+        .any(|c| !(b' '..=b'~').contains(&c) || c == b'"' || c == b'\\')
+    {
         return Err(format!("Invalid character in GCP OAuth request: {name}"));
     }
     Ok(())
@@ -358,7 +427,9 @@ fn check_oauth_field(name: &str, v: &str) -> Result<()> {
 /// PKCS#1); as kms-message, only 256-byte signatures (2048-bit keys) are produced
 fn rsa_sign(der: &[u8], input: &[u8]) -> Option<Vec<u8>> {
     use graviola::signing::rsa::SigningKey;
-    let key = SigningKey::from_pkcs8_der(der).or_else(|_| SigningKey::from_pkcs1_der(der)).ok()?;
+    let key = SigningKey::from_pkcs8_der(der)
+        .or_else(|_| SigningKey::from_pkcs1_der(der))
+        .ok()?;
     if key.modulus_len_bytes() != 256 {
         return None;
     }
@@ -369,7 +440,14 @@ fn rsa_sign(der: &[u8], input: &[u8]) -> Option<Vec<u8>> {
 
 /// `kms_gcp_request_oauth_new` (`_mongocrypt_kms_ctx_init_gcp_auth`): the signed JWT bearer
 /// token request; `issued_at` in seconds since the epoch
-pub fn gcp_oauth_request(host: &str, email: &str, audience: &str, scope: &str, private_key: &[u8], issued_at: u64) -> Result<Vec<u8>> {
+pub fn gcp_oauth_request(
+    host: &str,
+    email: &str,
+    audience: &str,
+    scope: &str,
+    private_key: &[u8],
+    issued_at: u64,
+) -> Result<Vec<u8>> {
     let err = |e: String| format!("error constructing KMS message: {e}");
     check_oauth_field("email", email).map_err(err)?;
     check_oauth_field("audience", audience).map_err(err)?;
@@ -381,21 +459,35 @@ pub fn gcp_oauth_request(host: &str, email: &str, audience: &str, scope: &str, p
         issued_at + 300
     );
     let signed = format!("{header}.{}", b64url(claims.as_bytes()));
-    let sig = rsa_sign(private_key, signed.as_bytes()).ok_or_else(|| err("Failed to create GCP oauth request signature".into()))?;
-    let payload = format!("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={signed}.{}", b64url(&sig));
+    let sig = rsa_sign(private_key, signed.as_bytes())
+        .ok_or_else(|| err("Failed to create GCP oauth request signature".into()))?;
+    let payload = format!(
+        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={signed}.{}",
+        b64url(&sig)
+    );
     let headers = vec![
         ("Connection".into(), "close".into()),
-        ("Content-Type".into(), "application/x-www-form-urlencoded".into()),
+        (
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        ),
         ("Host".into(), host.into()),
         ("Accept".into(), "application/json".into()),
     ];
-    Ok(plain_request("POST", "/token", headers, &payload).map_err(err)?.into_bytes())
+    Ok(plain_request("POST", "/token", headers, &payload)
+        .map_err(err)?
+        .into_bytes())
 }
 
 /// kms-message's `_check_key_identifier`
 fn check_gcp_identifier(name: &str, v: &str) -> Result<()> {
-    if !v.bytes().all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c)) {
-        return Err(format!("Invalid character in GCP KMS key identifier: {name}"));
+    if !v
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c))
+    {
+        return Err(format!(
+            "Invalid character in GCP KMS key identifier: {name}"
+        ));
     }
     if !v.bytes().any(|c| c.is_ascii_alphanumeric()) {
         return Err(format!("Invalid GCP KMS key identifier: {name}"));
@@ -413,17 +505,31 @@ pub struct GcpKey<'a> {
 }
 
 /// `kms_gcp_request_encrypt_new` / `_decrypt_new`
-pub fn gcp_crypt_request(encrypt: bool, host: &str, access_token: &str, key: &GcpKey, value: &[u8]) -> Result<Vec<u8>> {
+pub fn gcp_crypt_request(
+    encrypt: bool,
+    host: &str,
+    access_token: &str,
+    key: &GcpKey,
+    value: &[u8],
+) -> Result<Vec<u8>> {
     let op = if encrypt { "encrypt" } else { "decrypt" };
     let err = |e: String| format!("error constructing GCP KMS {op} message: {e}");
     let version = key.key_version.filter(|v| !v.is_empty());
-    for (n, v) in [("projectId", key.project_id), ("location", key.location), ("keyRing", key.key_ring), ("keyName", key.key_name)] {
+    for (n, v) in [
+        ("projectId", key.project_id),
+        ("location", key.location),
+        ("keyRing", key.key_ring),
+        ("keyName", key.key_name),
+    ] {
         check_gcp_identifier(n, v).map_err(err)?;
     }
     if let Some(v) = version {
         check_gcp_identifier("keyVersion", v).map_err(err)?;
     }
-    let mut path = format!("/v1/projects/{}/locations/{}/keyRings/{}/cryptoKeys/{}", key.project_id, key.location, key.key_ring, key.key_name);
+    let mut path = format!(
+        "/v1/projects/{}/locations/{}/keyRings/{}/cryptoKeys/{}",
+        key.project_id, key.location, key.key_ring, key.key_name
+    );
     if let Some(v) = version {
         path.push_str(&format!("/cryptoKeyVersions/{v}"));
     }
@@ -438,7 +544,9 @@ pub fn gcp_crypt_request(encrypt: bool, host: &str, access_token: &str, key: &Gc
         ("Host".into(), host.into()),
         ("Accept".into(), "application/json".into()),
     ];
-    Ok(plain_request("POST", &path, headers, &payload).map_err(err)?.into_bytes())
+    Ok(plain_request("POST", &path, headers, &payload)
+        .map_err(err)?
+        .into_bytes())
 }
 
 /// The JSON body of an OAuth or Azure response (`_ctx_done_oauth`, `_ctx_done_azure_wrapkey_unwrapkey`)
@@ -447,8 +555,12 @@ fn json_body(r: &Response) -> Result<Vec<u8>> {
     if r.body.is_empty() {
         return Err(format!("Empty KMS response. HTTP status={}", r.status));
     }
-    let doc = mongo_core::bson::json_parse::from_json(&r.body)
-        .map_err(|e| format!("Error parsing JSON in KMS response '{e}'. HTTP status={}. Response body=\n{body}", r.status))?;
+    let doc = mongo_core::bson::json_parse::from_json(&r.body).map_err(|e| {
+        format!(
+            "Error parsing JSON in KMS response '{e}'. HTTP status={}. Response body=\n{body}",
+            r.status
+        )
+    })?;
     if r.status != 200 {
         return Err(non200(r.status, &r.body));
     }
@@ -460,7 +572,10 @@ fn json_body(r: &Response) -> Result<Vec<u8>> {
 pub fn oauth_done(r: &Response) -> Result<(String, std::time::Duration)> {
     use mongo_core::bson::iter::Value;
     let doc = json_body(r)?;
-    if !matches!(crate::opts::find(&doc, "access_token"), Some(Value::Utf8(_))) {
+    if !matches!(
+        crate::opts::find(&doc, "access_token"),
+        Some(Value::Utf8(_))
+    ) {
         return Err(format!(
             "Invalid KMS response. KMS JSON response does not include field 'access_token'. HTTP status={}. Response body=\n{}",
             r.status,
@@ -472,10 +587,13 @@ pub fn oauth_done(r: &Response) -> Result<(String, std::time::Duration)> {
         Some(Value::Int64(n)) => n,
         _ => return Err("OAuth response invalid, no 'expires_in' field.".into()),
     };
-    let Some(Value::Utf8(token)) = crate::opts::find(&doc, "access_token") else { unreachable!() };
+    let Some(Value::Utf8(token)) = crate::opts::find(&doc, "access_token") else {
+        unreachable!()
+    };
     // MONGOCRYPT_OAUTH_CACHE_EVICTION_PERIOD_US: tokens are dropped 5 s before they expire
     // (libmongocrypt aborts on an expires_in that overflows; here it saturates)
-    let ttl = std::time::Duration::from_secs(expires_in.max(0) as u64).saturating_sub(std::time::Duration::from_secs(5));
+    let ttl = std::time::Duration::from_secs(expires_in.max(0) as u64)
+        .saturating_sub(std::time::Duration::from_secs(5));
     Ok((String::from_utf8_lossy(token).into_owned(), ttl))
 }
 
@@ -484,17 +602,28 @@ pub fn azure_done(r: &Response) -> Result<Vec<u8>> {
     let doc = json_body(r)?;
     let body = String::from_utf8_lossy(&r.body);
     let Some(mongo_core::bson::iter::Value::Utf8(v)) = crate::opts::find(&doc, "value") else {
-        return Err(format!("KMS JSON response does not include field 'value'. HTTP status={}. Response body=\n{body}", r.status));
+        return Err(format!(
+            "KMS JSON response does not include field 'value'. HTTP status={}. Response body=\n{body}",
+            r.status
+        ));
     };
-    let mut b64: Vec<u8> = v.iter().map(|&c| match c {
-        b'-' => b'+',
-        b'_' => b'/',
-        c => c,
-    }).collect();
-    while b64.len() % 4 != 0 {
+    let mut b64: Vec<u8> = v
+        .iter()
+        .map(|&c| match c {
+            b'-' => b'+',
+            b'_' => b'/',
+            c => c,
+        })
+        .collect();
+    while !b64.len().is_multiple_of(4) {
         b64.push(b'=');
     }
-    base64_decode(&b64).ok_or_else(|| format!("Failed to base64 decode response. HTTP status={}. Response body=\n{body}", r.status))
+    base64_decode(&b64).ok_or_else(|| {
+        format!(
+            "Failed to base64 decode response. HTTP status={}. Response body=\n{body}",
+            r.status
+        )
+    })
 }
 
 /// A complete HTTP response
@@ -512,7 +641,10 @@ const MAX_CHUNK_LINE: usize = 1024;
 enum Body {
     Length(usize),
     /// the next chunk-size line starts at `pos`
-    Chunked { pos: usize, body: Vec<u8> },
+    Chunked {
+        pos: usize,
+        body: Vec<u8>,
+    },
 }
 
 /// `kms_response_parser_t`: an incremental HTTP/1.1 response parser. Each byte is scanned a bounded
@@ -535,7 +667,13 @@ impl Default for ResponseParser {
 
 impl ResponseParser {
     pub fn new() -> ResponseParser {
-        ResponseParser { buf: Vec::new(), scan: 0, head: None, done: false, error: None }
+        ResponseParser {
+            buf: Vec::new(),
+            scan: 0,
+            head: None,
+            done: false,
+            error: None,
+        }
     }
 
     /// Adds bytes read; true once the response is complete or malformed (no more bytes are wanted)
@@ -557,26 +695,40 @@ impl ResponseParser {
         self.buf.extend_from_slice(data);
         if self.head.is_none() {
             let from = self.scan.saturating_sub(3);
-            let Some(he) = self.buf[from..].windows(4).position(|w| w == b"\r\n\r\n").map(|x| x + from) else {
+            let Some(he) = self.buf[from..]
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .map(|x| x + from)
+            else {
                 self.scan = self.buf.len();
                 return Ok(false);
             };
             self.head = Some(Self::parse_head(&self.buf[..he], he + 4)?);
         }
         let len = self.buf.len();
-        let Some((_, start, body)) = self.head.as_mut() else { return Ok(false) };
+        let Some((_, start, body)) = self.head.as_mut() else {
+            return Ok(false);
+        };
         match body {
             Body::Length(n) => Ok(len - *start >= *n),
             Body::Chunked { pos, body } => loop {
                 let line = &self.buf[*pos..];
-                let Some(e) = line.windows(2).take(MAX_CHUNK_LINE).position(|w| w == b"\r\n") else {
+                let Some(e) = line
+                    .windows(2)
+                    .take(MAX_CHUNK_LINE)
+                    .position(|w| w == b"\r\n")
+                else {
                     if line.len() > MAX_CHUNK_LINE {
                         return Err("Could not parse chunk length".into());
                     }
                     return Ok(false);
                 };
-                let size = std::str::from_utf8(&line[..e]).ok().map(|x| x.split(';').next().unwrap_or_default().trim());
-                let n = size.and_then(|x| usize::from_str_radix(x, 16).ok()).ok_or("Could not parse chunk length")?;
+                let size = std::str::from_utf8(&line[..e])
+                    .ok()
+                    .map(|x| x.split(';').next().unwrap_or_default().trim());
+                let n = size
+                    .and_then(|x| usize::from_str_radix(x, 16).ok())
+                    .ok_or("Could not parse chunk length")?;
                 if n > MAX_RESPONSE - body.len() {
                     return Err("KMS response exceeds the maximum supported length".into());
                 }
@@ -606,13 +758,21 @@ impl ResponseParser {
         if parts.next() != Some("HTTP/1.1") {
             return Err(format!("Could not parse HTTP-version: {status_line}"));
         }
-        let status: i32 = parts.next().and_then(|s| s.parse().ok()).ok_or("Could not parse Status-Code")?;
+        let status: i32 = parts
+            .next()
+            .and_then(|s| s.parse().ok())
+            .ok_or("Could not parse Status-Code")?;
         let (mut len, mut chunked) = (None, false);
         for l in lines {
-            let Some((k, v)) = l.split_once(':') else { return Err(format!("Could not parse header, no colon found: {l}")) };
+            let Some((k, v)) = l.split_once(':') else {
+                return Err(format!("Could not parse header, no colon found: {l}"));
+            };
             let v = v.trim();
             if k == "Content-Length" && len.is_none() {
-                len = Some(v.parse::<usize>().map_err(|_| "Could not parse Content-Length header.")?);
+                len = Some(
+                    v.parse::<usize>()
+                        .map_err(|_| "Could not parse Content-Length header.")?,
+                );
             }
             if k == "Transfer-Encoding" {
                 if v == "chunked" {
@@ -623,7 +783,14 @@ impl ResponseParser {
             }
         }
         if chunked {
-            return Ok((status, start, Body::Chunked { pos: start, body: Vec::new() }));
+            return Ok((
+                status,
+                start,
+                Body::Chunked {
+                    pos: start,
+                    body: Vec::new(),
+                },
+            ));
         }
         let n = len.unwrap_or(0);
         if n > MAX_RESPONSE {
@@ -636,11 +803,16 @@ impl ResponseParser {
     pub fn finish(self) -> Result<Response> {
         if let Some(e) = self.error {
             let status = self.head.as_ref().map_or(0, |h| h.0);
-            return Err(format!("KMS response parser error with status {status}, error: '{e}'"));
+            return Err(format!(
+                "KMS response parser error with status {status}, error: '{e}'"
+            ));
         }
         match (self.done, self.head) {
             (true, Some((status, _, Body::Chunked { body, .. }))) => Ok(Response { status, body }),
-            (true, Some((status, start, Body::Length(n)))) => Ok(Response { status, body: self.buf[start..start + n].to_vec() }),
+            (true, Some((status, start, Body::Length(n)))) => Ok(Response {
+                status,
+                body: self.buf[start..start + n].to_vec(),
+            }),
             _ => Err("Failed to get response from parser: incomplete response".into()),
         }
     }
@@ -669,7 +841,10 @@ pub fn non200(status: i32, body: &[u8]) -> String {
     if body.is_empty() {
         return format!("Error in KMS response. HTTP status={status}. Empty body.");
     }
-    format!("Error in KMS response. HTTP status={status}. Response body=\n{}", String::from_utf8_lossy(body))
+    format!(
+        "Error in KMS response. HTTP status={status}. Response body=\n{}",
+        String::from_utf8_lossy(body)
+    )
 }
 
 /// `_ctx_done_aws`: the base64-decoded `field` of the JSON body
@@ -687,7 +862,11 @@ pub fn aws_done(r: &Response, field: &str) -> Result<Vec<u8>> {
     })?;
     match crate::opts::find(&doc, field) {
         Some(mongo_core::bson::iter::Value::Utf8(s)) => base64_decode(s).ok_or_else(|| {
-            format!("Failed to base64 decode response. HTTP status={}. Response body=\n{}", r.status, String::from_utf8_lossy(body))
+            format!(
+                "Failed to base64 decode response. HTTP status={}. Response body=\n{}",
+                r.status,
+                String::from_utf8_lossy(body)
+            )
         }),
         _ => Err(format!(
             "KMS JSON response does not include field '{field}'. HTTP status={}. Response body=\n{}",
@@ -702,7 +881,11 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> Vec<u8> {
-        std::fs::read(format!("{}/tests/data/kms/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+        std::fs::read(format!(
+            "{}/tests/data/kms/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
     }
 
     #[test]
@@ -711,8 +894,17 @@ mod tests {
         for (name, decrypt) in [("decrypt", true), ("encrypt", false)] {
             let want = fixture(&format!("{name}.sreq"));
             let want = String::from_utf8(want).unwrap().replace('\n', "\r\n");
-            let body = want.split("\r\n\r\n").nth(1).unwrap().trim_end().to_string();
-            let mut r = AwsRequest::new("20150830T123600Z", if decrypt { "Decrypt" } else { "Encrypt" }, body);
+            let body = want
+                .split("\r\n\r\n")
+                .nth(1)
+                .unwrap()
+                .trim_end()
+                .to_string();
+            let mut r = AwsRequest::new(
+                "20150830T123600Z",
+                if decrypt { "Decrypt" } else { "Encrypt" },
+                body,
+            );
             r.service = "service".into();
             r.region = "us-east-1".into();
             r.access_key_id = "AKIDEXAMPLE".into();
@@ -724,15 +916,31 @@ mod tests {
 
     #[test]
     fn responses() {
-        let r = parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello").unwrap().unwrap();
+        let r = parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+            .unwrap()
+            .unwrap();
         assert_eq!((r.status, &r.body[..]), (200, &b"hello"[..]));
-        assert!(parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel").unwrap().is_none());
+        assert!(
+            parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel")
+                .unwrap()
+                .is_none()
+        );
         let r = parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n").unwrap().unwrap();
         assert_eq!(r.body, b"abcde");
         assert!(parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 99999999999\r\n\r\n").is_err());
         // chunk sizes cannot overflow, chunks end with CRLF, chunk lines are bounded
-        assert!(parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nabc").is_err());
-        assert!(parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcXY0\r\n\r\n").is_err());
+        assert!(
+            parse_response(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nabc"
+            )
+            .is_err()
+        );
+        assert!(
+            parse_response(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcXY0\r\n\r\n"
+            )
+            .is_err()
+        );
         let mut long = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
         long.extend(std::iter::repeat_n(b'0', 2000));
         assert!(parse_response(&long).is_err());
@@ -750,6 +958,9 @@ mod tests {
         assert_eq!(p.finish().unwrap().body, b"abcde");
         let mut p = ResponseParser::new();
         assert!(p.feed(b"HTTP/1.0 200 OK\r\n\r\n"));
-        assert_eq!(p.finish().err().unwrap(), "KMS response parser error with status 0, error: 'Could not parse HTTP-version: HTTP/1.0 200 OK'");
+        assert_eq!(
+            p.finish().err().unwrap(),
+            "KMS response parser error with status 0, error: 'Could not parse HTTP-version: HTTP/1.0 200 OK'"
+        );
     }
 }

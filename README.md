@@ -106,6 +106,15 @@ official suites at their latest commits on Linux, macOS and Windows against stan
 replica-set and sharded servers; the upstream tests that fail by design are listed in
 `tools/ci/expected-failures.txt`.
 
+Code style is rustfmt's defaults and clippy without warnings, both checked in CI:
+
+```bash
+cargo fmt --all
+PHP=/usr/bin/php8.4 PHP_CONFIG=/usr/bin/php-config8.4 cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The generated modules (`src/gen`, `crates/crypt/src/unicode/*_fold_map.rs`) are not formatted.
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The exception is the Unicode folding

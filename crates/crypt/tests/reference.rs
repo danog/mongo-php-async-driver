@@ -5,13 +5,20 @@ use mongo_crypt::engine::{Crypt, Fle1Algorithm, Io, KeySel};
 use serde_json::Value;
 
 fn hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 struct Vault(Vec<u8>);
 impl Io for Vault {
     type Error = ();
-    fn kms(&mut self, _r: &mongo_crypt::kms::KmsRequest, _d: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<()>> {
+    fn kms(
+        &mut self,
+        _r: &mongo_crypt::kms::KmsRequest,
+        _d: &mut dyn FnMut(&[u8]) -> bool,
+    ) -> Result<(), mongo_crypt::engine::KmsFailure<()>> {
         unreachable!("local KMS only")
     }
     fn stream_error(&self, _m: String) {}
@@ -22,7 +29,14 @@ impl Io for Vault {
 
 #[test]
 fn fle1_matches_reference() {
-    let j: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/ref-fle1.json")).unwrap()).unwrap();
+    let j: Value = serde_json::from_slice(
+        &std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/data/ref-fle1.json"
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     let key = hex(j["key"].as_str().unwrap());
     let id: [u8; 16] = key[14..30].try_into().unwrap();
     let mut l = Writer::new();
@@ -34,12 +48,22 @@ fn fle1_matches_reference() {
     for c in j["cases"].as_array().unwrap() {
         let value = hex(c["value"].as_str().unwrap());
         let det = hex(c["deterministic"].as_str().unwrap());
-        let ours = crypt.encrypt_fle1(&mut vault, &value, &KeySel::Id(id), Fle1Algorithm::Deterministic).unwrap();
+        let ours = crypt
+            .encrypt_fle1(
+                &mut vault,
+                &value,
+                &KeySel::Id(id),
+                Fle1Algorithm::Deterministic,
+            )
+            .unwrap();
         assert_eq!(ours, det, "deterministic ciphertext of {}", c["value"]);
         for ct in [det, hex(c["random"].as_str().unwrap())] {
             let mut m = Writer::new();
             m.binary(b"v", 6, &ct);
-            assert_eq!(crypt.explicit_decrypt(&mut vault, &m.finish()).unwrap(), value);
+            assert_eq!(
+                crypt.explicit_decrypt(&mut vault, &m.finish()).unwrap(),
+                value
+            );
         }
     }
 }

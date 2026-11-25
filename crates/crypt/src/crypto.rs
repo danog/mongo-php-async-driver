@@ -64,10 +64,25 @@ pub enum Algorithm {
 impl Algorithm {
     fn params(self) -> (KeyFormat, MacFormat, Mode, HmacType) {
         match self {
-            Algorithm::Fle1 => (KeyFormat::Fle1, MacFormat::Fle1, Mode::Cbc, HmacType::Sha512_256),
-            Algorithm::Fle2Aead => (KeyFormat::Fle2Aead, MacFormat::Fle2, Mode::Ctr, HmacType::Sha256),
+            Algorithm::Fle1 => (
+                KeyFormat::Fle1,
+                MacFormat::Fle1,
+                Mode::Cbc,
+                HmacType::Sha512_256,
+            ),
+            Algorithm::Fle2Aead => (
+                KeyFormat::Fle2Aead,
+                MacFormat::Fle2,
+                Mode::Ctr,
+                HmacType::Sha256,
+            ),
             Algorithm::Fle2 => (KeyFormat::Fle2, MacFormat::Fle2, Mode::Ctr, HmacType::None),
-            Algorithm::Fle2v2Aead => (KeyFormat::Fle2Aead, MacFormat::Fle2, Mode::Cbc, HmacType::Sha256),
+            Algorithm::Fle2v2Aead => (
+                KeyFormat::Fle2Aead,
+                MacFormat::Fle2,
+                Mode::Cbc,
+                HmacType::Sha256,
+            ),
         }
     }
 
@@ -83,26 +98,49 @@ impl Algorithm {
         let hmaclen = if hmac == HmacType::None { 0 } else { HMAC_LEN };
         let mincipher = if mode == Mode::Ctr { 1 } else { BLOCK_SIZE };
         if inlen < IV_LEN + mincipher + hmaclen {
-            return Err(format!("input ciphertext too small. Must be more than {} bytes", IV_LEN + mincipher + hmaclen));
+            return Err(format!(
+                "input ciphertext too small. Must be more than {} bytes",
+                IV_LEN + mincipher + hmaclen
+            ));
         }
         Ok(inlen - (IV_LEN + hmaclen))
     }
 
     /// `_mongocrypt_do_encryption`: IV || S || T
-    pub fn encrypt(self, iv: &[u8], aad: Option<&[u8]>, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
+    pub fn encrypt(
+        self,
+        iv: &[u8],
+        aad: Option<&[u8]>,
+        key: &[u8],
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>> {
         let (key_format, mac_format, mode, hmac) = self.params();
         if plaintext.is_empty() {
             return Err("input plaintext too small. Must be more than zero bytes.".into());
         }
         let total = ciphertext_len(plaintext.len(), mode, hmac)?;
         if iv.len() != IV_LEN {
-            return Err(format!("IV should have length {IV_LEN}, but has length {}", iv.len()));
+            return Err(format!(
+                "IV should have length {IV_LEN}, but has length {}",
+                iv.len()
+            ));
         }
-        let expected_key_len = if key_format == KeyFormat::Fle2 { ENC_KEY_LEN } else { KEY_LEN };
+        let expected_key_len = if key_format == KeyFormat::Fle2 {
+            ENC_KEY_LEN
+        } else {
+            KEY_LEN
+        };
         if key.len() != expected_key_len {
-            return Err(format!("key should have length {expected_key_len}, but has length {}", key.len()));
+            return Err(format!(
+                "key should have length {expected_key_len}, but has length {}",
+                key.len()
+            ));
         }
-        let ke_off = if key_format == KeyFormat::Fle1 { MAC_KEY_LEN } else { 0 };
+        let ke_off = if key_format == KeyFormat::Fle1 {
+            MAC_KEY_LEN
+        } else {
+            0
+        };
         let ke = &key[ke_off..ke_off + ENC_KEY_LEN];
         let mut out = Vec::with_capacity(total);
         out.extend_from_slice(iv);
@@ -123,7 +161,11 @@ impl Algorithm {
             }
         }
         if hmac != HmacType::None {
-            let km_off = if key_format == KeyFormat::Fle1 { 0 } else { ENC_KEY_LEN };
+            let km_off = if key_format == KeyFormat::Fle1 {
+                0
+            } else {
+                ENC_KEY_LEN
+            };
             let km = &key[km_off..km_off + MAC_KEY_LEN];
             let tag = hmac_step(mac_format, hmac, km, aad, &out);
             out.extend_from_slice(&tag);
@@ -142,20 +184,35 @@ impl Algorithm {
                 ciphertext_len(0, mode, hmac).unwrap_or(0)
             ));
         }
-        let expected_key_len = if key_format == KeyFormat::Fle2 { ENC_KEY_LEN } else { KEY_LEN };
+        let expected_key_len = if key_format == KeyFormat::Fle2 {
+            ENC_KEY_LEN
+        } else {
+            KEY_LEN
+        };
         if key.len() != expected_key_len {
-            return Err(format!("key should have length {expected_key_len}, but has length {}", key.len()));
+            return Err(format!(
+                "key should have length {expected_key_len}, but has length {}",
+                key.len()
+            ));
         }
         let min = ciphertext_len(0, mode, hmac).unwrap_or(0);
         if ciphertext.len() < min {
             return Err(format!("corrupt ciphertext - must be >= {min} bytes"));
         }
-        let ke_off = if key_format == KeyFormat::Fle1 { MAC_KEY_LEN } else { 0 };
+        let ke_off = if key_format == KeyFormat::Fle1 {
+            MAC_KEY_LEN
+        } else {
+            0
+        };
         let ke = &key[ke_off..ke_off + ENC_KEY_LEN];
         let iv = &ciphertext[..IV_LEN];
         let hmac_len = if hmac == HmacType::None { 0 } else { HMAC_LEN };
         if hmac != HmacType::None {
-            let km_off = if key_format == KeyFormat::Fle1 { 0 } else { ENC_KEY_LEN };
+            let km_off = if key_format == KeyFormat::Fle1 {
+                0
+            } else {
+                ENC_KEY_LEN
+            };
             let km = &key[km_off..km_off + MAC_KEY_LEN];
             let body = &ciphertext[..ciphertext.len() - HMAC_LEN];
             let tag = hmac_step(mac_format, hmac, km, aad, body);
@@ -167,7 +224,7 @@ impl Algorithm {
         let s = &ciphertext[IV_LEN..ciphertext.len() - hmac_len];
         match mode {
             Mode::Cbc => {
-                if s.len() % BLOCK_SIZE != 0 {
+                if !s.len().is_multiple_of(BLOCK_SIZE) {
                     return Err("error, ciphertext length is not a multiple of block size".into());
                 }
                 let mut p = s.to_vec();
@@ -195,11 +252,21 @@ fn ciphertext_len(inlen: usize, mode: Mode, hmac: HmacType) -> Result<usize> {
     if inlen > maxinlen {
         return Err("plaintext too long".into());
     }
-    let fill = if mode == Mode::Cbc { BLOCK_SIZE - inlen % BLOCK_SIZE } else { 0 };
+    let fill = if mode == Mode::Cbc {
+        BLOCK_SIZE - inlen % BLOCK_SIZE
+    } else {
+        0
+    };
     Ok(IV_LEN + inlen + fill + hmaclen)
 }
 
-fn hmac_step(fmt: MacFormat, hmac: HmacType, km: &[u8], aad: Option<&[u8]>, iv_and_s: &[u8]) -> [u8; HMAC_LEN] {
+fn hmac_step(
+    fmt: MacFormat,
+    hmac: HmacType,
+    km: &[u8],
+    aad: Option<&[u8]>,
+    iv_and_s: &[u8],
+) -> [u8; HMAC_LEN] {
     let al;
     let mut parts: [&[u8]; 3] = [aad.unwrap_or(&[]), iv_and_s, &[]];
     if fmt == MacFormat::Fle1 {
@@ -238,29 +305,35 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 fn aes256_cbc_encrypt(key: &[u8], iv: &[u8], buf: &mut [u8]) {
-    let mut c = cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
-    for block in buf.chunks_exact_mut(BLOCK_SIZE) {
+    let mut c =
+        cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
+    for block in buf.as_chunks_mut::<BLOCK_SIZE>().0 {
         c.encrypt_block_mut(block.into());
     }
 }
 
 fn aes256_cbc_decrypt(key: &[u8], iv: &[u8], buf: &mut [u8]) {
-    let mut c = cbc::Decryptor::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
-    for block in buf.chunks_exact_mut(BLOCK_SIZE) {
+    let mut c =
+        cbc::Decryptor::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
+    for block in buf.as_chunks_mut::<BLOCK_SIZE>().0 {
         c.decrypt_block_mut(block.into());
     }
 }
 
 /// AES-256-CTR with the whole 16-byte IV as a big-endian counter (OpenSSL's EVP_aes_256_ctr)
 pub fn aes256_ctr(key: &[u8], iv: &[u8], buf: &mut [u8]) {
-    let mut c = ctr::Ctr128BE::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
+    let mut c =
+        ctr::Ctr128BE::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
     c.apply_keystream(buf);
 }
 
 /// `_mongocrypt_calculate_deterministic_iv`: HMAC-SHA-512(Kiv, AAD || AL || P) truncated to the IV length
 pub fn deterministic_iv(key: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<[u8; IV_LEN]> {
     if key.len() != KEY_LEN {
-        return Err(format!("key should have length {KEY_LEN}, but has length {}\n", key.len()));
+        return Err(format!(
+            "key should have length {KEY_LEN}, but has length {}\n",
+            key.len()
+        ));
     }
     let iv_key = &key[ENC_KEY_LEN + MAC_KEY_LEN..];
     let al = (8 * aad.len() as u64).to_be_bytes();
@@ -279,7 +352,10 @@ pub fn random(n: usize) -> Result<Vec<u8>> {
 /// `_mongocrypt_wrap_key`: FLE1 with a random IV and no associated data
 pub fn wrap_key(kek: &[u8], dek: &[u8]) -> Result<Vec<u8>> {
     if dek.len() != KEY_LEN {
-        return Err(format!("data encryption key is incorrect length, expected: {KEY_LEN}, got: {}", dek.len()));
+        return Err(format!(
+            "data encryption key is incorrect length, expected: {KEY_LEN}, got: {}",
+            dek.len()
+        ));
     }
     let iv = random(IV_LEN)?;
     Algorithm::Fle1.encrypt(&iv, None, kek, dek)
@@ -289,7 +365,10 @@ pub fn wrap_key(kek: &[u8], dek: &[u8]) -> Result<Vec<u8>> {
 pub fn unwrap_key(kek: &[u8], encrypted_dek: &[u8]) -> Result<Vec<u8>> {
     let dek = Algorithm::Fle1.decrypt(None, kek, encrypted_dek)?;
     if dek.len() != KEY_LEN {
-        return Err(format!("decrypted key is incorrect length, expected: {KEY_LEN}, got: {}", dek.len()));
+        return Err(format!(
+            "decrypted key is incorrect length, expected: {KEY_LEN}, got: {}",
+            dek.len()
+        ));
     }
     Ok(dek)
 }

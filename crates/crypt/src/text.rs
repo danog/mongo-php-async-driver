@@ -2,7 +2,7 @@
 //! the FLE2TextSearchInsertSpec parsers of mc-fle2-encryption-placeholder.c,
 //! mc-text-search-str-encode.c and mc-str-encode-string-sets.c. Messages are libmongocrypt's.
 
-use mongo_core::bson::iter::{Iter, Value, T_DOCUMENT};
+use mongo_core::bson::iter::{Iter, T_DOCUMENT, Value};
 use mongo_core::bson::writer::Writer;
 
 type Result<T> = std::result::Result<T, String>;
@@ -34,7 +34,10 @@ fn bson_type(t: u8) -> &'static str {
 
 /// `mc_TextOptsPerIndex_parse`
 fn parse_per_index(doc: &[u8]) -> Result<PerIndex> {
-    let mut out = PerIndex { set: true, ..Default::default() };
+    let mut out = PerIndex {
+        set: true,
+        ..Default::default()
+    };
     let mut seen = [false; 3];
     let mut it = Iter::new(doc).ok_or_else(|| format!("{OPTS}Invalid BSON"))?;
     while it.next() {
@@ -49,7 +52,9 @@ fn parse_per_index(doc: &[u8]) -> Result<PerIndex> {
             return Err(format!("{OPTS}Unexpected duplicate field '{key}'"));
         }
         seen[i] = true;
-        let Value::Int32(v) = it.value() else { return Err(format!("{OPTS}'{key}' must be an int32")) };
+        let Value::Int32(v) = it.value() else {
+            return Err(format!("{OPTS}'{key}' must be an int32"));
+        };
         if v <= 0 {
             return Err(format!("{OPTS}'{key}' must be greater than zero"));
         }
@@ -92,19 +97,28 @@ impl TextOpts {
                         o.diacritic_sensitive = b;
                     }
                 }
-                (0 | 1, v) => return Err(format!("{OPTS}Expected bool for {key}, got: {}", bson_type(v.type_code()))),
+                (0 | 1, v) => {
+                    return Err(format!(
+                        "{OPTS}Expected bool for {key}, got: {}",
+                        bson_type(v.type_code())
+                    ));
+                }
                 (_, Value::Document(d)) => {
                     let p = parse_per_index(d)?;
                     match i {
                         2 => {
                             if p.str_max_length.is_none() {
-                                return Err(format!("{OPTS}'strMaxLength' must be set for substring"));
+                                return Err(format!(
+                                    "{OPTS}'strMaxLength' must be set for substring"
+                                ));
                             }
                             o.substring = p;
                         }
                         3 | 4 => {
                             if p.str_max_length.is_some() {
-                                return Err(format!("{OPTS}'strMaxLength' is not allowed in '{key}'"));
+                                return Err(format!(
+                                    "{OPTS}'strMaxLength' is not allowed in '{key}'"
+                                ));
                             }
                             if i == 3 {
                                 o.prefix = p;
@@ -115,7 +129,12 @@ impl TextOpts {
                         _ => unreachable!(),
                     }
                 }
-                (_, v) => return Err(format!("{OPTS}Expected document for {key}, got: {}", bson_type(v.type_code()))),
+                (_, v) => {
+                    return Err(format!(
+                        "{OPTS}Expected document for {key}, got: {}",
+                        bson_type(v.type_code())
+                    ));
+                }
             }
         }
         if !seen[0] {
@@ -125,10 +144,14 @@ impl TextOpts {
             return Err(format!("{OPTS}'diacriticSensitive' is required"));
         }
         if seen[2] && (seen[3] || seen[4]) {
-            return Err(format!("{OPTS}Cannot specify 'substring' with 'prefix' or 'suffix'"));
+            return Err(format!(
+                "{OPTS}Cannot specify 'substring' with 'prefix' or 'suffix'"
+            ));
         }
         if !(seen[2] || seen[3] || seen[4]) {
-            return Err(format!("{OPTS}One of 'prefix', 'suffix', or 'substring' is required"));
+            return Err(format!(
+                "{OPTS}One of 'prefix', 'suffix', or 'substring' is required"
+            ));
         }
         Ok(o)
     }
@@ -136,7 +159,8 @@ impl TextOpts {
     /// `mc_TextOpts_to_FLE2TextSearchInsertSpec` (`which`: None for all, else only that index):
     /// `{v: {v: <value>, casef, diacf, prefix?: {ub, lb}, suffix?: {ub, lb}, substr?: {mlen, ub, lb}}}`
     pub fn to_insert_spec(&self, input: &[u8], which: Option<Which>) -> Result<Vec<u8>> {
-        let mut it = Iter::new(input).ok_or("Error making FLE2RangeInsertSpec: Unable to find 'v' in input")?;
+        let mut it = Iter::new(input)
+            .ok_or("Error making FLE2RangeInsertSpec: Unable to find 'v' in input")?;
         if !it.find(b"v") {
             return Err("Error making FLE2RangeInsertSpec: Unable to find 'v' in input".into());
         }
@@ -197,7 +221,9 @@ pub struct InsertSpec {
 /// `mc_FLE2SubstringInsertSpec_parse` / `_Suffix` / `_Prefix`
 fn parse_affix(v: &Value, kind: &str, mlen: bool) -> Result<AffixSpec> {
     let pre = format!("Error parsing FLE2{kind}InsertSpec: ");
-    let Value::Document(d) = v else { return Err(format!("{pre}must be an iterator to a document")) };
+    let Value::Document(d) = v else {
+        return Err(format!("{pre}must be an iterator to a document"));
+    };
     let mut out = AffixSpec::default();
     let (mut has_mlen, mut has_ub, mut has_lb) = (false, false, false);
     let mut it = Iter::new(d).ok_or_else(|| format!("{pre}must be an iterator to a document"))?;
@@ -213,7 +239,9 @@ fn parse_affix(v: &Value, kind: &str, mlen: bool) -> Result<AffixSpec> {
             return Err(format!("{pre}Unexpected duplicate field '{name}'"));
         }
         *has = true;
-        let Value::Int32(x) = it.value() else { return Err(format!("{pre}'{name}' must be an int32")) };
+        let Value::Int32(x) = it.value() else {
+            return Err(format!("{pre}'{name}' must be an int32"));
+        };
         if x <= 0 {
             return Err(format!("{pre}'{name}' must be greater than zero"));
         }
@@ -225,10 +253,14 @@ fn parse_affix(v: &Value, kind: &str, mlen: bool) -> Result<AffixSpec> {
         }
     }
     if out.ub < out.lb {
-        return Err(format!("{pre}upper bound cannot be less than the lower bound"));
+        return Err(format!(
+            "{pre}upper bound cannot be less than the lower bound"
+        ));
     }
     if mlen && out.mlen < out.ub {
-        return Err(format!("{pre}maximum indexed length cannot be less than the upper bound"));
+        return Err(format!(
+            "{pre}maximum indexed length cannot be less than the upper bound"
+        ));
     }
     Ok(out)
 }
@@ -237,10 +269,13 @@ impl InsertSpec {
     /// `mc_FLE2TextSearchInsertSpec_parse` of the `v` document
     pub fn parse(v: &Value) -> Result<InsertSpec> {
         const PRE: &str = "Error parsing FLE2TextSearchInsertSpec: ";
-        let Value::Document(d) = v else { return Err(format!("{PRE}must be an iterator to a document")) };
+        let Value::Document(d) = v else {
+            return Err(format!("{PRE}must be an iterator to a document"));
+        };
         let mut out = InsertSpec::default();
         let mut seen = [false; 6];
-        let mut it = Iter::new(d).ok_or_else(|| format!("{PRE}must be an iterator to a document"))?;
+        let mut it =
+            Iter::new(d).ok_or_else(|| format!("{PRE}must be an iterator to a document"))?;
         while it.next() {
             let key = String::from_utf8_lossy(it.key()).into_owned();
             let i = match key.as_str() {
@@ -260,10 +295,17 @@ impl InsertSpec {
             match i {
                 0 => match val {
                     Value::Utf8(s) => out.v = s.to_vec(),
-                    v => return Err(format!("{PRE}unsupported BSON type: {} for text search", bson_type(v.type_code()))),
+                    v => {
+                        return Err(format!(
+                            "{PRE}unsupported BSON type: {} for text search",
+                            bson_type(v.type_code())
+                        ));
+                    }
                 },
                 1 | 2 => {
-                    let Value::Bool(b) = val else { return Err(format!("{PRE}'{key}' must be a bool")) };
+                    let Value::Bool(b) = val else {
+                        return Err(format!("{PRE}'{key}' must be a bool"));
+                    };
                     if i == 1 {
                         out.casef = b;
                     } else {
@@ -285,7 +327,15 @@ impl InsertSpec {
 
     #[cfg(feature = "sspl-text-fold")]
     fn fold_options(&self) -> u32 {
-        (if self.casef { crate::unicode::TO_LOWER } else { 0 }) | (if self.diacf { crate::unicode::REMOVE_DIACRITICS } else { 0 })
+        (if self.casef {
+            crate::unicode::TO_LOWER
+        } else {
+            0
+        }) | (if self.diacf {
+            crate::unicode::REMOVE_DIACRITICS
+        } else {
+            0
+        })
     }
 }
 
@@ -320,7 +370,11 @@ impl BaseString {
     /// The bytes of codepoints [start, end) (end == codepoint_len: up to the end, 0xFF included)
     fn slice(&self, start: u32, end: u32) -> &[u8] {
         let s = self.offsets[start as usize] as usize;
-        let e = if end == self.codepoint_len() { self.buf.len() } else { self.offsets[end as usize] as usize };
+        let e = if end == self.codepoint_len() {
+            self.buf.len()
+        } else {
+            self.offsets[end as usize] as usize
+        };
         &self.buf[s..e]
     }
 }
@@ -334,7 +388,15 @@ fn utf8_offsets(s: &[u8]) -> impl Iterator<Item = u32> + '_ {
         }
         let at = i;
         let b = s[i];
-        i += if b < 0x80 { 1 } else if b & 0xe0 == 0xc0 { 2 } else if b & 0xf0 == 0xe0 { 3 } else { 4 };
+        i += if b < 0x80 {
+            1
+        } else if b & 0xe0 == 0xc0 {
+            2
+        } else if b & 0xf0 == 0xe0 {
+            3
+        } else {
+            4
+        };
         Some(at as u32)
     })
 }
@@ -372,7 +434,9 @@ impl SubstringSet {
         let bytes = base.slice(start, end);
         let len = bytes.len() as u32;
         let b = &mut self.buckets[fnv1a(bytes) as usize % HASHSET_SIZE];
-        if b.iter().any(|&(o, l)| l == len && &base.buf[o as usize..(o + l) as usize] == bytes) {
+        if b.iter()
+            .any(|&(o, l)| l == len && &base.buf[o as usize..(o + l) as usize] == bytes)
+        {
             return false;
         }
         b.push((s, len));
@@ -397,15 +461,23 @@ impl EncodeSets {
 
     /// (bytes, count) of an affix set
     pub fn affixes<'a>(&'a self, set: &'a AffixSet) -> impl Iterator<Item = (&'a [u8], u32)> + 'a {
-        set.entries.iter().map(move |&(s, e, c)| (self.base.slice(s, e), c))
+        set.entries
+            .iter()
+            .map(move |&(s, e, c)| (self.base.slice(s, e), c))
     }
 
     /// (bytes, count) of the substring set
-    pub fn substrings<'a>(&'a self, set: &'a SubstringSet) -> impl Iterator<Item = (&'a [u8], u32)> + 'a {
+    pub fn substrings<'a>(
+        &'a self,
+        set: &'a SubstringSet,
+    ) -> impl Iterator<Item = (&'a [u8], u32)> + 'a {
         let base = &self.base.buf;
         set.buckets
             .iter()
-            .flat_map(move |b| b.iter().map(move |&(o, l)| (&base[o as usize..(o + l) as usize], 1)))
+            .flat_map(move |b| {
+                b.iter()
+                    .map(move |&(o, l)| (&base[o as usize..(o + l) as usize], 1))
+            })
             .chain((set.base_count > 0).then_some((&base[..], set.base_count)))
     }
 }
@@ -416,7 +488,14 @@ fn padded_len(unfolded_byte_len: u32) -> u32 {
 }
 
 /// `generate_prefix_or_suffix_tree`
-fn affix_tree(base: &BaseString, unfolded_byte_len: u32, lb: u32, ub: u32, prefix: bool, msize_out: &mut u32) -> Option<AffixSet> {
+fn affix_tree(
+    base: &BaseString,
+    unfolded_byte_len: u32,
+    lb: u32,
+    ub: u32,
+    prefix: bool,
+    msize_out: &mut u32,
+) -> Option<AffixSet> {
     let padded = padded_len(unfolded_byte_len);
     if padded < lb {
         return None;
@@ -427,7 +506,11 @@ fn affix_tree(base: &BaseString, unfolded_byte_len: u32, lb: u32, ub: u32, prefi
     let real = if real_max >= lb { real_max - lb + 1 } else { 0 };
     let mut entries = Vec::with_capacity((real + 1) as usize);
     for i in lb..real_max + 1 {
-        entries.push(if prefix { (0, i, 1) } else { (folded - i, folded, 1) });
+        entries.push(if prefix {
+            (0, i, 1)
+        } else {
+            (folded - i, folded, 1)
+        });
     }
     if msize != real {
         entries.push((0, base.codepoint_len(), msize - real));
@@ -444,18 +527,27 @@ fn substring_count(len: u32, lb: u32, ub: u32) -> u32 {
     let largest = len.min(ub);
     let largest_count = len - largest + 1;
     let smallest_count = len - lb + 1;
-    ((largest_count as u64 + smallest_count as u64) * (smallest_count - largest_count + 1) as u64 / 2) as u32
+    ((largest_count as u64 + smallest_count as u64) * (smallest_count - largest_count + 1) as u64
+        / 2) as u32
 }
 
 /// `generate_substring_tree`
-fn substring_tree(base: &BaseString, unfolded_byte_len: u32, spec: &AffixSpec, msize_out: &mut u32) -> Option<SubstringSet> {
+fn substring_tree(
+    base: &BaseString,
+    unfolded_byte_len: u32,
+    spec: &AffixSpec,
+    msize_out: &mut u32,
+) -> Option<SubstringSet> {
     let padded = padded_len(unfolded_byte_len);
     if padded < spec.lb {
         return None;
     }
     let folded = base.codepoint_len() - 1;
     let msize = substring_count(spec.mlen.min(padded), spec.lb, spec.ub);
-    let mut set = SubstringSet { buckets: vec![Vec::new(); HASHSET_SIZE], base_count: 0 };
+    let mut set = SubstringSet {
+        buckets: vec![Vec::new(); HASHSET_SIZE],
+        base_count: 0,
+    };
     let mut real = 0u32;
     if folded >= spec.lb {
         for i in 0..folded - spec.lb + 1 {
@@ -498,7 +590,13 @@ pub fn str_encode(spec: &InsertSpec) -> Result<EncodeSets> {
     }
     let base = BaseString::new(&fold_or_copy(spec)?);
     let len = spec.v.len() as u32;
-    let mut sets = EncodeSets { base, suffix: None, prefix: None, substring: None, msize: 1 };
+    let mut sets = EncodeSets {
+        base,
+        suffix: None,
+        prefix: None,
+        substring: None,
+        msize: 1,
+    };
     if let Some(s) = &spec.suffix {
         sets.suffix = affix_tree(&sets.base, len, s.lb, s.ub, false, &mut sets.msize);
     }
@@ -534,7 +632,10 @@ pub fn str_query(spec: &InsertSpec) -> Result<Vec<u8>> {
     let bounds = spec.substr.or(spec.suffix).or(spec.prefix);
     if let Some(b) = bounds {
         if n == 0 {
-            return Err("StrQuery: string value cannot be empty for substring, suffix, or prefix queries".into());
+            return Err(
+                "StrQuery: string value cannot be empty for substring, suffix, or prefix queries"
+                    .into(),
+            );
         }
         if n > b.ub {
             return Err(format!(
@@ -555,7 +656,7 @@ pub fn str_query(spec: &InsertSpec) -> Result<Vec<u8>> {
 // ---------------------------------------------------------------------------------------------
 // Payloads (mongocrypt-marking.c, mc-fle2-insert-update-payload-v2.c, mc-fle2-find-text-payload.c)
 
-use crate::fle2::{encrypted_tokens, hmac, hmac_u64, token_key, Token};
+use crate::fle2::{Token, encrypted_tokens, hmac, hmac_u64, token_key};
 
 /// MC_SUBTYPE_FLE2FindTextPayload
 pub const SUBTYPE_FIND_TEXT: u8 = 18;
@@ -586,12 +687,20 @@ struct Level1 {
 
 fn level1(index_key: &[u8]) -> Result<Level1> {
     let tk = token_key(index_key)?;
-    Ok(Level1 { collections: hmac_u64(tk, 1), server_derivation: hmac_u64(tk, 2) })
+    Ok(Level1 {
+        collections: hmac_u64(tk, 1),
+        server_derivation: hmac_u64(tk, 2),
+    })
 }
 
 /// (EDC derived, ESC derived, server derived) of `value` for `kind`, with the contention factor
 /// (inserts) or without (finds)
-fn text_tokens(l1: &Level1, kind: Kind, value: &[u8], contention: Option<u64>) -> (Token, Token, Token) {
+fn text_tokens(
+    l1: &Level1,
+    kind: Kind,
+    value: &[u8],
+    contention: Option<u64>,
+) -> (Token, Token, Token) {
     let t = kind as u64;
     let edc = hmac_u64(&hmac_u64(&l1.collections, 1), t);
     let esc = hmac_u64(&hmac_u64(&l1.collections, 2), t);
@@ -632,7 +741,11 @@ pub fn insert_payload(
         return Err("FLE2TextSearchInsertSpec is missing a substring, suffix, or prefix index specification".into());
     }
     // _fle2_choose_contention_factor: uniform in [0, maxContentionFactor]
-    let k = if max_contention > 0 { crate::crypto::random_int64(max_contention + 1)? } else { 0 };
+    let k = if max_contention > 0 {
+        crate::crypto::random_int64(max_contention + 1)?
+    } else {
+        0
+    };
     let c = crate::fle2::common(token_key(index_key)?, value, Some(k as u64));
     // d, s and l are unused for text search: zeros; p is a ciphertext of zeros || 0x000000
     let bogus = [0u8; 32];
@@ -646,7 +759,13 @@ pub fn insert_payload(
     // b: the token sets
     let sets = str_encode(spec)?;
     let l1 = level1(index_key)?;
-    let exact = token_set(&l1, Kind::Exact, &bson_string(sets.exact()), k as u64, sets.msize)?;
+    let exact = token_set(
+        &l1,
+        Kind::Exact,
+        &bson_string(sets.exact()),
+        k as u64,
+        sets.msize,
+    )?;
     let mut arrays: [Vec<Vec<u8>>; 3] = Default::default();
     if let Some(set) = &sets.substring {
         for (s, n) in sets.substrings(set) {
@@ -679,7 +798,11 @@ pub fn insert_payload(
     let b = w.begin(T_DOCUMENT, b"b");
     w.document(b"e", &exact);
     let mut idx = mongo_core::bson::writer::itoa_buf::Buf::default();
-    for (name, arr) in [(&b"s"[..], &arrays[0]), (b"u", &arrays[1]), (b"p", &arrays[2])] {
+    for (name, arr) in [
+        (&b"s"[..], &arrays[0]),
+        (b"u", &arrays[1]),
+        (b"p", &arrays[2]),
+    ] {
         let a = w.begin(mongo_core::bson::iter::T_ARRAY, name);
         for (i, ts) in arr.iter().enumerate() {
             let key = mongo_core::bson::writer::index_key(i, &mut idx).to_vec();
@@ -694,9 +817,13 @@ pub fn insert_payload(
 /// `_mongocrypt_fle2_placeholder_to_find_ciphertextForTextSearch`: the FLE2FindTextPayload
 /// (without the subtype byte)
 pub fn find_payload(spec: &InsertSpec, index_key: &[u8], max_contention: i64) -> Result<Vec<u8>> {
-    let count = spec.substr.is_some() as u8 + spec.suffix.is_some() as u8 + spec.prefix.is_some() as u8;
+    let count =
+        spec.substr.is_some() as u8 + spec.suffix.is_some() as u8 + spec.prefix.is_some() as u8;
     if count > 1 {
-        return Err("Text search query specification cannot contain multiple query type specifications".into());
+        return Err(
+            "Text search query specification cannot contain multiple query type specifications"
+                .into(),
+        );
     }
     let folded = bson_string(&str_query(spec)?);
     let l1 = level1(index_key)?;

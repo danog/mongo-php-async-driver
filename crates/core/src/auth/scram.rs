@@ -8,7 +8,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Algo {
@@ -60,9 +60,9 @@ pub(crate) fn wipe(b: &mut [u8]) {
     std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Overwrites the bytes of `s`, which is left empty.
 fn wipe_string(s: &mut String) {
-    // SAFETY: zero bytes are valid UTF-8
-    wipe(unsafe { s.as_mut_vec() });
+    wipe(&mut std::mem::take(s).into_bytes());
 }
 
 /// Equality in time that depends only on the lengths (mongoc_memcmp).
@@ -80,12 +80,14 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 fn hmac(algo: Algo, key: &[u8], data: &[u8], out: &mut [u8; HASH_MAX]) {
     match algo {
         Algo::Sha1 => {
-            let mut m = <Hmac<Sha1> as KeyInit>::new_from_slice(key).expect("HMAC takes any key size");
+            let mut m =
+                <Hmac<Sha1> as KeyInit>::new_from_slice(key).expect("HMAC takes any key size");
             m.update(data);
             out[..20].copy_from_slice(&m.finalize().into_bytes());
         }
         Algo::Sha256 => {
-            let mut m = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("HMAC takes any key size");
+            let mut m =
+                <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("HMAC takes any key size");
             m.update(data);
             out[..32].copy_from_slice(&m.finalize().into_bytes());
         }
@@ -118,7 +120,9 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 pub fn b64_encode(src: &[u8]) -> String {
     let mut o = String::with_capacity(src.len().div_ceil(3) * 4);
     for c in src.chunks(3) {
-        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*c.get(2).unwrap_or(&0));
         for i in 0..4 {
             if i <= c.len() {
                 o.push(B64[((n >> (18 - 6 * i)) & 63) as usize] as char);
@@ -252,7 +256,14 @@ impl Drop for Scram {
     fn drop(&mut self) {
         wipe_string(&mut self.pass);
         wipe(&mut self.hashed_password);
-        for k in [&mut self.client_key, &mut self.server_key, &mut self.salted_password].into_iter().flatten() {
+        for k in [
+            &mut self.client_key,
+            &mut self.server_key,
+            &mut self.salted_password,
+        ]
+        .into_iter()
+        .flatten()
+        {
             wipe(k);
         }
     }
@@ -260,7 +271,10 @@ impl Drop for Scram {
 
 impl std::fmt::Debug for Scram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Scram").field("algo", &self.algo).field("step", &self.step).finish_non_exhaustive()
+        f.debug_struct("Scram")
+            .field("algo", &self.algo)
+            .field("step", &self.step)
+            .finish_non_exhaustive()
     }
 }
 
@@ -281,11 +295,16 @@ fn parse_attrs<'a>(input: &'a [u8], keys: &[u8], step: u8) -> Result<Vec<(u8, &'
     while p < input.len() {
         let k = input[p];
         if !keys.contains(&k) {
-            return Err(err(format!("SCRAM Failure: unknown key ({}) in sasl step {step}", String::from_utf8_lossy(&[k]))));
+            return Err(err(format!(
+                "SCRAM Failure: unknown key ({}) in sasl step {step}",
+                String::from_utf8_lossy(&[k])
+            )));
         }
         p += 1;
         if p >= input.len() || input[p] != b'=' {
-            return Err(err(format!("SCRAM Failure: invalid parse state in sasl step {step}")));
+            return Err(err(format!(
+                "SCRAM Failure: invalid parse state in sasl step {step}"
+            )));
         }
         p += 1;
         let end = input[p..].iter().position(|&c| c == b',').map(|e| p + e);
@@ -366,13 +385,19 @@ impl Scram {
             1 => {
                 let mut nonce = [0u8; 24];
                 if getrandom::fill(&mut nonce).is_err() {
-                    return Err(err("SCRAM Failure: could not generate a cryptographically secure nonce in sasl step 1"));
+                    return Err(err(
+                        "SCRAM Failure: could not generate a cryptographically secure nonce in sasl step 1",
+                    ));
                 }
                 self.start(&b64_encode(&nonce))
             }
             2 => self.step2(input),
             3 => self.step3(input).map(|()| Vec::new()),
-            _ => Err(Error::new(domain::SCRAM, code::SCRAM_NOT_DONE, "SCRAM Failure: maximum steps detected")),
+            _ => Err(Error::new(
+                domain::SCRAM,
+                code::SCRAM_NOT_DONE,
+                "SCRAM Failure: maximum steps detected",
+            )),
         }
     }
 
@@ -402,8 +427,11 @@ impl Scram {
             return Err(buffer());
         }
         self.auth_message.clear();
-        if !buf_write(&mut self.auth_message, &out[3..]) || !buf_write(&mut self.auth_message, b",") {
-            return Err(err("SCRAM Failure: could not buffer auth message in sasl step1"));
+        if !buf_write(&mut self.auth_message, &out[3..]) || !buf_write(&mut self.auth_message, b",")
+        {
+            return Err(err(
+                "SCRAM Failure: could not buffer auth message in sasl step1",
+            ));
         }
         Ok(out)
     }
@@ -416,7 +444,10 @@ impl Scram {
                 let mut t = format!("{}:mongo:{}", self.user, self.pass).into_bytes();
                 let h = md5::Md5::digest(&t);
                 wipe(&mut t);
-                h.iter().map(|b| format!("{b:02x}")).collect::<String>().into_bytes()
+                h.iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+                    .into_bytes()
             }
             Algo::Sha256 => super::saslprep::prep(&self.pass)?.into_bytes(),
         };
@@ -431,11 +462,19 @@ impl Scram {
             return Err(buffer_auth());
         }
         let a = parse_attrs(input, b"rsi", 2)?;
-        let Some(r) = attr(&a, b'r') else { return Err(err("SCRAM Failure: no r param in sasl step 2")) };
-        let Some(s) = attr(&a, b's') else { return Err(err("SCRAM Failure: no s param in sasl step 2")) };
-        let Some(i) = attr(&a, b'i') else { return Err(err("SCRAM Failure: no i param in sasl step 2")) };
+        let Some(r) = attr(&a, b'r') else {
+            return Err(err("SCRAM Failure: no r param in sasl step 2"));
+        };
+        let Some(s) = attr(&a, b's') else {
+            return Err(err("SCRAM Failure: no s param in sasl step 2"));
+        };
+        let Some(i) = attr(&a, b'i') else {
+            return Err(err("SCRAM Failure: no i param in sasl step 2"));
+        };
         if r.len() < self.nonce.len() || !ct_eq(&r[..self.nonce.len()], self.nonce.as_bytes()) {
-            return Err(err("SCRAM Failure: client nonce not repeated in sasl step 2"));
+            return Err(err(
+                "SCRAM Failure: client nonce not repeated in sasl step 2",
+            ));
         }
         let mut out = Vec::with_capacity(128);
         if !buf_write(&mut out, b"c=biws,r=") || !buf_write(&mut out, r) {
@@ -447,11 +486,20 @@ impl Scram {
         if !buf_write(&mut out, b",p=") {
             return Err(err("SCRAM Failure: could not buffer sasl step2"));
         }
-        let Some(salt) = b64_decode(s, SALT_MAX) else { return Err(err("SCRAM Failure: unable to decode salt in sasl step2")) };
+        let Some(salt) = b64_decode(s, SALT_MAX) else {
+            return Err(err("SCRAM Failure: unable to decode salt in sasl step2"));
+        };
         if self.check_salt_len && salt.len() != self.algo.hash_size() - 4 {
-            return Err(err(format!("SCRAM Failure: invalid salt length of {} in sasl step2", salt.len())));
+            return Err(err(format!(
+                "SCRAM Failure: invalid salt length of {} in sasl step2",
+                salt.len()
+            )));
         }
-        let Some(iterations) = parse_iterations(i) else { return Err(err("SCRAM Failure: unable to parse iterations in sasl step2")) };
+        let Some(iterations) = parse_iterations(i) else {
+            return Err(err(
+                "SCRAM Failure: unable to parse iterations in sasl step2",
+            ));
+        };
         if iterations < 0 {
             return Err(err("SCRAM Failure: iterations is negative in sasl step2"));
         }
@@ -459,7 +507,9 @@ impl Scram {
             return Err(err("SCRAM Failure: iterations must be at least 4096"));
         }
         if iterations > MAX_ITERATIONS {
-            return Err(err(format!("SCRAM Failure: iterations must be at most {MAX_ITERATIONS}")));
+            return Err(err(format!(
+                "SCRAM Failure: iterations must be at most {MAX_ITERATIONS}"
+            )));
         }
         self.hashed_password = hashed.to_vec();
         self.salt = salt;
@@ -504,11 +554,18 @@ impl Scram {
     fn step3(&mut self, input: &[u8]) -> Result<(), Error> {
         let a = parse_attrs(input, b"ev", 3)?;
         if let Some(e) = attr(&a, b'e') {
-            return Err(err(format!("SCRAM Failure: authentication failure in sasl step 3 : {}", String::from_utf8_lossy(e))));
+            return Err(err(format!(
+                "SCRAM Failure: authentication failure in sasl step 3 : {}",
+                String::from_utf8_lossy(e)
+            )));
         }
-        let Some(v) = attr(&a, b'v') else { return Err(err("SCRAM Failure: no v param in sasl step 3")) };
+        let Some(v) = attr(&a, b'v') else {
+            return Err(err("SCRAM Failure: no v param in sasl step 3"));
+        };
         if !self.verify_server_signature(v) {
-            return Err(err("SCRAM Failure: could not verify server signature in sasl step 3"));
+            return Err(err(
+                "SCRAM Failure: could not verify server signature in sasl step 3",
+            ));
         }
         self.update_cache();
         Ok(())
@@ -516,7 +573,9 @@ impl Scram {
 
     fn verify_server_signature(&mut self, v: &[u8]) -> bool {
         let n = self.algo.hash_size();
-        let Some(sp) = self.salted_password else { return false };
+        let Some(sp) = self.salted_password else {
+            return false;
+        };
         let sk = *self.server_key.get_or_insert_with(|| {
             let mut k = [0u8; HASH_MAX];
             hmac(self.algo, &sp[..n], b"Server Key", &mut k);
@@ -530,7 +589,10 @@ impl Scram {
     }
 
     fn cache_key_eq(&self, e: &CacheEntry) -> bool {
-        e.algo == self.algo && e.iterations == self.iterations && e.salt == self.salt && ct_eq(&e.hashed_password, &self.hashed_password)
+        e.algo == self.algo
+            && e.iterations == self.iterations
+            && e.salt == self.salt
+            && ct_eq(&e.hashed_password, &self.hashed_password)
     }
 
     /// _mongoc_scram_cache_has_presecrets + apply_secrets
@@ -545,7 +607,11 @@ impl Scram {
 
     /// _mongoc_scram_update_cache: a full cache is emptied first.
     fn update_cache(&self) {
-        let (Some(ck), Some(sk), Some(sp)) = (self.client_key, self.server_key, self.salted_password) else { return };
+        let (Some(ck), Some(sk), Some(sp)) =
+            (self.client_key, self.server_key, self.salted_password)
+        else {
+            return;
+        };
         let Ok(mut c) = CACHE.lock() else { return };
         if c.iter().any(|e| self.cache_key_eq(e)) {
             return;
@@ -583,13 +649,25 @@ mod tests {
     #[test]
     fn sha1_conversation() {
         let mut s = Scram::new(Algo::Sha1, "user", Some("pencil"));
-        assert_eq!(s.start("fyko+d2lbbFgONRv9qkxdawL").unwrap(), b"n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL");
+        assert_eq!(
+            s.start("fyko+d2lbbFgONRv9qkxdawL").unwrap(),
+            b"n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"
+        );
         s.step = 1;
         let c2 = s.step(b"r=fyko+d2lbbFgONRv9qkxdawLHo+Vgk7qvUOKUwuWLIWg4l/9SraGMHEE,s=rQ9ZY3MntBeuP3E1TDVC4w==,i=10000").unwrap();
-        assert_eq!(String::from_utf8(c2).unwrap(), "c=biws,r=fyko+d2lbbFgONRv9qkxdawLHo+Vgk7qvUOKUwuWLIWg4l/9SraGMHEE,p=MC2T8BvbmWRckDw8oWl5IVghwCY=");
+        assert_eq!(
+            String::from_utf8(c2).unwrap(),
+            "c=biws,r=fyko+d2lbbFgONRv9qkxdawLHo+Vgk7qvUOKUwuWLIWg4l/9SraGMHEE,p=MC2T8BvbmWRckDw8oWl5IVghwCY="
+        );
         assert_eq!(s.step(b"v=UMWeI25JD1yNYZRMpZ4VHvhZ9e0=").unwrap(), b"");
         let e = s.step(b"").unwrap_err();
-        assert_eq!((e.code, e.message.as_str()), (code::SCRAM_NOT_DONE, "SCRAM Failure: maximum steps detected"));
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            (
+                code::SCRAM_NOT_DONE,
+                "SCRAM Failure: maximum steps detected"
+            )
+        );
     }
 
     /// The auth specification's SCRAM-SHA-256 example (RFC 7677 section 3).
@@ -597,10 +675,17 @@ mod tests {
     fn sha256_conversation() {
         let mut s = Scram::new(Algo::Sha256, "user", Some("pencil"));
         s.check_salt_len = false;
-        assert_eq!(s.start("rOprNGfwEbeRWgbNEkqO").unwrap(), b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO");
+        assert_eq!(
+            s.start("rOprNGfwEbeRWgbNEkqO").unwrap(),
+            b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO"
+        );
         let c2 = s.step(b"r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096").unwrap();
-        assert_eq!(String::from_utf8(c2).unwrap(), "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=");
-        s.step(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=").unwrap();
+        assert_eq!(
+            String::from_utf8(c2).unwrap(),
+            "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ="
+        );
+        s.step(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=")
+            .unwrap();
         assert!(cache_len() >= 1);
         // a second conversation with the same pre-secrets uses the cache (same result)
         let mut s2 = Scram::new(Algo::Sha256, "user", Some("pencil"));
@@ -620,23 +705,70 @@ mod tests {
     #[test]
     fn step2_errors() {
         let n = "r=rOprNGfwEbeRWgbNEkqOserver,s=W22ZaJ0SNY7soEsUEjb6gQ==";
-        assert_eq!(step2_err(format!("{n},i=4095").as_bytes()), "SCRAM Failure: iterations must be at least 4096");
-        assert_eq!(step2_err(format!("{n},i=-1").as_bytes()), "SCRAM Failure: iterations is negative in sasl step2");
-        assert_eq!(step2_err(format!("{n},i=12x").as_bytes()), "SCRAM Failure: unable to parse iterations in sasl step2");
-        assert_eq!(step2_err(format!("{n},i=").as_bytes()), "SCRAM Failure: unable to parse iterations in sasl step2");
-        assert_eq!(step2_err(format!("{n},i=10000001").as_bytes()), "SCRAM Failure: iterations must be at most 10000000");
-        assert_eq!(step2_err(format!("{n},i=99999999999999999999999").as_bytes()), "SCRAM Failure: iterations must be at most 10000000");
-        assert_eq!(step2_err(b"r=ZZZZZZZZserver-nonce,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"), "SCRAM Failure: client nonce not repeated in sasl step 2");
+        assert_eq!(
+            step2_err(format!("{n},i=4095").as_bytes()),
+            "SCRAM Failure: iterations must be at least 4096"
+        );
+        assert_eq!(
+            step2_err(format!("{n},i=-1").as_bytes()),
+            "SCRAM Failure: iterations is negative in sasl step2"
+        );
+        assert_eq!(
+            step2_err(format!("{n},i=12x").as_bytes()),
+            "SCRAM Failure: unable to parse iterations in sasl step2"
+        );
+        assert_eq!(
+            step2_err(format!("{n},i=").as_bytes()),
+            "SCRAM Failure: unable to parse iterations in sasl step2"
+        );
+        assert_eq!(
+            step2_err(format!("{n},i=10000001").as_bytes()),
+            "SCRAM Failure: iterations must be at most 10000000"
+        );
+        assert_eq!(
+            step2_err(format!("{n},i=99999999999999999999999").as_bytes()),
+            "SCRAM Failure: iterations must be at most 10000000"
+        );
+        assert_eq!(
+            step2_err(b"r=ZZZZZZZZserver-nonce,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"),
+            "SCRAM Failure: client nonce not repeated in sasl step 2"
+        );
         let mut s = Scram::new(Algo::Sha256, "user", Some("pencil"));
         s.start("N").unwrap();
-        assert_eq!(s.step(b"r=Nserver,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096").unwrap_err().message, "SCRAM Failure: invalid salt length of 16 in sasl step2");
-        assert_eq!(step2_err(b"r=rOprNGfwEbeRWgbNEkqOserver,s=*,i=4096"), "SCRAM Failure: unable to decode salt in sasl step2");
-        assert_eq!(step2_err(b"x=1"), "SCRAM Failure: unknown key (x) in sasl step 2");
-        assert_eq!(step2_err(b"r"), "SCRAM Failure: invalid parse state in sasl step 2");
-        assert_eq!(step2_err(b"r=rOprNGfwEbeRWgbNEkqO,i=4096"), "SCRAM Failure: no s param in sasl step 2");
-        assert_eq!(step2_err(b"s=AAAA,i=4096"), "SCRAM Failure: no r param in sasl step 2");
-        assert_eq!(step2_err(b"r=rOprNGfwEbeRWgbNEkqO,s=AAAA"), "SCRAM Failure: no i param in sasl step 2");
-        assert_eq!(step2_err(&[b'r'; BUF_MAX]), "SCRAM Failure: could not buffer auth message in sasl step2");
+        assert_eq!(
+            s.step(b"r=Nserver,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
+                .unwrap_err()
+                .message,
+            "SCRAM Failure: invalid salt length of 16 in sasl step2"
+        );
+        assert_eq!(
+            step2_err(b"r=rOprNGfwEbeRWgbNEkqOserver,s=*,i=4096"),
+            "SCRAM Failure: unable to decode salt in sasl step2"
+        );
+        assert_eq!(
+            step2_err(b"x=1"),
+            "SCRAM Failure: unknown key (x) in sasl step 2"
+        );
+        assert_eq!(
+            step2_err(b"r"),
+            "SCRAM Failure: invalid parse state in sasl step 2"
+        );
+        assert_eq!(
+            step2_err(b"r=rOprNGfwEbeRWgbNEkqO,i=4096"),
+            "SCRAM Failure: no s param in sasl step 2"
+        );
+        assert_eq!(
+            step2_err(b"s=AAAA,i=4096"),
+            "SCRAM Failure: no r param in sasl step 2"
+        );
+        assert_eq!(
+            step2_err(b"r=rOprNGfwEbeRWgbNEkqO,s=AAAA"),
+            "SCRAM Failure: no i param in sasl step 2"
+        );
+        assert_eq!(
+            step2_err(&[b'r'; BUF_MAX]),
+            "SCRAM Failure: could not buffer auth message in sasl step2"
+        );
     }
 
     #[test]
@@ -648,12 +780,30 @@ mod tests {
             s.step(b"r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096").unwrap();
             s.step(last).map(|_| ()).map_err(|e| e.message)
         };
-        assert_eq!(run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="), Ok(()));
-        assert_eq!(run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G5="), Err("SCRAM Failure: could not verify server signature in sasl step 3".into()));
-        assert_eq!(run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4"), Err("SCRAM Failure: could not verify server signature in sasl step 3".into()));
-        assert_eq!(run(b"e=other-error"), Err("SCRAM Failure: authentication failure in sasl step 3 : other-error".into()));
-        assert_eq!(run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=,x=1"), Err("SCRAM Failure: unknown key (x) in sasl step 3".into()));
-        assert_eq!(run(b""), Err("SCRAM Failure: no v param in sasl step 3".into()));
+        assert_eq!(
+            run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="),
+            Ok(())
+        );
+        assert_eq!(
+            run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G5="),
+            Err("SCRAM Failure: could not verify server signature in sasl step 3".into())
+        );
+        assert_eq!(
+            run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4"),
+            Err("SCRAM Failure: could not verify server signature in sasl step 3".into())
+        );
+        assert_eq!(
+            run(b"e=other-error"),
+            Err("SCRAM Failure: authentication failure in sasl step 3 : other-error".into())
+        );
+        assert_eq!(
+            run(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=,x=1"),
+            Err("SCRAM Failure: unknown key (x) in sasl step 3".into())
+        );
+        assert_eq!(
+            run(b""),
+            Err("SCRAM Failure: no v param in sasl step 3".into())
+        );
     }
 
     #[test]
@@ -661,12 +811,21 @@ mod tests {
         let mut s = Scram::new(Algo::Sha1, "a,b=c", None);
         assert_eq!(s.start("N").unwrap(), b"n,,n=a=2Cb=3Dc,r=N");
         let mut s = Scram::new(Algo::Sha1, &"u".repeat(BUF_MAX), None);
-        assert_eq!(s.start("N").unwrap_err().message, "SCRAM Failure: could not buffer sasl step1");
+        assert_eq!(
+            s.start("N").unwrap_err().message,
+            "SCRAM Failure: could not buffer sasl step1"
+        );
     }
 
     #[test]
     fn base64() {
-        for (raw, enc) in [(&b""[..], ""), (b"f", "Zg=="), (b"fo", "Zm8="), (b"foo", "Zm9v"), (b"foob", "Zm9vYg==")] {
+        for (raw, enc) in [
+            (&b""[..], ""),
+            (b"f", "Zg=="),
+            (b"fo", "Zm8="),
+            (b"foo", "Zm9v"),
+            (b"foob", "Zm9vYg=="),
+        ] {
             assert_eq!(b64_encode(raw), enc);
             assert_eq!(b64_decode(enc.as_bytes(), 64).unwrap(), raw);
         }

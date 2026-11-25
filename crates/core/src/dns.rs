@@ -36,7 +36,9 @@ impl LookupError {
             LookupError::HostNotFound => "The specified host is unknown.",
             LookupError::NoData => "The requested name is valid but does not have an IP address.",
             LookupError::NoRecovery => "A nonrecoverable name server error occurred.",
-            LookupError::TryAgain => "A temporary error occurred on an authoritative name server. Try again later.",
+            LookupError::TryAgain => {
+                "A temporary error occurred on an authoritative name server. Try again later."
+            }
         }
     }
 }
@@ -54,7 +56,14 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { nameservers: vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 53)], search: Vec::new(), ndots: 1, timeout: Duration::from_secs(5), attempts: 2, use_vc: false }
+        Config {
+            nameservers: vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 53)],
+            search: Vec::new(),
+            ndots: 1,
+            timeout: Duration::from_secs(5),
+            attempts: 2,
+            use_vc: false,
+        }
     }
 }
 
@@ -76,9 +85,12 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Config {
-        let mut c = Config { nameservers: Vec::new(), ..Config::default() };
+        let mut c = Config {
+            nameservers: Vec::new(),
+            ..Config::default()
+        };
         for line in text.lines() {
-            let mut w = line.split(|ch: char| ch == ' ' || ch == '\t').filter(|s| !s.is_empty());
+            let mut w = line.split([' ', '\t']).filter(|s| !s.is_empty());
             match w.next() {
                 Some("nameserver") if c.nameservers.len() < MAXNS => {
                     // a scoped IPv6 address (fe80::1%en0) is skipped: std cannot parse the scope name
@@ -92,7 +104,11 @@ impl Config {
                     }
                 }
                 Some("search") => {
-                    c.search = w.take(MAXDNSRCH).map(|d| d.trim_end_matches('.').to_owned()).filter(|d| !d.is_empty()).collect();
+                    c.search = w
+                        .take(MAXDNSRCH)
+                        .map(|d| d.trim_end_matches('.').to_owned())
+                        .filter(|d| !d.is_empty())
+                        .collect();
                 }
                 Some("options") => {
                     for o in w {
@@ -132,12 +148,19 @@ fn hostname_domain() -> Option<String> {
     }
     let n = buf.iter().position(|&b| b == 0)?;
     let h = std::str::from_utf8(&buf[..n]).ok()?;
-    h.split_once('.').map(|(_, d)| d.to_owned()).filter(|d| !d.is_empty())
+    h.split_once('.')
+        .map(|(_, d)| d.to_owned())
+        .filter(|d| !d.is_empty())
 }
 
 /// res_nsearch: the response message for `name` (type `qtype`, class IN), with the search
 /// list applied as libresolv does (the name as given first when it has at least ndots dots).
-pub fn search(cfg: &Config, name: &str, qtype: u16, prefer_tcp: bool) -> Result<Vec<u8>, LookupError> {
+pub fn search(
+    cfg: &Config,
+    name: &str,
+    qtype: u16,
+    prefer_tcp: bool,
+) -> Result<Vec<u8>, LookupError> {
     let tcp = prefer_tcp || cfg.use_vc;
     if name.ends_with('.') {
         return query(cfg, name, qtype, tcp);
@@ -185,12 +208,18 @@ fn query(cfg: &Config, name: &str, qtype: u16, tcp: bool) -> Result<Vec<u8>, Loo
     let mut last = LookupError::TryAgain;
     for _ in 0..cfg.attempts {
         for ns in &cfg.nameservers {
-            let reply = if tcp { send_tcp(*ns, &q, cfg.timeout) } else { send_udp(*ns, &q, id, cfg.timeout) };
+            let reply = if tcp {
+                send_tcp(*ns, &q, cfg.timeout)
+            } else {
+                send_udp(*ns, &q, id, cfg.timeout)
+            };
             let reply = match reply {
-                Ok(r) if !tcp && r.len() >= 4 && r[2] & 0x02 != 0 => match send_tcp(*ns, &q, cfg.timeout) {
-                    Ok(r) => r,
-                    Err(()) => continue,
-                },
+                Ok(r) if !tcp && r.len() >= 4 && r[2] & 0x02 != 0 => {
+                    match send_tcp(*ns, &q, cfg.timeout) {
+                        Ok(r) => r,
+                        Err(()) => continue,
+                    }
+                }
                 Ok(r) => r,
                 Err(()) => continue,
             };
@@ -245,7 +274,11 @@ fn answers(r: &[u8], q: &[u8]) -> bool {
 }
 
 fn send_udp(ns: SocketAddr, q: &[u8], id: u16, timeout: Duration) -> Result<Vec<u8>, ()> {
-    let local: SocketAddr = if ns.is_ipv4() { (Ipv4Addr::UNSPECIFIED, 0).into() } else { (std::net::Ipv6Addr::UNSPECIFIED, 0).into() };
+    let local: SocketAddr = if ns.is_ipv4() {
+        (Ipv4Addr::UNSPECIFIED, 0).into()
+    } else {
+        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
+    };
     let s = UdpSocket::bind(local).map_err(drop)?;
     // connected: datagrams from other addresses are dropped by the kernel
     s.connect(ns).map_err(drop)?;
@@ -253,7 +286,10 @@ fn send_udp(ns: SocketAddr, q: &[u8], id: u16, timeout: Duration) -> Result<Vec<
     let deadline = Instant::now() + timeout;
     let mut buf = vec![0u8; 65535];
     loop {
-        let left = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()).ok_or(())?;
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or(())?;
         s.set_read_timeout(Some(left)).map_err(drop)?;
         let n = s.recv(&mut buf).map_err(drop)?;
         // a datagram that is not the answer (an old or forged one) is ignored
@@ -267,7 +303,12 @@ fn send_udp(ns: SocketAddr, q: &[u8], id: u16, timeout: Duration) -> Result<Vec<
 fn send_tcp(ns: SocketAddr, q: &[u8], timeout: Duration) -> Result<Vec<u8>, ()> {
     let deadline = Instant::now() + timeout;
     let mut s = TcpStream::connect_timeout(&ns, timeout).map_err(drop)?;
-    let left = || deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()).ok_or(());
+    let left = || {
+        deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or(())
+    };
     s.set_write_timeout(Some(left()?)).map_err(drop)?;
     let mut m = Vec::with_capacity(q.len() + 2);
     m.extend_from_slice(&(q.len() as u16).to_be_bytes());
@@ -312,7 +353,10 @@ pub fn parse_answers(m: &[u8]) -> Result<Vec<Record>, &'static str> {
     let mut at = 12;
     for _ in 0..qd {
         at = skip_name(m, at)?;
-        at = at.checked_add(4).filter(|&a| a <= m.len()).ok_or("truncated question")?;
+        at = at
+            .checked_add(4)
+            .filter(|&a| a <= m.len())
+            .ok_or("truncated question")?;
     }
     let mut out = Vec::with_capacity(an);
     for _ in 0..an {
@@ -322,8 +366,15 @@ pub fn parse_answers(m: &[u8]) -> Result<Vec<Record>, &'static str> {
         let ttl = u32::from_be_bytes([h[4], h[5], h[6], h[7]]);
         let len = u16::from_be_bytes([h[8], h[9]]) as usize;
         let start = at + 10;
-        let end = start.checked_add(len).filter(|&e| e <= m.len()).ok_or("truncated record data")?;
-        out.push(Record { rtype, ttl, rdata: (start, end) });
+        let end = start
+            .checked_add(len)
+            .filter(|&e| e <= m.len())
+            .ok_or("truncated record data")?;
+        out.push(Record {
+            rtype,
+            ttl,
+            rdata: (start, end),
+        });
         at = end;
     }
     Ok(out)
@@ -336,7 +387,13 @@ fn skip_name(m: &[u8], mut at: usize) -> Result<usize, &'static str> {
         match l & 0xc0 {
             0x00 if l == 0 => return Ok(at + 1),
             0x00 => at += 1 + l as usize,
-            0xc0 => return if at + 2 <= m.len() { Ok(at + 2) } else { Err("truncated name") },
+            0xc0 => {
+                return if at + 2 <= m.len() {
+                    Ok(at + 2)
+                } else {
+                    Err("truncated name")
+                };
+            }
             _ => return Err("invalid label"),
         }
     }
@@ -374,7 +431,8 @@ pub fn expand_name(m: &[u8], mut at: usize) -> Result<String, &'static str> {
                 at += 1 + label.len();
             }
             0xc0 => {
-                let p = (u16::from_be_bytes([l, *m.get(at + 1).ok_or("truncated name")?]) & 0x3fff) as usize;
+                let p = (u16::from_be_bytes([l, *m.get(at + 1).ok_or("truncated name")?]) & 0x3fff)
+                    as usize;
                 if p >= limit {
                     return Err("invalid compression pointer");
                 }
@@ -421,7 +479,10 @@ mod tests {
         assert_eq!(recs.len(), 1);
         assert_eq!((recs[0].rtype, recs[0].ttl), (T_SRV, 300));
         // the target: "localhost" + the suffix of the question name after "_mongodb._tcp."
-        assert_eq!(expand_name(&r, recs[0].rdata.0 + 6).unwrap(), "localhost.test1.example.com");
+        assert_eq!(
+            expand_name(&r, recs[0].rdata.0 + 6).unwrap(),
+            "localhost.test1.example.com"
+        );
         let mut other = r.clone();
         other[0] ^= 1;
         assert!(!answers(&other, &q));
@@ -468,10 +529,15 @@ mod tests {
 
     #[test]
     fn resolv_conf() {
-        let c = Config::parse("# x\nnameserver 10.0.0.1\nnameserver ::1\nnameserver 10.0.0.2\nnameserver 10.0.0.3\nsearch a.example b.example.\noptions ndots:2 timeout:99 attempts:0 use-vc\n");
+        let c = Config::parse(
+            "# x\nnameserver 10.0.0.1\nnameserver ::1\nnameserver 10.0.0.2\nnameserver 10.0.0.3\nsearch a.example b.example.\noptions ndots:2 timeout:99 attempts:0 use-vc\n",
+        );
         assert_eq!(c.nameservers.len(), 3);
         assert_eq!(c.search, vec!["a.example", "b.example"]);
-        assert_eq!((c.ndots, c.timeout, c.attempts, c.use_vc), (2, Duration::from_secs(30), 1, true));
+        assert_eq!(
+            (c.ndots, c.timeout, c.attempts, c.use_vc),
+            (2, Duration::from_secs(30), 1, true)
+        );
         assert_eq!(Config::parse("").nameservers, Config::default().nameservers);
     }
 }

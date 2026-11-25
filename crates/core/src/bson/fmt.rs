@@ -11,7 +11,11 @@ pub fn fmt_g(v: f64, prec: usize) -> String {
 /// `fmt_g`, appended to `out` (no allocation besides `out`'s growth).
 pub fn fmt_g_into(out: &mut Vec<u8>, v: f64, prec: usize) {
     if v.is_nan() {
-        out.extend_from_slice(if v.is_sign_negative() { b"-nan" } else { b"nan" });
+        out.extend_from_slice(if v.is_sign_negative() {
+            b"-nan"
+        } else {
+            b"nan"
+        });
         return;
     }
     if v.is_infinite() {
@@ -241,7 +245,9 @@ pub fn iso8601_into(out: &mut Vec<u8>, ms: i64) {
         out.extend_from_slice(iso8601_fmt(ms).as_bytes());
         return;
     }
-    let two = |out: &mut Vec<u8>, v: u32| out.extend_from_slice(&[b'0' + (v / 10) as u8, b'0' + (v % 10) as u8]);
+    let two = |out: &mut Vec<u8>, v: u32| {
+        out.extend_from_slice(&[b'0' + (v / 10) as u8, b'0' + (v % 10) as u8])
+    };
     let y = y as u32;
     two(out, y / 100);
     two(out, y % 100);
@@ -257,7 +263,12 @@ pub fn iso8601_into(out: &mut Vec<u8>, ms: i64) {
     two(out, (secs % 60) as u32);
     if msec != 0 {
         let ms = msec as u32;
-        out.extend_from_slice(&[b'.', b'0' + (ms / 100) as u8, b'0' + (ms / 10 % 10) as u8, b'0' + (ms % 10) as u8]);
+        out.extend_from_slice(&[
+            b'.',
+            b'0' + (ms / 100) as u8,
+            b'0' + (ms / 10 % 10) as u8,
+            b'0' + (ms % 10) as u8,
+        ]);
     }
     out.push(b'Z');
 }
@@ -269,7 +280,15 @@ fn iso8601_fmt(ms: i64) -> String {
     let days = t.div_euclid(86400);
     let secs = t.rem_euclid(86400);
     let (y, m, d) = civil_from_days(days);
-    let base = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", y, m, d, secs / 3600, secs / 60 % 60, secs % 60);
+    let base = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        y,
+        m,
+        d,
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    );
     if msec != 0 {
         format!("{}.{:03}Z", base, msec)
     } else {
@@ -288,11 +307,21 @@ pub fn base64_encode_into(out: &mut Vec<u8>, data: &[u8]) {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     out.reserve(data.len().div_ceil(3) * 4);
     for c in data.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         out.push(T[(n >> 18) as usize & 63]);
         out.push(T[(n >> 12) as usize & 63]);
-        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] } else { b'=' });
-        out.push(if c.len() > 2 { T[n as usize & 63] } else { b'=' });
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63]
+        } else {
+            b'='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63]
+        } else {
+            b'='
+        });
     }
 }
 
@@ -377,14 +406,22 @@ mod tests {
     /// C's `printf("%.<prec>g", v)` for finite and non-finite doubles (glibc spelling).
     fn reference(v: f64, prec: usize) -> String {
         if v.is_nan() {
-            return if v.is_sign_negative() { "-nan".into() } else { "nan".into() };
+            return if v.is_sign_negative() {
+                "-nan".into()
+            } else {
+                "nan".into()
+            };
         }
         if v.is_infinite() {
             return if v < 0.0 { "-inf".into() } else { "inf".into() };
         }
         let p = if prec == 0 { 1 } else { prec };
         if v == 0.0 {
-            return if v.is_sign_negative() { "-0".into() } else { "0".into() };
+            return if v.is_sign_negative() {
+                "-0".into()
+            } else {
+                "0".into()
+            };
         }
         // exact decimal digits, correctly rounded to p significant digits (one conversion; the
         // fixed notation is laid out from the same digits, as printf's %g does)
@@ -395,7 +432,10 @@ mod tests {
             None => {
                 let e = format!("{:.*e}", p - 1, v.abs());
                 let (mant, exp) = e.split_once('e').unwrap();
-                (mant.bytes().filter(|&c| c != b'.').collect(), exp.parse().unwrap())
+                (
+                    mant.bytes().filter(|&c| c != b'.').collect(),
+                    exp.parse().unwrap(),
+                )
             }
         };
         while digits.len() > 1 && digits.last() == Some(&b'0') {
@@ -405,7 +445,7 @@ mod tests {
         if neg {
             out.push('-');
         }
-        let ds = |d: &[u8]| unsafe { std::str::from_utf8_unchecked(d) }.to_owned();
+        let ds = |d: &[u8]| d.iter().map(|&c| char::from(c)).collect::<String>();
         if x < -4 || x >= p as i32 {
             out.push(digits[0] as char);
             if digits.len() > 1 {
@@ -448,7 +488,29 @@ mod tests {
                 assert_eq!(fmt_g(v, p), reference(v, p), "{:?} p={}", v, p);
             }
         };
-        for v in [0.0, -0.0, 1.0, -1.0, 0.1, 1e-5, 1e-4, 123456.0, 1e20, 1e21, 1e300, 5e-324, f64::MAX, f64::MIN_POSITIVE, f64::NAN, -f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 142.857142857142857, 2.5, 0.5] {
+        for v in [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            0.1,
+            1e-5,
+            1e-4,
+            123456.0,
+            1e20,
+            1e21,
+            1e300,
+            5e-324,
+            f64::MAX,
+            f64::MIN_POSITIVE,
+            f64::NAN,
+            -f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            142.857_142_857_142_86,
+            2.5,
+            0.5,
+        ] {
             check(v);
         }
         for _ in 0..300_000 {
@@ -468,7 +530,11 @@ mod tests {
             x ^= x << 13;
             x ^= x >> 7;
             x ^= x << 17;
-            for ms in [(x % 253402300800000) as i64, (x % 4_000_000_000_000) as i64 - 2_000_000_000_000, x as i64] {
+            for ms in [
+                (x % 253402300800000) as i64,
+                (x % 4_000_000_000_000) as i64 - 2_000_000_000_000,
+                x as i64,
+            ] {
                 assert_eq!(iso8601(ms), iso8601_fmt(ms), "{}", ms);
             }
         }
@@ -476,7 +542,20 @@ mod tests {
 
     #[test]
     fn push_i64_matches_display() {
-        for v in [0, 1, -1, 9, 10, 99, 100, i64::MAX, i64::MIN, i32::MAX as i64, i32::MIN as i64, 1234567890123] {
+        for v in [
+            0,
+            1,
+            -1,
+            9,
+            10,
+            99,
+            100,
+            i64::MAX,
+            i64::MIN,
+            i32::MAX as i64,
+            i32::MIN as i64,
+            1234567890123,
+        ] {
             let mut o = Vec::new();
             push_i64(&mut o, v);
             assert_eq!(o, v.to_string().into_bytes());

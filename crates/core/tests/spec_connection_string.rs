@@ -17,7 +17,10 @@ const DIVERGENCES: &[&str] = &[
 
 #[test]
 fn connection_string() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/spec/source/connection-string/tests");
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/spec/source/connection-string/tests"
+    );
     let mut n = 0;
     let mut failures = Vec::new();
     for f in std::fs::read_dir(dir).unwrap() {
@@ -28,7 +31,11 @@ fn connection_string() {
         let j: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         for t in j["tests"].as_array().unwrap() {
             n += 1;
-            let desc = format!("{}: {}", p.file_name().unwrap().to_string_lossy(), t["description"].as_str().unwrap());
+            let desc = format!(
+                "{}: {}",
+                p.file_name().unwrap().to_string_lossy(),
+                t["description"].as_str().unwrap()
+            );
             let r = Uri::parse(t["uri"].as_str().unwrap());
             let valid = t["valid"].as_bool().unwrap();
             match (valid, &r) {
@@ -39,16 +46,51 @@ fn connection_string() {
                         failures.push(format!("{desc}: no warning"));
                     }
                     if let Some(hosts) = t["hosts"].as_array() {
-                        let got: Vec<(String, Option<u64>)> = u.hosts.iter().map(|h| (h.host.clone(), if h.family == Family::Unix { None } else { Some(h.port as u64) })).collect();
-                        let want: Vec<(String, Option<u64>)> = hosts.iter().map(|h| ({ let x = h["host"].as_str().unwrap(); if h["type"] == "unix" { x.to_owned() } else { x.to_ascii_lowercase() } }, Some(h["port"].as_u64().unwrap_or(27017)).filter(|_| h["type"] != "unix"))).collect();
+                        let got: Vec<(String, Option<u64>)> = u
+                            .hosts
+                            .iter()
+                            .map(|h| {
+                                (
+                                    h.host.clone(),
+                                    if h.family == Family::Unix {
+                                        None
+                                    } else {
+                                        Some(h.port as u64)
+                                    },
+                                )
+                            })
+                            .collect();
+                        let want: Vec<(String, Option<u64>)> = hosts
+                            .iter()
+                            .map(|h| {
+                                (
+                                    {
+                                        let x = h["host"].as_str().unwrap();
+                                        if h["type"] == "unix" {
+                                            x.to_owned()
+                                        } else {
+                                            x.to_ascii_lowercase()
+                                        }
+                                    },
+                                    (h["type"] != "unix")
+                                        .then_some(h["port"].as_u64().unwrap_or(27017)),
+                                )
+                            })
+                            .collect();
                         if got != want {
                             failures.push(format!("{desc}: hosts {got:?} != {want:?}"));
                         }
                     }
                     if let Some(a) = t["auth"].as_object() {
                         let s = |v: &Value| v.as_str().map(str::to_owned);
-                        if u.username != s(&a["username"]) || u.password != s(&a["password"]) || u.database != s(&a["db"]) {
-                            failures.push(format!("{desc}: auth {:?}/{:?}/{:?}", u.username, u.password, u.database));
+                        if u.username != s(&a["username"])
+                            || u.password != s(&a["password"])
+                            || u.database != s(&a["db"])
+                        {
+                            failures.push(format!(
+                                "{desc}: auth {:?}/{:?}/{:?}",
+                                u.username, u.password, u.database
+                            ));
                         }
                     }
                 }

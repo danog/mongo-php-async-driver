@@ -78,7 +78,10 @@ struct Writer {
 
 impl Writer {
     fn new() -> Writer {
-        Writer { buf: Vec::with_capacity(256), open: Vec::new() }
+        Writer {
+            buf: Vec::with_capacity(256),
+            open: Vec::new(),
+        }
     }
     fn head(&mut self, tag: u32, t: u8, len: u32) {
         self.buf.extend_from_slice(&tag.to_be_bytes()[1..]);
@@ -88,7 +91,8 @@ impl Writer {
     fn bytes(&mut self, tag: u32, t: u8, v: &[u8]) {
         self.head(tag, t, v.len() as u32);
         self.buf.extend_from_slice(v);
-        self.buf.resize(self.buf.len() + padded(v.len()) - v.len(), 0);
+        self.buf
+            .resize(self.buf.len() + padded(v.len()) - v.len(), 0);
     }
     fn int(&mut self, tag: u32, t: u8, v: u32) {
         self.head(tag, t, 4);
@@ -148,7 +152,10 @@ impl Writer {
 /// `kms_kmip_request_register_secretdata_new`
 pub fn register_secretdata(data: &[u8]) -> Result<Vec<u8>> {
     if data.len() != SECRETDATA_LENGTH {
-        return Err(format!("expected SecretData length of {SECRETDATA_LENGTH}, got {}", data.len()));
+        return Err(format!(
+            "expected SecretData length of {SECRETDATA_LENGTH}, got {}",
+            data.len()
+        ));
     }
     let mut w = Writer::request(0, 0x03);
     w.enumeration(OBJECT_TYPE, 0x07);
@@ -233,12 +240,13 @@ fn find(items: &[u8], tag: u32, t: u8) -> Option<&[u8]> {
     None
 }
 
-fn find_struct<'a>(items: &'a [u8], tag: u32) -> Result<&'a [u8]> {
+fn find_struct(items: &[u8], tag: u32) -> Result<&[u8]> {
     find(items, tag, STRUCTURE).ok_or_else(|| format!("unable to find tag: {}", tag_name(tag)))
 }
 
 fn enum_value(v: &[u8]) -> Option<u32> {
-    v.get(..4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    v.get(..4)
+        .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
 }
 
 fn result_status_name(s: u32) -> &'static str {
@@ -290,7 +298,8 @@ fn payload(msg: &[u8]) -> Result<&[u8]> {
         None => 0,
     };
     let message = find(batch, RESULT_MESSAGE, TEXT_STRING).unwrap_or_default();
-    let status = find(batch, RESULT_STATUS, ENUMERATION).ok_or_else(|| format!("unable to find tag: {}", tag_name(RESULT_STATUS)))?;
+    let status = find(batch, RESULT_STATUS, ENUMERATION)
+        .ok_or_else(|| format!("unable to find tag: {}", tag_name(RESULT_STATUS)))?;
     let status = enum_value(status).ok_or("unable to read result status value")?;
     if status != 0 {
         return Err(format!(
@@ -304,7 +313,9 @@ fn payload(msg: &[u8]) -> Result<&[u8]> {
 }
 
 fn field(p: &[u8], tag: u32, t: u8) -> Result<Vec<u8>> {
-    find(p, tag, t).map(<[u8]>::to_vec).ok_or_else(|| format!("unable to find tag: {}", tag_name(tag)))
+    find(p, tag, t)
+        .map(<[u8]>::to_vec)
+        .ok_or_else(|| format!("unable to find tag: {}", tag_name(tag)))
 }
 
 /// `kms_kmip_response_get_unique_identifier`
@@ -316,7 +327,10 @@ pub fn unique_identifier(msg: &[u8]) -> Result<String> {
 /// `kms_kmip_response_get_secretdata`
 pub fn secretdata(msg: &[u8]) -> Result<Vec<u8>> {
     let p = payload(msg)?;
-    let kv = find_struct(find_struct(find_struct(p, SECRET_DATA)?, KEY_BLOCK)?, KEY_VALUE)?;
+    let kv = find_struct(
+        find_struct(find_struct(p, SECRET_DATA)?, KEY_BLOCK)?,
+        KEY_VALUE,
+    )?;
     field(kv, KEY_MATERIAL, BYTE_STRING)
 }
 
@@ -338,7 +352,9 @@ pub struct Parser {
 
 impl Parser {
     fn total(&self) -> Option<usize> {
-        self.buf.get(4..8).map(|b| 8 + u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
+        self.buf
+            .get(4..8)
+            .map(|b| 8 + u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
     }
 
     /// Adds bytes read; true once the message is complete or malformed
@@ -372,7 +388,9 @@ impl Parser {
                 self.buf.truncate(t);
                 Ok(self.buf)
             }
-            _ => Err("Error getting KMIP response: KMIP parser does not have a complete message".into()),
+            _ => Err(
+                "Error getting KMIP response: KMIP parser does not have a complete message".into(),
+            ),
         }
     }
 }
@@ -401,7 +419,10 @@ mod tests {
         // kms-message's test vector for Activate("39")
         let a = activate("39");
         assert_eq!(a.len() % 8, 0);
-        assert_eq!(&a[..8], &[0x42, 0x00, 0x78, 0x01, 0, 0, 0, (a.len() - 8) as u8]);
+        assert_eq!(
+            &a[..8],
+            &[0x42, 0x00, 0x78, 0x01, 0, 0, 0, (a.len() - 8) as u8]
+        );
         let r = response(3, 0, |w| w.bytes(UNIQUE_IDENTIFIER, TEXT_STRING, b"39"));
         assert_eq!(unique_identifier(&r).unwrap(), "39");
         let r = response(3, 1, |_| {});
@@ -425,12 +446,21 @@ mod tests {
     /// kms-message's test_kms_kmip_request.c vectors
     #[test]
     fn kms_message_vectors() {
-        let v = |n: &str| std::fs::read(format!("{}/tests/data/kmip/{n}.bin", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let v = |n: &str| {
+            std::fs::read(format!(
+                "{}/tests/data/kmip/{n}.bin",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap()
+        };
         let reg = v("register_secretdata_request");
         // the SecretData is the request's last 96 bytes (no padding)
         let secret = &reg[reg.len() - 96..];
         assert_eq!(register_secretdata(secret).unwrap(), reg);
         assert_eq!(get("7FJYvnV6XkaUCWuY96bCSc6AuhvkPpqI"), v("get_request"));
-        assert_eq!(activate("7FJYvnV6XkaUCWuY96bCSc6AuhvkPpqI"), v("activate_request"));
+        assert_eq!(
+            activate("7FJYvnV6XkaUCWuY96bCSc6AuhvkPpqI"),
+            v("activate_request")
+        );
     }
 }

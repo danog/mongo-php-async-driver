@@ -4,9 +4,9 @@
 use crate::bson::iter::{Iter, Value};
 use crate::bson::writer::Writer;
 use crate::client::Client;
-use crate::cmdparts::{find, Parts};
+use crate::cmdparts::{Parts, find};
 use crate::concern::WriteConcern;
-use crate::error::{code, domain, Category, Error};
+use crate::error::{Category, Error, code, domain};
 use crate::topology::OpType;
 
 /// BSON_OBJECT_ALLOWANCE: room for the command fields around a maximal document.
@@ -94,16 +94,32 @@ impl WriteResult {
     /// _mongoc_write_result_merge
     fn merge(&mut self, kind: Kind, reply: &[u8], offset: u32) {
         // one pass over the reply for the fields read below
-        let [n, write_errors, upserted, n_modified, wc_error, error_labels] =
-            crate::bson::iter::find_many(reply, [b"n", b"writeErrors", b"upserted", b"nModified", b"writeConcernError", b"errorLabels"]);
+        let [
+            n,
+            write_errors,
+            upserted,
+            n_modified,
+            wc_error,
+            error_labels,
+        ] = crate::bson::iter::find_many(
+            reply,
+            [
+                b"n",
+                b"writeErrors",
+                b"upserted",
+                b"nModified",
+                b"writeConcernError",
+                b"errorLabels",
+            ],
+        );
         let affected = match n {
             Some(Value::Int32(v)) => v,
             _ => 0,
         };
-        if let Some(Value::Array(a)) = write_errors {
-            if Iter::new(a).is_some_and(|mut i| i.next()) {
-                self.failed = true;
-            }
+        if let Some(Value::Array(a)) = write_errors
+            && Iter::new(a).is_some_and(|mut i| i.next())
+        {
+            self.failed = true;
         }
         match kind {
             Kind::Insert => self.n_inserted = self.n_inserted.wrapping_add(affected),
@@ -111,24 +127,30 @@ impl WriteResult {
             Kind::Update => {
                 if let Some(v) = upserted {
                     let mut n_upserted = 0;
-                    if let Value::Array(a) = v {
-                        if let Some(mut ar) = Iter::new(a) {
-                            while ar.next() {
-                                let Value::Document(d) = ar.value() else { continue };
-                                let Some(idx) = int32_of(d, b"index") else { continue };
-                                let Some(mut c) = Iter::new(d) else { continue };
-                                if c.find(b"_id") {
-                                    let mut w = Writer::with_capacity(64);
-                                    w.int32(b"index", (offset as i32).wrapping_add(idx));
-                                    w.element_from(Some(b"_id"), &c);
-                                    self.upserted.push(w.finish());
-                                    n_upserted += 1;
-                                }
+                    if let Value::Array(a) = v
+                        && let Some(mut ar) = Iter::new(a)
+                    {
+                        while ar.next() {
+                            let Value::Document(d) = ar.value() else {
+                                continue;
+                            };
+                            let Some(idx) = int32_of(d, b"index") else {
+                                continue;
+                            };
+                            let Some(mut c) = Iter::new(d) else { continue };
+                            if c.find(b"_id") {
+                                let mut w = Writer::with_capacity(64);
+                                w.int32(b"index", (offset as i32).wrapping_add(idx));
+                                w.element_from(Some(b"_id"), &c);
+                                self.upserted.push(w.finish());
+                                n_upserted += 1;
                             }
                         }
                     }
                     self.n_upserted = self.n_upserted.wrapping_add(n_upserted);
-                    self.n_matched = self.n_matched.wrapping_add(0.max(affected.wrapping_sub(n_upserted)));
+                    self.n_matched = self
+                        .n_matched
+                        .wrapping_add(0.max(affected.wrapping_sub(n_upserted)));
                 } else {
                     self.n_matched = self.n_matched.wrapping_add(affected);
                 }
@@ -137,25 +159,27 @@ impl WriteResult {
                 }
             }
         }
-        if let Some(Value::Array(a)) = write_errors {
-            if let Some(mut ar) = Iter::new(a) {
-                while ar.next() {
-                    let Value::Document(d) = ar.value() else { continue };
-                    let Some(mut c) = Iter::new(d) else { continue };
-                    let mut w = Writer::with_capacity(d.len() + 8);
-                    while c.next() {
-                        if c.key() == b"index" {
-                            let v = match c.value() {
-                                Value::Int32(v) => v,
-                                _ => 0,
-                            };
-                            w.int32(b"index", v.wrapping_add(offset as i32));
-                        } else {
-                            w.element_from(None, &c);
-                        }
+        if let Some(Value::Array(a)) = write_errors
+            && let Some(mut ar) = Iter::new(a)
+        {
+            while ar.next() {
+                let Value::Document(d) = ar.value() else {
+                    continue;
+                };
+                let Some(mut c) = Iter::new(d) else { continue };
+                let mut w = Writer::with_capacity(d.len() + 8);
+                while c.next() {
+                    if c.key() == b"index" {
+                        let v = match c.value() {
+                            Value::Int32(v) => v,
+                            _ => 0,
+                        };
+                        w.int32(b"index", v.wrapping_add(offset as i32));
+                    } else {
+                        w.element_from(None, &c);
                     }
-                    self.write_errors.push(w.finish());
                 }
+                self.write_errors.push(w.finish());
             }
         }
         if let Some(Value::Document(d)) = wc_error {
@@ -164,14 +188,14 @@ impl WriteResult {
         if !reply.is_empty() && crate::cmd::check_ok(reply).is_err() {
             self.error_replies.push(reply.to_vec());
         }
-        if let Some(Value::Array(a)) = error_labels {
-            if let Some(mut it) = Iter::new(a) {
-                while it.next() {
-                    if let Value::Utf8(s) = it.value() {
-                        if !self.error_labels.iter().any(|l| l == s) {
-                            self.error_labels.push(s.to_vec());
-                        }
-                    }
+        if let Some(Value::Array(a)) = error_labels
+            && let Some(mut it) = Iter::new(a)
+        {
+            while it.next() {
+                if let Value::Utf8(s) = it.value()
+                    && !self.error_labels.iter().any(|l| l == s)
+                {
+                    self.error_labels.push(s.to_vec());
                 }
             }
         }
@@ -200,7 +224,12 @@ impl WriteResult {
         }
         set_error_from_response(&self.write_errors, domain::SERVER, "write", &mut self.error);
         if self.error.code == 0 {
-            set_error_from_response(&self.write_concern_errors, domain::WRITE_CONCERN, "write concern", &mut self.error);
+            set_error_from_response(
+                &self.write_concern_errors,
+                domain::WRITE_CONCERN,
+                "write concern",
+                &mut self.error,
+            );
         }
         if !self.error_labels.is_empty() {
             let mut a = Writer::with_capacity(64);
@@ -228,7 +257,10 @@ fn set_error_from_response(docs: &[Vec<u8>], dom: u32, kind: &str, error: &mut E
                 code = crate::sdam::as_i64(&it.value()) as u32;
             } else if it.key() == b"errmsg" {
                 let s = match it.value() {
-                    Value::Utf8(s) => String::from_utf8_lossy(s.split(|&b| b == 0).next().unwrap_or(s)).into_owned(),
+                    Value::Utf8(s) => {
+                        String::from_utf8_lossy(s.split(|&b| b == 0).next().unwrap_or(s))
+                            .into_owned()
+                    }
                     _ => String::new(),
                 };
                 if n > 1 {
@@ -245,7 +277,12 @@ fn set_error_from_response(docs: &[Vec<u8>], dom: u32, kind: &str, error: &mut E
     // bson_error_t.message is 504 bytes (503 + NUL)
     truncate_message(&mut msg);
     if code != 0 && !msg.is_empty() {
-        *error = Error { domain: dom, code, category: Category::Server, message: msg };
+        *error = Error {
+            domain: dom,
+            code,
+            category: Category::Server,
+            message: msg,
+        };
     }
 }
 
@@ -262,7 +299,9 @@ pub fn truncate_message(msg: &mut String) {
 
 /// bson_validate with BSON_VALIDATE_EMPTY_KEYS (recursively).
 pub fn validate_empty_keys(doc: &[u8]) -> Result<(), String> {
-    let Some(mut it) = Iter::new(doc) else { return Err("corrupt BSON".into()) };
+    let Some(mut it) = Iter::new(doc) else {
+        return Err("corrupt BSON".into());
+    };
     while it.next() {
         if it.key().is_empty() {
             return Err("Element key cannot be an empty string".into());
@@ -282,7 +321,9 @@ fn invalid_arg(m: impl Into<String>) -> Error {
 
 /// _mongoc_document_is_pipeline
 pub fn is_pipeline(doc: &[u8]) -> bool {
-    let Some(mut it) = Iter::new(doc) else { return false };
+    let Some(mut it) = Iter::new(doc) else {
+        return false;
+    };
     let mut i = 0usize;
     let mut kb = crate::bson::writer::itoa_buf::Buf::default();
     while it.next() {
@@ -290,8 +331,12 @@ pub fn is_pipeline(doc: &[u8]) -> bool {
             return false;
         }
         i += 1;
-        let Value::Document(d) = it.value() else { return false };
-        let Some(mut c) = Iter::new(d) else { return false };
+        let Value::Document(d) = it.value() else {
+            return false;
+        };
+        let Some(mut c) = Iter::new(d) else {
+            return false;
+        };
         if !c.next() || c.key().first() != Some(&b'$') {
             return false;
         }
@@ -331,7 +376,10 @@ fn non_empty(d: &Option<Vec<u8>>) -> Option<&[u8]> {
 impl BulkOperation {
     pub fn new(ordered: bool) -> Self {
         BulkOperation {
-            flags: Flags { ordered, ..Default::default() },
+            flags: Flags {
+                ordered,
+                ..Default::default()
+            },
             let_: None,
             comment: None,
             commands: Vec::new(),
@@ -347,10 +395,8 @@ impl BulkOperation {
         if let Some(c) = &self.comment {
             w.concat(c);
         }
-        if with_let {
-            if let Some(l) = non_empty(&self.let_) {
-                w.document(b"let", l);
-            }
+        if with_let && let Some(l) = non_empty(&self.let_) {
+            w.document(b"let", l);
         }
         w.finish()
     }
@@ -361,12 +407,20 @@ impl BulkOperation {
 
     fn push(&mut self, kind: Kind, flags: Flags, with_let: bool, doc: Vec<u8>) {
         let cmd_opts = self.cmd_opts(with_let);
-        self.commands.push(WriteCommand { kind, flags, cmd_opts, payload: doc, n_documents: 1, operation_id: self.operation_id });
+        self.commands.push(WriteCommand {
+            kind,
+            flags,
+            cmd_opts,
+            payload: doc,
+            n_documents: 1,
+            operation_id: self.operation_id,
+        });
     }
 
     /// mongoc_bulk_operation_insert_with_opts (no opts)
     pub fn insert(&mut self, doc: &[u8]) -> Result<(), Error> {
-        validate_empty_keys(doc).map_err(|m| invalid_arg(format!("invalid document for insert: {m}")))?;
+        validate_empty_keys(doc)
+            .map_err(|m| invalid_arg(format!("invalid document for insert: {m}")))?;
         let has_id = Iter::new(doc).is_some_and(|mut it| it.find(b"_id"));
         let with_id = || {
             let mut w = Writer::with_capacity(doc.len() + 20);
@@ -435,49 +489,79 @@ impl BulkOperation {
     }
 
     /// mongoc_bulk_operation_update_{one,many}_with_opts
-    pub fn update(&mut self, selector: &[u8], update: &[u8], o: &UpdateOpts, many: bool) -> Result<(), Error> {
+    pub fn update(
+        &mut self,
+        selector: &[u8],
+        update: &[u8],
+        o: &UpdateOpts,
+        many: bool,
+    ) -> Result<(), Error> {
         if many && o.sort.is_some() {
             return Err(invalid_arg("Invalid option 'sort'"));
         }
-        validate_empty_keys(update).map_err(|m| invalid_arg(format!("invalid argument for update: {m}")))?;
-        if !is_pipeline(update) {
-            if let Some(mut it) = Iter::new(update) {
-                while it.next() {
-                    if it.key().first() != Some(&b'$') {
-                        return Err(invalid_arg(format!("Invalid key '{}': update only works with $ operators and pipelines", String::from_utf8_lossy(it.key()))));
-                    }
+        validate_empty_keys(update)
+            .map_err(|m| invalid_arg(format!("invalid argument for update: {m}")))?;
+        if !is_pipeline(update)
+            && let Some(mut it) = Iter::new(update)
+        {
+            while it.next() {
+                if it.key().first() != Some(&b'$') {
+                    return Err(invalid_arg(format!(
+                        "Invalid key '{}': update only works with $ operators and pipelines",
+                        String::from_utf8_lossy(it.key())
+                    )));
                 }
             }
         }
         if o.multi != many {
-            return Err(invalid_arg(format!("Invalid \"multi\" in opts: {}. The value must be {}, or omitted.", o.multi, many)));
+            return Err(invalid_arg(format!(
+                "Invalid \"multi\" in opts: {}. The value must be {}, or omitted.",
+                o.multi, many
+            )));
         }
         self.update_append(selector, update, o);
         Ok(())
     }
 
     /// mongoc_bulk_operation_replace_one_with_opts
-    pub fn replace_one(&mut self, selector: &[u8], doc: &[u8], o: &UpdateOpts) -> Result<(), Error> {
+    pub fn replace_one(
+        &mut self,
+        selector: &[u8],
+        doc: &[u8],
+        o: &UpdateOpts,
+    ) -> Result<(), Error> {
         if o.array_filters.is_some() {
             return Err(invalid_arg("Invalid option 'arrayFilters'"));
         }
-        validate_empty_keys(doc).map_err(|m| invalid_arg(format!("invalid argument for replace: {m}")))?;
+        validate_empty_keys(doc)
+            .map_err(|m| invalid_arg(format!("invalid argument for replace: {m}")))?;
         if let Some(mut it) = Iter::new(doc) {
             while it.next() {
                 if it.key().first() == Some(&b'$') {
-                    return Err(invalid_arg(format!("Invalid key '{}': replace prohibits $ operators", String::from_utf8_lossy(it.key()))));
+                    return Err(invalid_arg(format!(
+                        "Invalid key '{}': replace prohibits $ operators",
+                        String::from_utf8_lossy(it.key())
+                    )));
                 }
             }
         }
         if o.multi {
-            return Err(invalid_arg("Invalid \"multi\": true in opts for mongoc_bulk_operation_replace_one_with_opts. The value must be true, or omitted."));
+            return Err(invalid_arg(
+                "Invalid \"multi\": true in opts for mongoc_bulk_operation_replace_one_with_opts. The value must be true, or omitted.",
+            ));
         }
         self.update_append(selector, doc, o);
         Ok(())
     }
 
     /// mongoc_bulk_operation_remove_{one,many}_with_opts: `limit` 1 or 0.
-    pub fn remove(&mut self, selector: &[u8], limit: i32, collation: Option<Vec<u8>>, hint: Option<Vec<u8>>) -> Result<(), Error> {
+    pub fn remove(
+        &mut self,
+        selector: &[u8],
+        limit: i32,
+        collation: Option<Vec<u8>>,
+        hint: Option<Vec<u8>>,
+    ) -> Result<(), Error> {
         let mut d = Writer::with_capacity(selector.len() + 64);
         d.document(b"q", selector);
         d.int32(b"limit", limit);
@@ -508,13 +592,28 @@ impl BulkOperation {
 
     /// mongoc_bulk_operation_execute: (success, reply, error). `wc` is the effective write
     /// concern (the bulk's or the client's); `lsid` an explicit session's.
-    pub fn execute(&mut self, client: &mut Client, db: &str, coll: &str, wc: &WriteConcern, session: Option<&mut crate::session::ClientSession>) -> (bool, Vec<u8>, Error) {
+    pub fn execute(
+        &mut self,
+        client: &mut Client,
+        db: &str,
+        coll: &str,
+        wc: &WriteConcern,
+        session: Option<&mut crate::session::ClientSession>,
+    ) -> (bool, Vec<u8>, Error) {
         if self.executed {
-            return (false, empty_doc(), invalid_arg("bulk write already executed"));
+            return (
+                false,
+                empty_doc(),
+                invalid_arg("bulk write already executed"),
+            );
         }
         self.executed = true;
         if self.commands.is_empty() {
-            return (false, empty_doc(), invalid_arg("Cannot do an empty bulk write"));
+            return (
+                false,
+                empty_doc(),
+                invalid_arg("Cannot do an empty bulk write"),
+            );
         }
         client.next_operation_id();
         let mut session = session;
@@ -524,9 +623,19 @@ impl BulkOperation {
                 if let Err(e) = client.stream_for_server(self.server_id, true) {
                     // the stream's reply (pooled mode's backpressure labels)
                     let f = client.stream_failure(e);
-                    return (false, if f.reply.is_empty() { empty_doc() } else { f.reply }, f.error);
+                    return (
+                        false,
+                        if f.reply.is_empty() {
+                            empty_doc()
+                        } else {
+                            f.reply
+                        },
+                        f.error,
+                    );
                 }
-                client.check_server_for_session(self.server_id, session.as_deref_mut()).map(|_| (self.server_id, false))
+                client
+                    .check_server_for_session(self.server_id, session.as_deref_mut())
+                    .map(|_| (self.server_id, false))
             } else {
                 client.select_for_optype(OpType::Write, None, session.as_deref_mut(), &[])
             };
@@ -534,8 +643,28 @@ impl BulkOperation {
                 Ok((s, _)) => s,
                 Err(e) => return (false, empty_doc(), e),
             };
-            let cmd = std::mem::replace(&mut self.commands[i], WriteCommand { kind: Kind::Insert, flags: Flags::default(), cmd_opts: Vec::new(), payload: Vec::new(), n_documents: 0, operation_id: 0 });
-            execute_command(&cmd, client, sid, db, coll, wc, offset, session.as_deref_mut(), &mut self.result);
+            let cmd = std::mem::replace(
+                &mut self.commands[i],
+                WriteCommand {
+                    kind: Kind::Insert,
+                    flags: Flags::default(),
+                    cmd_opts: Vec::new(),
+                    payload: Vec::new(),
+                    n_documents: 0,
+                    operation_id: 0,
+                },
+            );
+            execute_command(
+                &cmd,
+                client,
+                sid,
+                db,
+                coll,
+                wc,
+                offset,
+                session.as_deref_mut(),
+                &mut self.result,
+            );
             self.server_id = sid;
             if self.result.retry_server_id != 0 {
                 self.server_id = self.result.retry_server_id;
@@ -558,7 +687,17 @@ fn empty_doc() -> Vec<u8> {
 
 /// _mongoc_write_command_execute(_idl) and _mongoc_write_opmsg
 #[allow(clippy::too_many_arguments)]
-pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u32, db: &str, coll: &str, wc: &WriteConcern, mut index_offset: u32, session: Option<&mut crate::session::ClientSession>, result: &mut WriteResult) {
+pub fn execute_command(
+    command: &WriteCommand,
+    client: &mut Client,
+    server_id: u32,
+    db: &str,
+    coll: &str,
+    wc: &WriteConcern,
+    mut index_offset: u32,
+    session: Option<&mut crate::session::ClientSession>,
+    result: &mut WriteResult,
+) {
     let fail = |result: &mut WriteResult, e: Error| {
         result.failed = true;
         result.error = e;
@@ -573,35 +712,81 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
         max_msg_size: i32,
         max_write_batch_size: i32,
     }
-    let Some(sd) = client.with_stream_description(server_id, |d| Sd { max_wire_version: d.max_wire_version, max_bson_obj_size: d.max_bson_obj_size, max_msg_size: d.max_msg_size, max_write_batch_size: d.max_write_batch_size }) else {
-        return fail(result, invalid_arg(format!("Could not find server with id: {server_id}")));
+    let Some(sd) = client.with_stream_description(server_id, |d| Sd {
+        max_wire_version: d.max_wire_version,
+        max_bson_obj_size: d.max_bson_obj_size,
+        max_msg_size: d.max_msg_size,
+        max_write_batch_size: d.max_write_batch_size,
+    }) else {
+        return fail(
+            result,
+            invalid_arg(format!("Could not find server with id: {server_id}")),
+        );
     };
     if command.flags.has_collation && !acked {
-        return fail(result, invalid_arg("Cannot set collation for unacknowledged writes"));
+        return fail(
+            result,
+            invalid_arg("Cannot set collation for unacknowledged writes"),
+        );
     }
     if command.flags.has_array_filters && !acked {
-        return fail(result, invalid_arg("Cannot use array filters with unacknowledged writes"));
+        return fail(
+            result,
+            invalid_arg("Cannot use array filters with unacknowledged writes"),
+        );
     }
     if command.flags.has_update_hint && sd.max_wire_version < WIRE_VERSION_UPDATE_HINT && !acked {
-        return fail(result, Error::new(domain::COMMAND, code::PROTOCOL_BAD_WIRE_VERSION, "The selected server does not support hint for update"));
+        return fail(
+            result,
+            Error::new(
+                domain::COMMAND,
+                code::PROTOCOL_BAD_WIRE_VERSION,
+                "The selected server does not support hint for update",
+            ),
+        );
     }
     if command.flags.has_delete_hint && sd.max_wire_version < WIRE_VERSION_DELETE_HINT && !acked {
-        return fail(result, Error::new(domain::COMMAND, code::PROTOCOL_BAD_WIRE_VERSION, "The selected server does not support hint for delete"));
+        return fail(
+            result,
+            Error::new(
+                domain::COMMAND,
+                code::PROTOCOL_BAD_WIRE_VERSION,
+                "The selected server does not support hint for delete",
+            ),
+        );
     }
     if command.flags.bypass_document_validation && !acked {
-        return fail(result, invalid_arg("Cannot set bypassDocumentValidation for unacknowledged writes"));
+        return fail(
+            result,
+            invalid_arg("Cannot set bypassDocumentValidation for unacknowledged writes"),
+        );
     }
     if session.is_some() && !acked {
-        return fail(result, invalid_arg("Cannot use client session with unacknowledged writes"));
+        return fail(
+            result,
+            invalid_arg("Cannot use client session with unacknowledged writes"),
+        );
     }
     if command.payload.is_empty() {
-        let c = [code::COLLECTION_DELETE_FAILED, code::COLLECTION_INSERT_FAILED, code::COLLECTION_UPDATE_FAILED][command.kind as usize];
-        result.error = Error::new(domain::COLLECTION, c, format!("Cannot do an empty {}", command.kind.name()));
+        let c = [
+            code::COLLECTION_DELETE_FAILED,
+            code::COLLECTION_INSERT_FAILED,
+            code::COLLECTION_UPDATE_FAILED,
+        ][command.kind as usize];
+        result.error = Error::new(
+            domain::COLLECTION,
+            c,
+            format!("Cannot do an empty {}", command.kind.name()),
+        );
         return;
     }
     let max_bson = sd.max_bson_obj_size as i64;
     // MONGOC_REDUCED_MAX_MSG_SIZE_FOR_FLE: a client with automatic encryption batches by 2 MiB
-    let max_msg = if client.auto_crypt_applies() { crate::autocrypt::REDUCED_MAX_MSG_SIZE_FOR_FLE as i64 } else { sd.max_msg_size as i64 };
+    let max_msg = if client.auto_crypt_applies() {
+        crate::autocrypt::REDUCED_MAX_MSG_SIZE_FOR_FLE as i64
+    } else {
+        sd.max_msg_size as i64
+    };
     let max_count = sd.max_write_batch_size as i64;
     let mut body = Writer::with_capacity(64 + coll.len());
     body.utf8(command.kind.name().as_bytes(), coll.as_bytes());
@@ -623,7 +808,8 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
         Ok(c) => c,
         Err(e) => return fail(result, e),
     };
-    let overhead = 16 + 4 + 1 + cmd.body.len() as i64 + 1 + 4 + command.kind.field().len() as i64 + 1;
+    let overhead =
+        16 + 4 + 1 + cmd.body.len() as i64 + 1 + 4 + command.kind.field().len() as i64 + 1;
     let data = &command.payload;
     let (mut batch_size, mut total_offset, mut doc_count) = (0usize, 0usize, 0i64);
     let mut ok = false;
@@ -631,21 +817,31 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
     while total_offset < data.len() && !result.must_stop {
         let at = total_offset + batch_size;
         let len = i32::from_le_bytes(data[at..at + 4].try_into().unwrap()) as i64;
-        let ship;
-        if len > max_bson + BSON_OBJECT_ALLOWANCE {
-            result.error = Error::new(domain::BSON, code::BSON_INVALID, format!("Document {index_offset} is too large for the cluster. Document is {len} bytes, max is {max_bson}."));
+
+        let ship = if len > max_bson + BSON_OBJECT_ALLOWANCE {
+            result.error = Error::new(
+                domain::BSON,
+                code::BSON_INVALID,
+                format!(
+                    "Document {index_offset} is too large for the cluster. Document is {len} bytes, max is {max_bson}."
+                ),
+            );
             result.failed = true;
             break;
         } else if batch_size as i64 + overhead + len <= max_msg || doc_count == 0 {
             batch_size += len as usize;
             doc_count += 1;
-            ship = doc_count == max_count || batch_size + total_offset == data.len();
+            doc_count == max_count || batch_size + total_offset == data.len()
         } else {
-            ship = true;
-        }
+            true
+        };
         if ship {
             let payload = &data[total_offset..total_offset + batch_size];
-            let (r, retry) = client.run_retryable_write(&mut cmd, &[(command.kind.field(), payload)], session.as_deref_mut());
+            let (r, retry) = client.run_retryable_write(
+                &mut cmd,
+                &[(command.kind.field(), payload)],
+                session.as_deref_mut(),
+            );
             if let Some(rs) = retry {
                 retry_server = Some(rs);
             }
@@ -682,7 +878,9 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
 
 /// bson_iter_overwrite_int64 on the command's "txnNumber".
 pub fn set_txn_number(body: &mut [u8], n: i64) {
-    let Some(mut it) = Iter::new(body) else { return };
+    let Some(mut it) = Iter::new(body) else {
+        return;
+    };
     if it.find(b"txnNumber") {
         let e = it.element_bytes();
         let off = e.as_ptr() as usize - body.as_ptr() as usize + 1 + b"txnNumber".len() + 1;

@@ -1,10 +1,13 @@
 [package]
 name = "mongo-core"
-version = "0.2.2"
-edition = "2021"
+version = "0.2.3"
+edition = "2024"
 publish = false
 license = "Apache-2.0"
 description = "PHP-independent parts of mongo-php-async-driver: BSON, wire protocol, URI, SDAM, auth"
+
+[lints]
+workspace = true
 
 [dependencies]
 # SCRAM (pure Rust: RustCrypto hashes/MACs/KDF, the OS RNG through getrandom's syscalls, NFKC for SASLprep)

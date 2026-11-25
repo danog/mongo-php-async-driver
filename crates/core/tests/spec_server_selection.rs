@@ -4,8 +4,11 @@
 //! operationCount-based "power of two choices", which libmongoc does not implement.
 
 use mongo_core::bson::json_parse::from_json;
-use mongo_core::sdam::{ServerDescription, ServerType, RTT_UNSET};
-use mongo_core::topology::{OpType, ReadPrefs, TopologyDescription, TopologyType, HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED, LOCAL_THRESHOLD_MS};
+use mongo_core::sdam::{RTT_UNSET, ServerDescription, ServerType};
+use mongo_core::topology::{
+    HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED, LOCAL_THRESHOLD_MS, OpType, ReadPrefs,
+    TopologyDescription, TopologyType,
+};
 use mongo_core::uri::ReadMode;
 use serde_json::Value;
 
@@ -49,11 +52,20 @@ fn read_mode(s: &str) -> ReadMode {
 }
 
 fn i64_of(v: &Value) -> i64 {
-    v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)).or_else(|| v.get("$numberLong").and_then(Value::as_str).and_then(|s| s.parse().ok())).unwrap_or_else(|| panic!("{v}"))
+    v.as_i64()
+        .or_else(|| v.as_f64().map(|f| f as i64))
+        .or_else(|| {
+            v.get("$numberLong")
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or_else(|| panic!("{v}"))
 }
 
 fn run(t: &Value) -> Result<(), String> {
-    let hb = t.get("heartbeatFrequencyMS").map_or(HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED, i64_of);
+    let hb = t
+        .get("heartbeatFrequencyMS")
+        .map_or(HEARTBEAT_FREQUENCY_MS_SINGLE_THREADED, i64_of);
     let tdj = &t["topology_description"];
     let mut td = TopologyDescription::new(topology_type(tdj["type"].as_str().unwrap()), hb);
     for (i, s) in tdj["servers"].as_array().unwrap().iter().enumerate() {
@@ -85,8 +97,21 @@ fn run(t: &Value) -> Result<(), String> {
     }
     if let Some(sets) = rpj.get("tag_sets").and_then(Value::as_array) {
         // as libmongoc's runner: tags are set unless the first set is empty
-        if sets.first().and_then(Value::as_object).is_some_and(|f| !f.is_empty()) {
-            rp.tags = sets.iter().map(|s| s.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).collect();
+        if sets
+            .first()
+            .and_then(Value::as_object)
+            .is_some_and(|f| !f.is_empty())
+        {
+            rp.tags = sets
+                .iter()
+                .map(|s| {
+                    s.as_object()
+                        .unwrap()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+                        .collect()
+                })
+                .collect();
         }
     }
     if let Some(v) = rpj.get("maxStalenessSeconds") {
@@ -97,18 +122,37 @@ fn run(t: &Value) -> Result<(), String> {
         Some("write") => OpType::Write,
         Some(o) => panic!("operation {o}"),
     };
-    let ds: Vec<u32> = t.get("deprioritized_servers").and_then(Value::as_array).map_or_else(Vec::new, |a| a.iter().filter_map(|s| td.server_by_address(s["address"].as_str().unwrap()).map(|x| x.id)).collect());
+    let ds: Vec<u32> = t
+        .get("deprioritized_servers")
+        .and_then(Value::as_array)
+        .map_or_else(Vec::new, |a| {
+            a.iter()
+                .filter_map(|s| {
+                    td.server_by_address(s["address"].as_str().unwrap())
+                        .map(|x| x.id)
+                })
+                .collect()
+        });
     let expect_error = t.get("error").and_then(Value::as_bool) == Some(true);
     let ok = rp.is_valid() && td.compatible(Some(&rp)).is_ok();
     if expect_error {
         return if ok { Err("no error".into()) } else { Ok(()) };
     }
     if !ok {
-        return Err(format!("error: valid {} / {:?}", rp.is_valid(), td.compatible(Some(&rp))));
+        return Err(format!(
+            "error: valid {} / {:?}",
+            rp.is_valid(),
+            td.compatible(Some(&rp))
+        ));
     }
     let (set, _) = td.suitable_servers(op, Some(&rp), &ds, LOCAL_THRESHOLD_MS);
     let mut got: Vec<&str> = set.iter().map(|&i| td.servers[i].addr.as_str()).collect();
-    let mut want: Vec<&str> = t["in_latency_window"].as_array().unwrap().iter().map(|s| s["address"].as_str().unwrap()).collect();
+    let mut want: Vec<&str> = t["in_latency_window"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["address"].as_str().unwrap())
+        .collect();
     got.sort();
     want.sort();
     if got != want {
@@ -132,7 +176,10 @@ fn json_files(dir: &str, out: &mut Vec<std::path::PathBuf>) {
 fn server_selection_and_max_staleness() {
     let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/spec/source");
     let mut files = Vec::new();
-    json_files(&format!("{base}/server-selection/tests/server_selection"), &mut files);
+    json_files(
+        &format!("{base}/server-selection/tests/server_selection"),
+        &mut files,
+    );
     json_files(&format!("{base}/max-staleness/tests"), &mut files);
     files.sort();
     let mut failures = Vec::new();
@@ -142,13 +189,20 @@ fn server_selection_and_max_staleness() {
             failures.push(format!("{}: {e}", p.strip_prefix(base).unwrap().display()));
         }
     }
-    eprintln!("server selection + max staleness: {} files, {} failures", files.len(), failures.len());
+    eprintln!(
+        "server selection + max staleness: {} files, {} failures",
+        files.len(),
+        failures.len()
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
 fn rtt() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/spec/source/server-selection/tests/rtt");
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/spec/source/server-selection/tests/rtt"
+    );
     let mut n = 0;
     for e in std::fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();
@@ -158,7 +212,11 @@ fn rtt() {
         n += 1;
         let t: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         let mut sd = ServerDescription::new(1, "localhost:27017");
-        sd.rtt_ms = if t["avg_rtt_ms"] == "NULL" { RTT_UNSET } else { i64_of(&t["avg_rtt_ms"]) };
+        sd.rtt_ms = if t["avg_rtt_ms"] == "NULL" {
+            RTT_UNSET
+        } else {
+            i64_of(&t["avg_rtt_ms"])
+        };
         sd.update_rtt(i64_of(&t["new_rtt_ms"]));
         assert_eq!(sd.rtt_ms, i64_of(&t["new_avg_rtt"]), "{}", p.display());
     }

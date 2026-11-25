@@ -10,7 +10,10 @@
 use std::process::Command;
 
 fn run(cmd: &str, args: &[&str]) -> String {
-    let out = Command::new(cmd).args(args).output().unwrap_or_else(|e| panic!("cannot run {cmd}: {e}"));
+    let out = Command::new(cmd)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("cannot run {cmd}: {e}"));
     assert!(out.status.success(), "{cmd} {args:?} failed");
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
@@ -50,7 +53,9 @@ fn main() {
     let php_version = run(&php, &["-n", "-r", "echo PHP_VERSION;"]);
     let minor = |v: &str| v.split('.').take(2).collect::<Vec<_>>().join(".");
     if minor(&php_version) != minor(&version) {
-        panic!("PHP ({php}) is {php_version} but PHP_CONFIG ({config}) describes {version}: set both to the same PHP");
+        panic!(
+            "PHP ({php}) is {php_version} but PHP_CONFIG ({config}) describes {version}: set both to the same PHP"
+        );
     }
     let zts = thread_safety(&php);
     // cumulative, as ext-php-rs's: `php85` means 8.5 or later
@@ -78,7 +83,10 @@ fn main() {
     }
     // ELF: the extension's references to its own symbols bind to its own definitions, whatever
     // else PHP loaded with RTLD_GLOBAL (another copy of revolt-rs exports `revolt_rs_abi_v1` too)
-    if matches!(std::env::var("CARGO_CFG_TARGET_OS").as_deref(), Ok("linux") | Ok("freebsd")) {
+    if matches!(
+        std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        Ok("linux") | Ok("freebsd")
+    ) {
         println!("cargo:rustc-cdylib-link-arg=-Wl,-Bsymbolic");
     }
     for cfg in cfgs {
@@ -89,7 +97,10 @@ fn main() {
         println!("cargo:rustc-cfg=php_zts");
     }
     println!("cargo:rustc-env=PHP_MODULE_API={api}");
-    println!("cargo:rustc-env=PHP_BUILD_ID=API{api},{}", if zts { "TS" } else { "NTS" });
+    println!(
+        "cargo:rustc-env=PHP_BUILD_ID=API{api},{}",
+        if zts { "TS" } else { "NTS" }
+    );
 }
 
 /// Whether `php` is a thread-safe (ZTS) build; debug builds are refused.
@@ -108,8 +119,14 @@ fn thread_safety(php: &str) -> bool {
 fn windows_php() {
     let php = std::env::var("PHP").unwrap_or_else(|_| "php".into());
     let info = run(&php, &["-n", "-i"]);
-    let key = |k: &str| info.lines().find_map(|l| l.strip_prefix(k)).map(|v| v.trim().to_owned());
-    let api: u32 = key("PHP API => ").and_then(|v| v.parse().ok()).expect("PHP API number from php -i");
+    let key = |k: &str| {
+        info.lines()
+            .find_map(|l| l.strip_prefix(k))
+            .map(|v| v.trim().to_owned())
+    };
+    let api: u32 = key("PHP API => ")
+        .and_then(|v| v.parse().ok())
+        .expect("PHP API number from php -i");
     let build_id = key("PHP Extension Build => ").expect("PHP Extension Build from php -i");
     let zts = thread_safety(&php);
     let cfgs: &[&str] = match api {

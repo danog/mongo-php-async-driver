@@ -5,8 +5,8 @@
 //! syscalls: the socket code asks [`active`] once per send or receive and stays on its blocking
 //! path when it is false.
 
-use std::io;
 use std::cell::Cell;
+use std::io;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::{Duration, Instant};
 
@@ -82,13 +82,21 @@ fn quiet() -> bool {
     SYNC.with(|w| {
         let (f, c) = (w.fiber.get(), w.classes.get());
         // SAFETY: the extension's executor-globals words of this thread, valid while set
-        !f.is_null() && !c.is_null() && unsafe { std::ptr::read_volatile(f) }.is_null() && unsafe { std::ptr::read_volatile(c) } == w.no_loop_at.get()
+        !f.is_null()
+            && !c.is_null()
+            && unsafe { std::ptr::read_volatile(f) }.is_null()
+            && unsafe { std::ptr::read_volatile(c) } == w.no_loop_at.get()
     })
 }
 
 /// Installs (or removes, with None) the backend.
 pub fn set_backend(b: Option<&'static Backend>) {
-    BACKEND.store(b.map_or(std::ptr::null_mut(), |b| b as *const Backend as *mut Backend), Ordering::Release);
+    BACKEND.store(
+        b.map_or(std::ptr::null_mut(), |b| {
+            b as *const Backend as *mut Backend
+        }),
+        Ordering::Release,
+    );
 }
 
 #[inline]
@@ -117,7 +125,13 @@ pub fn require() -> Result<(), crate::error::Error> {
 #[cold]
 fn require_slow() -> Result<(), crate::error::Error> {
     match backend() {
-        Some(b) => (b.require)().map_err(|m| crate::error::Error::new(crate::error::domain::CLIENT, crate::error::code::CLIENT_NO_EVENT_LOOP, m)),
+        Some(b) => (b.require)().map_err(|m| {
+            crate::error::Error::new(
+                crate::error::domain::CLIENT,
+                crate::error::code::CLIENT_NO_EVENT_LOOP,
+                m,
+            )
+        }),
         None => Ok(()),
     }
 }
@@ -140,7 +154,11 @@ pub enum Parked {
 /// ([`Parked::Blocking`] when not), so a caller cannot wait where it would block the thread.
 pub fn park(enqueue: &mut dyn FnMut(u64), deadline: Option<Instant>) -> io::Result<Parked> {
     match backend() {
-        Some(b) if active() => Ok(if (b.park)(enqueue, deadline)? { Parked::Unparked } else { Parked::TimedOut }),
+        Some(b) if active() => Ok(if (b.park)(enqueue, deadline)? {
+            Parked::Unparked
+        } else {
+            Parked::TimedOut
+        }),
         _ => Ok(Parked::Blocking),
     }
 }
@@ -200,7 +218,11 @@ pub fn poll(fds: &mut [crate::os::PollFd], deadline: Option<Instant>) -> io::Res
 }
 
 /// Waits until `fd` is ready for `interest`: false when `deadline` passed first.
-pub fn wait_fd(fd: crate::os::RawSock, interest: Interest, deadline: Option<Instant>) -> io::Result<bool> {
+pub fn wait_fd(
+    fd: crate::os::RawSock,
+    interest: Interest,
+    deadline: Option<Instant>,
+) -> io::Result<bool> {
     let events = match interest {
         Interest::Read => crate::os::POLLIN,
         Interest::Write => crate::os::POLLOUT,
@@ -278,9 +300,16 @@ impl io::Write for WaitStream {
 pub fn connect(sa: &std::net::SocketAddr, timeout: Duration) -> io::Result<WaitStream> {
     let (sock, r) = crate::os::connect_start(sa)?;
     // the WaitStream owns the socket before it waits (it unregisters it when dropped)
-    let s = WaitStream { sock, timeout: Some(timeout) };
+    let s = WaitStream {
+        sock,
+        timeout: Some(timeout),
+    };
     if !r? {
-        if !wait_fd(crate::os::raw(&s.sock), Interest::Write, Some(Instant::now() + timeout))? {
+        if !wait_fd(
+            crate::os::raw(&s.sock),
+            Interest::Write,
+            Some(Instant::now() + timeout),
+        )? {
             return Err(io::ErrorKind::TimedOut.into());
         }
         if let Some(e) = s.sock.take_error()? {
@@ -368,7 +397,7 @@ mod tests {
     };
 
     fn forgotten(fd: crate::os::RawSock) -> bool {
-        FORGOTTEN.with_borrow_mut(|f| std::mem::take(f)).contains(&fd)
+        FORGOTTEN.with_borrow_mut(std::mem::take).contains(&fd)
     }
 
     /// Every socket owner of the driver tells the backend before it closes its socket: a socket
@@ -380,7 +409,8 @@ mod tests {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = l.local_addr().unwrap();
         // a blocking connection (net::Conn::connect)
-        let c = crate::net::Conn::connect("127.0.0.1", addr.port(), Some(Duration::from_secs(5))).unwrap();
+        let c = crate::net::Conn::connect("127.0.0.1", addr.port(), Some(Duration::from_secs(5)))
+            .unwrap();
         let fd = c.raw_fd();
         drop(c);
         assert!(forgotten(fd), "Conn::connect");
@@ -391,8 +421,21 @@ mod tests {
         assert!(forgotten(fd), "Conn::connect_nonblocking");
         let c = crate::net::Conn::connect_nonblocking(addr, "x").unwrap();
         let fd = c.raw_fd();
-        let config = std::sync::Arc::new(rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(rustls_graviola::default_provider())).with_safe_default_protocol_versions().unwrap().with_root_certificates(rustls::RootCertStore::empty()).with_no_client_auth());
-        let c = c.tls_begin(config, rustls::pki_types::ServerName::try_from("localhost").unwrap()).unwrap();
+        let config = std::sync::Arc::new(
+            rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+                rustls_graviola::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth(),
+        );
+        let c = c
+            .tls_begin(
+                config,
+                rustls::pki_types::ServerName::try_from("localhost").unwrap(),
+            )
+            .unwrap();
         assert!(!forgotten(fd));
         drop(c);
         assert!(forgotten(fd), "Conn::tls_begin");

@@ -1,6 +1,6 @@
 //! BSON helpers on top of mongo-core's reader and writer.
 
-use mongo_core::bson::iter::{is_valid_static, Iter, Value};
+use mongo_core::bson::iter::{Iter, Value, is_valid_static};
 use mongo_core::bson::writer::Writer;
 
 pub const SUBTYPE_UUID: u8 = 4;
@@ -15,7 +15,9 @@ fn validate_depth(doc: &[u8], depth: u32) -> bool {
     if depth > 100 || !is_valid_static(doc) {
         return false;
     }
-    let Some(mut it) = Iter::new(doc) else { return false };
+    let Some(mut it) = Iter::new(doc) else {
+        return false;
+    };
     while it.next() {
         match it.value() {
             Value::Document(d) | Value::Array(d) => {
@@ -23,10 +25,8 @@ fn validate_depth(doc: &[u8], depth: u32) -> bool {
                     return false;
                 }
             }
-            Value::CodeWScope(_, s) => {
-                if !validate_depth(s, depth + 1) {
-                    return false;
-                }
+            Value::CodeWScope(_, s) if !validate_depth(s, depth + 1) => {
+                return false;
             }
             _ => {}
         }

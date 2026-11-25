@@ -3,17 +3,17 @@
 //! the keyVaultClient with readConcern and writeConcern "majority"; encryption, decryption and data
 //! key creation are mongo-crypt's (libmongocrypt's).
 
-use super::cursor::Cursor;
 use super::ClientRef;
-use crate::bson::{encode, throw, E};
+use super::cursor::Cursor;
+use crate::bson::{E, encode, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zstr, zval};
-use mongo_core::bson::iter::{Iter, Value, T_ARRAY, T_DOCUMENT};
+use crate::zend::{ClassEntry, EngineCell, hash, obj, sys, zstr, zval};
+use mongo_core::bson::iter::{Iter, T_ARRAY, T_DOCUMENT, Value};
 use mongo_core::bson::writer::Writer;
-use mongo_core::error::{code, domain, Error};
+use mongo_core::error::{Error, code, domain};
 use mongo_core::topology::OpType;
 use mongo_crypt::engine::{Crypt, ExplicitOpts, Io};
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 use std::rc::Rc;
 
 /// The key vault collection (mongoc_client_encryption_t.keyvault_coll)
@@ -34,7 +34,12 @@ pub struct ClientEncryption {
 
 impl Default for ClientEncryption {
     fn default() -> Self {
-        ClientEncryption { crypt: None, kv: None, kv_namespace: None, kv_manager: zval::undef() }
+        ClientEncryption {
+            crypt: None,
+            kv: None,
+            kv_namespace: None,
+            kv_manager: zval::undef(),
+        }
     }
 }
 
@@ -46,26 +51,33 @@ impl Drop for ClientEncryption {
     }
 }
 
-static mut H_CLIENTENCRYPTION: sys::zend_object_handlers = unsafe { std::mem::zeroed() };
-pub static mut CE: *mut sys::zend_class_entry = null_mut();
+static H_CLIENTENCRYPTION: EngineCell<sys::zend_object_handlers> = EngineCell::handlers();
+pub static CE: ClassEntry = ClassEntry::new();
 
 unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_object {
-    obj::alloc(c, ClientEncryption::default(), addr_of_mut!(H_CLIENTENCRYPTION))
+    obj::alloc(c, ClientEncryption::default(), H_CLIENTENCRYPTION.get())
 }
 
 /// phongo_clientencryption_get_debug_info: an empty array
-unsafe extern "C" fn get_debug_info(_o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_debug_info(
+    _o: *mut sys::zend_object,
+    is_temp: *mut i32,
+) -> *mut sys::HashTable {
     *is_temp = 1;
     hash::new(0)
 }
 
-unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_gc(
+    o: *mut sys::zend_object,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+) -> *mut sys::HashTable {
     let c = obj::data::<ClientEncryption>(o);
     obj::get_gc_with(o, table, n, [&mut c.kv_manager as *mut sys::zval])
 }
 
 pub unsafe fn init_MongoDB_Driver_ClientEncryption(c: *mut sys::zend_class_entry) {
-    CE = c;
+    CE.set(c);
     // added after 2.5.6 (PHPC-2795): the String algorithm and its query types
     for (name, value) in [
         (c"ALGORITHM_STRING", c"String"),
@@ -76,7 +88,7 @@ pub unsafe fn init_MongoDB_Driver_ClientEncryption(c: *mut sys::zend_class_entry
         crate::zend::class::const_str(c, name, value, sys::ZEND_ACC_PUBLIC);
     }
     (*c).__bindgen_anon_2.create_object = Some(create);
-    let h = obj::handlers::<ClientEncryption>(addr_of_mut!(H_CLIENTENCRYPTION));
+    let h = obj::handlers::<ClientEncryption>(H_CLIENTENCRYPTION.get());
     h.get_debug_info = Some(get_debug_info);
     h.get_gc = Some(get_gc);
 }
@@ -99,13 +111,26 @@ impl KeyVault {
     pub unsafe fn find_cursor(&self, filter: Vec<u8>) -> Result<Cursor, IoError> {
         let rp = super::manager::client_read_preference(&self.client.shared().uri);
         let prefs = rp.prefs();
-        let sel = self.client.checkout().select_server_id(OpType::Read, Some(&prefs), &[]);
+        let sel = self
+            .client
+            .checkout()
+            .select_server_id(OpType::Read, Some(&prefs), &[]);
         super::apm::flush(&self.client);
         let sid = sel.map_err(|e| (e, None))?.0;
-        let mut c = Cursor::for_find(self.client.clone(), sid, &self.db, &self.coll, filter, Writer::new().finish());
+        let mut c = Cursor::for_find(
+            self.client.clone(),
+            sid,
+            &self.db,
+            &self.coll,
+            filter,
+            Writer::new().finish(),
+        );
         c.read_prefs = Some(super::manager::rp_parts(&rp));
         c.retry_prefs = Some(prefs);
-        c.read_concern = mongo_core::concern::ReadConcern { level: Some(b"majority".to_vec()) }.to_bson();
+        c.read_concern = mongo_core::concern::ReadConcern {
+            level: Some(b"majority".to_vec()),
+        }
+        .to_bson();
         Ok(c)
     }
 
@@ -126,7 +151,10 @@ impl KeyVault {
     }
 
     /// A bulk write with writeConcern majority: libmongoc's default reply and success
-    unsafe fn bulk(&self, f: impl FnOnce(&mut mongo_core::bulk::BulkOperation) -> Result<(), Error>) -> Result<Vec<u8>, IoError> {
+    unsafe fn bulk(
+        &self,
+        f: impl FnOnce(&mut mongo_core::bulk::BulkOperation) -> Result<(), Error>,
+    ) -> Result<Vec<u8>, IoError> {
         let mut b = mongo_core::bulk::BulkOperation::new(true);
         f(&mut b).map_err(|e| (e, None))?;
         let r = {
@@ -135,11 +163,7 @@ impl KeyVault {
         };
         super::apm::flush(&self.client);
         let (ok, reply, e) = r;
-        if ok {
-            Ok(reply)
-        } else {
-            Err((e, Some(reply)))
-        }
+        if ok { Ok(reply) } else { Err((e, Some(reply))) }
     }
 
     /// mongoc_collection_insert_one
@@ -164,7 +188,12 @@ impl KeyVault {
     }
 
     /// mongoc_collection_find_and_modify_with_opts with `query` and `update`: the reply
-    pub unsafe fn find_and_modify(&self, query: &[u8], update: &[u8], update_is_pipeline: bool) -> Result<Vec<u8>, IoError> {
+    pub unsafe fn find_and_modify(
+        &self,
+        query: &[u8],
+        update: &[u8],
+        update_is_pipeline: bool,
+    ) -> Result<Vec<u8>, IoError> {
         let mut w = Writer::with_capacity(query.len() + update.len() + 64);
         w.utf8(b"findAndModify", self.coll.as_bytes());
         w.document(b"query", query);
@@ -216,11 +245,7 @@ impl KeyVault {
 
 fn find<'a>(d: &'a [u8], k: &[u8]) -> Option<Value<'a>> {
     let mut it = Iter::new(d)?;
-    if it.find(k) {
-        Some(it.value())
-    } else {
-        None
-    }
+    if it.find(k) { Some(it.value()) } else { None }
 }
 
 /// _mongoc_write_result_complete with a field list: the counts asked for, then writeErrors (if
@@ -231,10 +256,10 @@ fn counts_reply(reply: &[u8], fields: &[(&str, &[u8])]) -> Vec<u8> {
         let n = find(reply, from).map_or(0, |v| mongo_core::sdam::as_i64(&v) as i32);
         w.int32(name.as_bytes(), n);
     }
-    if let Some(Value::Array(a)) = find(reply, b"writeErrors") {
-        if a.len() > 5 {
-            w.array(b"writeErrors", a);
-        }
+    if let Some(Value::Array(a)) = find(reply, b"writeErrors")
+        && a.len() > 5
+    {
+        w.array(b"writeErrors", a);
     }
     for k in [&b"writeConcernErrors"[..], b"errorReplies", b"errorLabels"] {
         if let Some(Value::Array(a)) = find(reply, k) {
@@ -248,29 +273,36 @@ fn counts_reply(reply: &[u8], fields: &[(&str, &[u8])]) -> Vec<u8> {
 struct KvIo<'a>(&'a KeyVault);
 
 /// libmongoc's KMS round trip (`_state_need_kms`)
-fn kms_exchange(req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
+fn kms_exchange(
+    req: &mongo_crypt::kms::KmsRequest,
+    done: &mut dyn FnMut(&[u8]) -> bool,
+) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
     use mongo_core::kms_tls::Phase;
     use mongo_crypt::engine::KmsFailure;
-    mongo_core::kms_tls::exchange(&req.endpoint, &req.tls, &req.message, done).map_err(|(p, e)| match p {
-        Phase::Connect => KmsFailure::Connect(e),
-        Phase::Write => KmsFailure::Write(e),
-        Phase::Read => KmsFailure::Read(e),
+    mongo_core::kms_tls::exchange(&req.endpoint, &req.tls, &req.message, done).map_err(|(p, e)| {
+        match p {
+            Phase::Connect => KmsFailure::Connect(e),
+            Phase::Write => KmsFailure::Write(e),
+            Phase::Read => KmsFailure::Read(e),
+        }
     })
 }
 
-
 /// On-demand credentials from the environment and metadata services (libmongoc's)
 fn aws_env_credentials() -> Result<(String, String, Option<String>), Error> {
-    let c = mongo_core::cloud_creds::aws_credentials(&mongo_core::cloud_creds::Hosts::default()).map_err(|e| Error::new(e.domain, e.code, &e.message))?;
+    let c = mongo_core::cloud_creds::aws_credentials(&mongo_core::cloud_creds::Hosts::default())
+        .map_err(|e| Error::new(e.domain, e.code, &e.message))?;
     Ok((c.access_key_id, c.secret_access_key, c.session_token))
 }
 
 fn azure_imds() -> Result<(String, std::time::Duration), Error> {
-    mongo_core::cloud_creds::azure_imds_token(&mongo_core::cloud_creds::Hosts::default()).map_err(|e| Error::new(e.domain, e.code, &e.message))
+    mongo_core::cloud_creds::azure_imds_token(&mongo_core::cloud_creds::Hosts::default())
+        .map_err(|e| Error::new(e.domain, e.code, &e.message))
 }
 
 fn gcp_metadata() -> Result<String, Error> {
-    mongo_core::cloud_creds::gcp_metadata_token(&mongo_core::cloud_creds::Hosts::default()).map_err(|e| Error::new(e.domain, e.code, &e.message))
+    mongo_core::cloud_creds::gcp_metadata_token(&mongo_core::cloud_creds::Hosts::default())
+        .map_err(|e| Error::new(e.domain, e.code, &e.message))
 }
 
 fn stream_error(msg: String) -> Error {
@@ -281,11 +313,21 @@ fn stream_error(msg: String) -> Error {
 
 impl Io for KvIo<'_> {
     type Error = IoError;
-    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<IoError>> {
+    fn kms(
+        &mut self,
+        req: &mongo_crypt::kms::KmsRequest,
+        done: &mut dyn FnMut(&[u8]) -> bool,
+    ) -> Result<(), mongo_crypt::engine::KmsFailure<IoError>> {
         kms_exchange(req, done).map_err(|f| match f {
-            mongo_crypt::engine::KmsFailure::Connect(e) => mongo_crypt::engine::KmsFailure::Connect((e, None)),
-            mongo_crypt::engine::KmsFailure::Write(e) => mongo_crypt::engine::KmsFailure::Write((e, None)),
-            mongo_crypt::engine::KmsFailure::Read(e) => mongo_crypt::engine::KmsFailure::Read((e, None)),
+            mongo_crypt::engine::KmsFailure::Connect(e) => {
+                mongo_crypt::engine::KmsFailure::Connect((e, None))
+            }
+            mongo_crypt::engine::KmsFailure::Write(e) => {
+                mongo_crypt::engine::KmsFailure::Write((e, None))
+            }
+            mongo_crypt::engine::KmsFailure::Read(e) => {
+                mongo_crypt::engine::KmsFailure::Read((e, None))
+            }
         })
     }
     fn stream_error(&self, msg: String) -> IoError {
@@ -328,7 +370,6 @@ unsafe fn throw_engine(e: &mongo_crypt::engine::Error<IoError>) {
     }
 }
 
-
 /// `_mongoc_bson_type_to_str`
 fn bson_type_str(t: u8) -> &'static str {
     match t {
@@ -366,28 +407,55 @@ fn kms_tls_options(doc: &[u8]) -> Result<Vec<(String, mongo_core::tls::TlsOption
         let key = String::from_utf8_lossy(it.key()).into_owned();
         let known = matches!(key.as_str(), "aws" | "azure" | "gcp" | "kmip") || key.contains(':');
         if !known {
-            return Err(format!("Cannot configure TLS options for KMS provider: {key}"));
+            return Err(format!(
+                "Cannot configure TLS options for KMS provider: {key}"
+            ));
         }
         if out.iter().any(|(k, _)| *k == key) {
             return Err(format!("Error parsing duplicate TLS options for {key}"));
         }
         let Value::Document(d) = it.value() else {
-            return Err(format!("Expected TLS options for {key} to be a document, got: {}", bson_type_str(it.value().type_code())));
+            return Err(format!(
+                "Expected TLS options for {key} to be a document, got: {}",
+                bson_type_str(it.value().type_code())
+            ));
         };
         let mut o = mongo_core::tls::TlsOptions::default();
-        let mut oi = Iter::new(d).ok_or_else(|| format!("Error iterating into TLS options document for {key}"))?;
+        let mut oi = Iter::new(d)
+            .ok_or_else(|| format!("Error iterating into TLS options document for {key}"))?;
         while oi.next() {
             let k = String::from_utf8_lossy(oi.key()).into_owned();
             let kl = k.to_ascii_lowercase();
-            if !matches!(kl.as_str(), "tlscertificatekeyfilepassword" | "tlscertificatekeyfile" | "tlscafile" | "tlsdisableocspendpointcheck") {
-                return Err(format!("Error setting TLS option {k} for {key}. Insecure TLS options prohibited."));
+            if !matches!(
+                kl.as_str(),
+                "tlscertificatekeyfilepassword"
+                    | "tlscertificatekeyfile"
+                    | "tlscafile"
+                    | "tlsdisableocspendpointcheck"
+            ) {
+                return Err(format!(
+                    "Error setting TLS option {k} for {key}. Insecure TLS options prohibited."
+                ));
             }
             match (kl.as_str(), oi.value()) {
-                ("tlscertificatekeyfile", Value::Utf8(v)) => o.pem_file = Some(String::from_utf8_lossy(v).into_owned()),
-                ("tlscertificatekeyfilepassword", Value::Utf8(v)) => o.pem_pwd = Some(String::from_utf8_lossy(v).into_owned()),
-                ("tlscafile", Value::Utf8(v)) => o.ca_file = Some(String::from_utf8_lossy(v).into_owned()),
-                ("tlsdisableocspendpointcheck", Value::Bool(b)) => o.disable_ocsp_endpoint_check = b,
-                (_, v) => return Err(format!("Error parsing TLS options for {key}: unexpected {} option: {k}", bson_type_str(v.type_code()))),
+                ("tlscertificatekeyfile", Value::Utf8(v)) => {
+                    o.pem_file = Some(String::from_utf8_lossy(v).into_owned())
+                }
+                ("tlscertificatekeyfilepassword", Value::Utf8(v)) => {
+                    o.pem_pwd = Some(String::from_utf8_lossy(v).into_owned())
+                }
+                ("tlscafile", Value::Utf8(v)) => {
+                    o.ca_file = Some(String::from_utf8_lossy(v).into_owned())
+                }
+                ("tlsdisableocspendpointcheck", Value::Bool(b)) => {
+                    o.disable_ocsp_endpoint_check = b
+                }
+                (_, v) => {
+                    return Err(format!(
+                        "Error parsing TLS options for {key}: unexpected {} option: {k}",
+                        bson_type_str(v.type_code())
+                    ));
+                }
             }
         }
         out.push((key, o));
@@ -396,7 +464,16 @@ fn kms_tls_options(doc: &[u8]) -> Result<Vec<(String, mongo_core::tls::TlsOption
 }
 
 fn throw_tls_arg(m: &str) {
-    unsafe { super::throw_error(&Error::new(domain::CLIENT_SIDE_ENCRYPTION, code::CLIENT_INVALID_ENCRYPTION_ARG, m), None) };
+    unsafe {
+        super::throw_error(
+            &Error::new(
+                domain::CLIENT_SIDE_ENCRYPTION,
+                code::CLIENT_INVALID_ENCRYPTION_ARG,
+                m,
+            ),
+            None,
+        )
+    };
 }
 
 /// php_array_fetchc_string: the option converted to a string
@@ -415,65 +492,122 @@ unsafe fn opt(options: *mut sys::zval, k: &[u8]) -> Option<*mut sys::zval> {
 }
 
 /// phongo_clientencryption_init (false: an exception was thrown)
-pub unsafe fn init(ce: &mut ClientEncryption, options: *mut sys::zval, default_kv_manager: *mut sys::zend_object) -> bool {
+pub unsafe fn init(
+    ce: &mut ClientEncryption,
+    options: *mut sys::zval,
+    default_kv_manager: *mut sys::zend_object,
+) -> bool {
     // phongo_clientencryption_opts_from_zval
     let mut kv_manager: *mut sys::zend_object = null_mut();
-    let (mut kv_ns, mut kms, mut tls): (Option<(String, String)>, Option<Vec<u8>>, Option<Vec<u8>>) = (None, None, None);
+    let (mut kv_ns, mut kms, mut tls): (
+        Option<(String, String)>,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+    ) = (None, None, None);
     if !options.is_null() && zval::is(options, sys::IS_ARRAY) {
         if let Some(z) = opt(options, b"keyVaultClient") {
-            if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::manager::CE) {
-                throw(E::InvalidArgument, format!("Expected \"keyVaultClient\" option to be MongoDB\\Driver\\Manager, {} given", zval::type_name(z)));
+            if !zval::is(z, sys::IS_OBJECT)
+                || !obj::instanceof((*(*z).value.obj).ce, super::manager::CE.get())
+            {
+                throw(
+                    E::InvalidArgument,
+                    format!(
+                        "Expected \"keyVaultClient\" option to be MongoDB\\Driver\\Manager, {} given",
+                        zval::type_name(z)
+                    ),
+                );
                 return false;
             }
             kv_manager = (*z).value.obj;
         } else if !default_kv_manager.is_null() {
             kv_manager = default_kv_manager;
         } else {
-            throw(E::InvalidArgument, "The \"keyVaultClient\" option is required when constructing a ClientEncryption object directly");
+            throw(
+                E::InvalidArgument,
+                "The \"keyVaultClient\" option is required when constructing a ClientEncryption object directly",
+            );
             return false;
         }
         if let Some(z) = opt(options, b"keyVaultNamespace") {
             let ns = fetch_string(z);
             if ns.contains(&0) {
-                throw(E::InvalidArgument, "Invalid namespace provided: namespaces may not contain a null byte");
+                throw(
+                    E::InvalidArgument,
+                    "Invalid namespace provided: namespaces may not contain a null byte",
+                );
                 return false;
             }
             let s = String::from_utf8_lossy(&ns).into_owned();
             match s.split_once('.') {
                 Some((d, c)) => kv_ns = Some((d.to_string(), c.to_string())),
                 None => {
-                    throw(E::InvalidArgument, "Expected \"keyVaultNamespace\" option to contain a full collection namespace");
+                    throw(
+                        E::InvalidArgument,
+                        "Expected \"keyVaultNamespace\" option to contain a full collection namespace",
+                    );
                     return false;
                 }
             }
         }
         if let Some(z) = opt(options, b"kmsProviders") {
             if !zval::is(z, sys::IS_ARRAY) && !zval::is(z, sys::IS_OBJECT) {
-                throw(E::InvalidArgument, format!("Expected \"kmsProviders\" option to be an array or object, {} given", zval::type_name(z)));
+                throw(
+                    E::InvalidArgument,
+                    format!(
+                        "Expected \"kmsProviders\" option to be an array or object, {} given",
+                        zval::type_name(z)
+                    ),
+                );
                 return false;
             }
-            let Some(b) = encode::to_bson(z, encode::NONE) else { return false };
+            let Some(b) = encode::to_bson(z, encode::NONE) else {
+                return false;
+            };
             kms = Some(b);
         }
         if let Some(z) = opt(options, b"tlsOptions") {
             if !zval::is(z, sys::IS_ARRAY) && !zval::is(z, sys::IS_OBJECT) {
-                throw(E::InvalidArgument, format!("Expected \"tlsOptions\" option to be an array or object, {} given", zval::type_name(z)));
+                throw(
+                    E::InvalidArgument,
+                    format!(
+                        "Expected \"tlsOptions\" option to be an array or object, {} given",
+                        zval::type_name(z)
+                    ),
+                );
                 return false;
             }
-            let Some(b) = encode::to_bson(z, encode::NONE) else { return false };
+            let Some(b) = encode::to_bson(z, encode::NONE) else {
+                return false;
+            };
             tls = Some(b);
         }
     }
     // mongoc_client_encryption_new
-    let client = if kv_manager.is_null() { None } else { obj::data::<super::manager::Manager>(kv_manager).client.clone() };
+    let client = if kv_manager.is_null() {
+        None
+    } else {
+        obj::data::<super::manager::Manager>(kv_manager)
+            .client
+            .clone()
+    };
     let (Some(client), Some((db, coll))) = (client, kv_ns.clone()) else {
-        super::throw_error(&invalid_arg("Key vault client and namespace option required"), None);
+        super::throw_error(
+            &invalid_arg("Key vault client and namespace option required"),
+            None,
+        );
         return false;
     };
     // _mongoc_validate_db_name
     if db.is_empty() || db.bytes().any(|b| b"/\\. \"$".contains(&b)) || db.contains('\0') {
-        let m = if db.is_empty() { "Database name cannot be empty".to_string() } else { format!("Invalid database name: '{db}'") };
-        super::throw_error(&Error::new(domain::NAMESPACE, code::NAMESPACE_INVALID, &m), None);
+        let m = if db.is_empty() {
+            "Database name cannot be empty".to_string()
+        } else {
+            format!("Invalid database name: '{db}'")
+        };
+        super::throw_error(
+            &Error::new(domain::NAMESPACE, code::NAMESPACE_INVALID, &m),
+            None,
+        );
         return false;
     }
     let Some(kms) = kms else {
@@ -505,7 +639,10 @@ pub unsafe fn init(ce: &mut ClientEncryption, options: *mut sys::zval, default_k
 }
 
 /// ClientEncryption::__construct(array $options)
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption___construct(ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption___construct(
+    ex: Ex,
+    _rv: *mut sys::zval,
+) {
     let mut a: *mut sys::zval = null_mut();
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
@@ -514,13 +651,20 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption___construct(ex: Ex,
 }
 
 /// Manager::createClientEncryption(array $options)
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_createClientEncryption(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     let mut a: *mut sys::zval = null_mut();
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
     }
-    let z = obj::new_zval(CE);
-    if init(obj::data::<ClientEncryption>(z.value.obj), a, call::this(ex)) {
+    let z = obj::new_zval(CE.get());
+    if init(
+        obj::data::<ClientEncryption>(z.value.obj),
+        a,
+        call::this(ex),
+    ) {
         zval::write(rv, z);
     }
 }
@@ -530,11 +674,14 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut ClientEncryption {
 }
 
 /// The key vault and the crypt handle (phongo dereferences a NULL client_encryption)
-unsafe fn parts<'a>(c: &'a ClientEncryption) -> Option<(&'a KeyVault, &'a Crypt)> {
+unsafe fn parts(c: &ClientEncryption) -> Option<(&KeyVault, &Crypt)> {
     match (&c.kv, &c.crypt) {
         (Some(k), Some(cr)) => Some((k, cr)),
         _ => {
-            throw(E::Logic, "Failed to use an uninitialized ClientEncryption object");
+            throw(
+                E::Logic,
+                "Failed to use an uninitialized ClientEncryption object",
+            );
             None
         }
     }
@@ -544,11 +691,23 @@ unsafe fn parts<'a>(c: &'a ClientEncryption) -> Option<(&'a KeyVault, &'a Crypt)
 unsafe fn keyid_arg(z: *mut sys::zval) -> Option<Vec<u8>> {
     let b = obj::data::<crate::bson::types::Binary>((*z).value.obj);
     if b.ty != 4 {
-        throw(E::InvalidArgument, format!("Expected keyid to have UUID Binary subtype (4), {} given", b.ty));
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected keyid to have UUID Binary subtype (4), {} given",
+                b.ty
+            ),
+        );
         return None;
     }
     if b.data.len() != 16 {
-        throw(E::UnexpectedValue, format!("Expected keyid to have data length of 16 bytes, {} given", b.data.len()));
+        throw(
+            E::UnexpectedValue,
+            format!(
+                "Expected keyid to have data length of 16 bytes, {} given",
+                b.data.len()
+            ),
+        );
         return None;
     }
     Some(b.data.clone())
@@ -577,14 +736,26 @@ fn fam_value(reply: &[u8]) -> Result<Option<Vec<u8>>, Error> {
     match find(reply, b"value") {
         Some(Value::Document(d)) => Ok(Some(d.to_vec())),
         Some(Value::Null) | None => Ok(None),
-        Some(_) => Err(Error::new(domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_STATE, "expected field value to be a document or null")),
+        Some(_) => Err(Error::new(
+            domain::CLIENT,
+            code::CLIENT_INVALID_ENCRYPTION_STATE,
+            "expected field value to be a document or null",
+        )),
     }
 }
 
 unsafe fn parse_keyid_and_name(ex: Ex) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut z: *mut sys::zval = null_mut();
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
-    if sys::zend_parse_parameters(call::num_args(ex), c"Os".as_ptr(), &mut z, crate::bson::ce().binary, &mut p, &mut l) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"Os".as_ptr(),
+        &mut z,
+        crate::bson::ce().binary.get(),
+        &mut p,
+        &mut l,
+    ) != 0
+    {
         return None;
     }
     let id = keyid_arg(z)?;
@@ -592,8 +763,13 @@ unsafe fn parse_keyid_and_name(ex: Ex) -> Option<(Vec<u8>, Vec<u8>)> {
 }
 
 /// ClientEncryption::addKeyAltName(Binary $keyId, string $keyAltName): the previous key document or null
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_addKeyAltName(ex: Ex, rv: *mut sys::zval) {
-    let Some((id, name)) = parse_keyid_and_name(ex) else { return };
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_addKeyAltName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
+    let Some((id, name)) = parse_keyid_and_name(ex) else {
+        return;
+    };
     let Some((kv, _)) = parts(me(ex)) else { return };
     // BCON_UTF8(keyaltname): a C string
     let name = zstr::c_part(&name).to_vec();
@@ -611,8 +787,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_addKeyAltName(ex: E
 }
 
 /// ClientEncryption::removeKeyAltName(Binary $keyId, string $keyAltName)
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_removeKeyAltName(ex: Ex, rv: *mut sys::zval) {
-    let Some((id, name)) = parse_keyid_and_name(ex) else { return };
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_removeKeyAltName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
+    let Some((id, name)) = parse_keyid_and_name(ex) else {
+        return;
+    };
     let Some((kv, _)) = parts(me(ex)) else { return };
     let name = zstr::c_part(&name).to_vec();
     // [{$set: {keyAltNames: {$cond: [{$eq: ["$keyAltNames", [name]]}, "$$REMOVE",
@@ -656,10 +837,20 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_removeKeyAltName(ex
 }
 
 /// ClientEncryption::createDataKey(string $kmsProvider, ?array $options = null): the new key's id
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"s|a!".as_ptr(), &mut p, &mut l, &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"s|a!".as_ptr(),
+        &mut p,
+        &mut l,
+        &mut options,
+    ) != 0
+    {
         return;
     }
     let provider = zstr::c_part(std::slice::from_raw_parts(p, l)).to_vec();
@@ -669,7 +860,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
     let mut master_key: Option<Vec<u8>> = None;
     if let Some(z) = opt(options, b"keyAltNames") {
         if !zval::is(z, sys::IS_ARRAY) {
-            throw(E::InvalidArgument, format!("Expected keyAltNames to be array, {} given", zval::type_name(z)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected keyAltNames to be array, {} given",
+                    zval::type_name(z)
+                ),
+            );
             return;
         }
         let mut failed = false;
@@ -677,7 +874,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
             if !zval::is(v, sys::IS_STRING) {
                 let mut buf = String::new();
                 let key = String::from_utf8_lossy(hash::key_bytes(k, &mut buf)).into_owned();
-                throw(E::InvalidArgument, format!("Expected keyAltName with index \"{key}\" to be string, {} given", zval::type_name(v)));
+                throw(
+                    E::InvalidArgument,
+                    format!(
+                        "Expected keyAltName with index \"{key}\" to be string, {} given",
+                        zval::type_name(v)
+                    ),
+                );
                 failed = true;
                 return false;
             }
@@ -689,23 +892,52 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
         }
     }
     if let Some(z) = opt(options, b"keyMaterial") {
-        if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, crate::bson::ce().binary) {
-            throw(E::InvalidArgument, format!("Expected \"keyMaterial\" option to be MongoDB\\BSON\\Binary, {} given", zval::type_name(z)));
+        if !zval::is(z, sys::IS_OBJECT)
+            || !obj::instanceof((*(*z).value.obj).ce, crate::bson::ce().binary.get())
+        {
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"keyMaterial\" option to be MongoDB\\BSON\\Binary, {} given",
+                    zval::type_name(z)
+                ),
+            );
             return;
         }
-        key_material = Some(obj::data::<crate::bson::types::Binary>((*z).value.obj).data.clone());
+        key_material = Some(
+            obj::data::<crate::bson::types::Binary>((*z).value.obj)
+                .data
+                .clone(),
+        );
     }
     if let Some(z) = opt(options, b"masterKey") {
         if !zval::is(z, sys::IS_OBJECT) && !zval::is(z, sys::IS_ARRAY) {
-            throw(E::InvalidArgument, format!("Expected \"masterKey\" option to be array or object, {} given", zval::type_name(z)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"masterKey\" option to be array or object, {} given",
+                    zval::type_name(z)
+                ),
+            );
             return;
         }
-        let Some(b) = encode::to_bson(z, encode::NONE) else { return };
+        let Some(b) = encode::to_bson(z, encode::NONE) else {
+            return;
+        };
         master_key = Some(b);
     }
-    let Some((kv, crypt)) = parts(me(ex)) else { return };
+    let Some((kv, crypt)) = parts(me(ex)) else {
+        return;
+    };
     // _mongoc_crypt_create_datakey
-    let doc = match create_datakey(crypt, kv, &provider, master_key.as_deref(), &alt_names, key_material.as_deref()) {
+    let doc = match create_datakey(
+        crypt,
+        kv,
+        &provider,
+        master_key.as_deref(),
+        &alt_names,
+        key_material.as_deref(),
+    ) {
         Ok(d) => d,
         Err(e) => {
             throw_engine(&e);
@@ -727,7 +959,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_createDataKey(ex: E
 
 /// _mongoc_crypt_create_datakey: mongocrypt_ctx_setopt_key_encryption_key / key_alt_name /
 /// key_material, mongocrypt_ctx_datakey_init and the state machine
-fn create_datakey(crypt: &Crypt, kv: &KeyVault, provider: &[u8], master_key: Option<&[u8]>, alt_names: &[Vec<u8>], key_material: Option<&[u8]>) -> Result<Vec<u8>, mongo_crypt::engine::Error<IoError>> {
+fn create_datakey(
+    crypt: &Crypt,
+    kv: &KeyVault,
+    provider: &[u8],
+    master_key: Option<&[u8]>,
+    alt_names: &[Vec<u8>],
+    key_material: Option<&[u8]>,
+) -> Result<Vec<u8>, mongo_crypt::engine::Error<IoError>> {
     // {provider: <kms_provider>} + the masterKey fields
     let mut w = Writer::with_capacity(128);
     w.utf8(b"provider", provider);
@@ -746,14 +985,23 @@ fn create_datakey(crypt: &Crypt, kv: &KeyVault, provider: &[u8], master_key: Opt
 /// ClientEncryption::deleteKey(Binary $keyId): the deleteOne result
 pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_deleteKey(ex: Ex, rv: *mut sys::zval) {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, crate::bson::ce().binary) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"O".as_ptr(),
+        &mut z,
+        crate::bson::ce().binary.get(),
+    ) != 0
+    {
         return;
     }
     let Some(id) = keyid_arg(z) else { return };
     let Some((kv, _)) = parts(me(ex)) else { return };
     match kv.delete_one(&id_doc(&id)) {
         Err(e) => throw_io(&e),
-        Ok(r) if r.len() <= 5 => throw(E::UnexpectedValue, "mongoc_client_encryption_delete_key returned an empty document"),
+        Ok(r) if r.len() <= 5 => throw(
+            E::UnexpectedValue,
+            "mongoc_client_encryption_delete_key returned an empty document",
+        ),
         Ok(r) => {
             if let Some(z) = super::to_zval(&r, &Default::default()) {
                 zval::write(rv, z);
@@ -765,7 +1013,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_deleteKey(ex: Ex, r
 /// ClientEncryption::getKey(Binary $keyId)
 pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKey(ex: Ex, rv: *mut sys::zval) {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, crate::bson::ce().binary) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"O".as_ptr(),
+        &mut z,
+        crate::bson::ce().binary.get(),
+    ) != 0
+    {
         return;
     }
     let Some(id) = keyid_arg(z) else { return };
@@ -777,7 +1031,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKey(ex: Ex, rv: 
 }
 
 /// ClientEncryption::getKeyByAltName(string $keyAltName)
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKeyByAltName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKeyByAltName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     if sys::zend_parse_parameters(call::num_args(ex), c"s".as_ptr(), &mut p, &mut l) != 0 {
         return;
@@ -813,33 +1070,61 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_getKeys(ex: Ex, rv:
     cur.database = Some(kv.db.clone());
     cur.collection = Some(kv.coll.clone());
     cur.zquery = query;
-    let mgr = if zval::is(&c.kv_manager, sys::IS_OBJECT) { c.kv_manager.value.obj } else { null_mut() };
+    let mgr = if zval::is(&c.kv_manager, sys::IS_OBJECT) {
+        c.kv_manager.value.obj
+    } else {
+        null_mut()
+    };
     zval::write(rv, super::cursor::new_cursor(cur, mgr));
 }
 
 /// ClientEncryption::rewrapManyDataKey(array|object $filter, ?array $options = null)
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_rewrapManyDataKey(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     let mut zfilter: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"A|a!".as_ptr(), &mut zfilter, &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"A|a!".as_ptr(),
+        &mut zfilter,
+        &mut options,
+    ) != 0
+    {
         return;
     }
-    let Some(filter) = encode::to_bson(zfilter, encode::NONE) else { return };
+    let Some(filter) = encode::to_bson(zfilter, encode::NONE) else {
+        return;
+    };
     let provider = opt(options, b"provider").map(|z| fetch_string(z));
     let mut master_key = None;
     if let Some(z) = opt(options, b"masterKey") {
         if !zval::is(z, sys::IS_OBJECT) && !zval::is(z, sys::IS_ARRAY) {
-            throw(E::InvalidArgument, format!("Expected \"masterKey\" option to be array or object, {} given", zval::type_name(z)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"masterKey\" option to be array or object, {} given",
+                    zval::type_name(z)
+                ),
+            );
             return;
         }
         if provider.is_none() {
-            throw(E::InvalidArgument, "The \"masterKey\" option should not be specified without \"provider\"");
+            throw(
+                E::InvalidArgument,
+                "The \"masterKey\" option should not be specified without \"provider\"",
+            );
             return;
         }
-        let Some(b) = encode::to_bson(z, encode::NONE) else { return };
+        let Some(b) = encode::to_bson(z, encode::NONE) else {
+            return;
+        };
         master_key = Some(b);
     }
-    let Some((kv, crypt)) = parts(me(ex)) else { return };
+    let Some((kv, crypt)) = parts(me(ex)) else {
+        return;
+    };
     // _mongoc_crypt_rewrap_many_datakey: the key documents matching `filter`, re-encrypted
     let new_kek = match &provider {
         None => None,
@@ -919,12 +1204,18 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
     }
     if let Some(r) = opt(options, b"rangeOpts") {
         // phongo_clientencryption_encrypt_range_opts_from_zval + append_bson_range_opts
-        let (mut min, mut max, mut precision, mut sparsity, mut trim) = (None, None, None, None, None);
+        let (mut min, mut max, mut precision, mut sparsity, mut trim) =
+            (None, None, None, None, None);
         if zval::is(r, sys::IS_ARRAY) {
             if let Some(z) = opt(r, b"trimFactor") {
                 let v = sys::zval_get_long_func(z, false);
                 if !(0..=i32::MAX as i64).contains(&v) {
-                    throw(E::InvalidArgument, format!("Expected \"trimFactor\" range option to be a positive 32-bit integer, {v} given"));
+                    throw(
+                        E::InvalidArgument,
+                        format!(
+                            "Expected \"trimFactor\" range option to be a positive 32-bit integer, {v} given"
+                        ),
+                    );
                     return None;
                 }
                 trim = Some(v as i32);
@@ -932,7 +1223,12 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
             if let Some(z) = opt(r, b"sparsity") {
                 let v = sys::zval_get_long_func(z, false);
                 if v < 0 {
-                    throw(E::InvalidArgument, format!("Expected \"sparsity\" range option to be a positive 64-bit integer, {v} given"));
+                    throw(
+                        E::InvalidArgument,
+                        format!(
+                            "Expected \"sparsity\" range option to be a positive 64-bit integer, {v} given"
+                        ),
+                    );
                     return None;
                 }
                 sparsity = Some(v);
@@ -940,7 +1236,12 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
             if let Some(z) = opt(r, b"precision") {
                 let v = sys::zval_get_long_func(z, false);
                 if !(0..=i32::MAX as i64).contains(&v) {
-                    throw(E::InvalidArgument, format!("Expected \"precision\" range option to be a positive 32-bit integer, {v} given"));
+                    throw(
+                        E::InvalidArgument,
+                        format!(
+                            "Expected \"precision\" range option to be a positive 32-bit integer, {v} given"
+                        ),
+                    );
                     return None;
                 }
                 precision = Some(v as i32);
@@ -978,9 +1279,15 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
                 }
             }
             for (name, fields) in [
-                (&b"prefix"[..], &[&b"strMaxQueryLength"[..], b"strMinQueryLength"][..]),
+                (
+                    &b"prefix"[..],
+                    &[&b"strMaxQueryLength"[..], b"strMinQueryLength"][..],
+                ),
                 (b"suffix", &[b"strMaxQueryLength", b"strMinQueryLength"]),
-                (b"substring", &[b"strMaxLength", b"strMaxQueryLength", b"strMinQueryLength"]),
+                (
+                    b"substring",
+                    &[b"strMaxLength", b"strMaxQueryLength", b"strMinQueryLength"],
+                ),
             ] {
                 let Some(per) = opt(so, name) else { continue };
                 let mut vals: Vec<(&[u8], i32)> = Vec::new();
@@ -989,7 +1296,13 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
                         if let Some(z) = opt(per, f) {
                             let v = sys::zval_get_long_func(z, false);
                             if v < i32::MIN as i64 || v > i32::MAX as i64 {
-                                throw(E::InvalidArgument, format!("Expected \"{}\" to be a 32-bit integer, {v} given", String::from_utf8_lossy(f)));
+                                throw(
+                                    E::InvalidArgument,
+                                    format!(
+                                        "Expected \"{}\" to be a 32-bit integer, {v} given",
+                                        String::from_utf8_lossy(f)
+                                    ),
+                                );
                                 return None;
                             }
                             vals.push((f, v as i32));
@@ -998,7 +1311,11 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
                 }
                 // append_bson_string_per_index_opts: strMaxLength, strMaxQueryLength, strMinQueryLength
                 let p = w.begin(mongo_core::bson::iter::T_DOCUMENT, name);
-                for f in [&b"strMaxLength"[..], b"strMaxQueryLength", b"strMinQueryLength"] {
+                for f in [
+                    &b"strMaxLength"[..],
+                    b"strMaxQueryLength",
+                    b"strMinQueryLength",
+                ] {
                     if let Some((_, v)) = vals.iter().find(|(k, _)| *k == f) {
                         w.int32(f, *v);
                     }
@@ -1015,12 +1332,24 @@ unsafe fn encrypt_opts(options: *mut sys::zval) -> Option<ExplicitOpts> {
 pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_encrypt(ex: Ex, rv: *mut sys::zval) {
     let mut value: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"z|a!".as_ptr(), &mut value, &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"z|a!".as_ptr(),
+        &mut value,
+        &mut options,
+    ) != 0
+    {
         return;
     }
-    let Some(v) = encode::to_bson_value_doc(value, b"v") else { return };
-    let Some(o) = encrypt_opts(options) else { return };
-    let Some((kv, crypt)) = parts(me(ex)) else { return };
+    let Some(v) = encode::to_bson_value_doc(value, b"v") else {
+        return;
+    };
+    let Some(o) = encrypt_opts(options) else {
+        return;
+    };
+    let Some((kv, crypt)) = parts(me(ex)) else {
+        return;
+    };
     match crypt.explicit_encrypt(&mut KvIo(kv), &v, &o) {
         Err(e) => throw_engine(&e),
         Ok(ct) => {
@@ -1034,15 +1363,30 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_encrypt(ex: Ex, rv:
 }
 
 /// ClientEncryption::encryptExpression(array|object $expr, ?array $options = null)
-pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_encryptExpression(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_encryptExpression(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     let mut expr: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"z|a!".as_ptr(), &mut expr, &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"z|a!".as_ptr(),
+        &mut expr,
+        &mut options,
+    ) != 0
+    {
         return;
     }
-    let Some(e) = encode::to_bson(expr, encode::NONE) else { return };
-    let Some(o) = encrypt_opts(options) else { return };
-    let Some((kv, crypt)) = parts(me(ex)) else { return };
+    let Some(e) = encode::to_bson(expr, encode::NONE) else {
+        return;
+    };
+    let Some(o) = encrypt_opts(options) else {
+        return;
+    };
+    let Some((kv, crypt)) = parts(me(ex)) else {
+        return;
+    };
     match crypt.explicit_encrypt_expression(&mut KvIo(kv), &e, &o) {
         Err(e) => throw_engine(&e),
         Ok(d) => {
@@ -1060,11 +1404,18 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ClientEncryption_decrypt(ex: Ex, rv:
     if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, iface) != 0 {
         return;
     }
-    let Some(v) = encode::to_bson_value_doc(z, b"v") else { return };
-    let Some((kv, crypt)) = parts(me(ex)) else { return };
+    let Some(v) = encode::to_bson_value_doc(z, b"v") else {
+        return;
+    };
+    let Some((kv, crypt)) = parts(me(ex)) else {
+        return;
+    };
     // mongoc_client_encryption_decrypt
     if !matches!(find(&v, b"v"), Some(Value::Binary(6, _))) {
-        super::throw_error(&invalid_arg("ciphertext must be BSON binary subtype 6"), None);
+        super::throw_error(
+            &invalid_arg("ciphertext must be BSON binary subtype 6"),
+            None,
+        );
         return;
     }
     match crypt.explicit_decrypt(&mut KvIo(kv), &v) {
@@ -1106,7 +1457,11 @@ impl Io for CoreIo<'_> {
         // _state_need_mongo_collinfo: on the encrypted client itself
         self.cl.list_collections_all(db, filter)
     }
-    fn kms(&mut self, req: &mongo_crypt::kms::KmsRequest, done: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
+    fn kms(
+        &mut self,
+        req: &mongo_crypt::kms::KmsRequest,
+        done: &mut dyn FnMut(&[u8]) -> bool,
+    ) -> Result<(), mongo_crypt::engine::KmsFailure<Error>> {
         kms_exchange(req, done)
     }
     fn stream_error(&self, msg: String) -> Error {
@@ -1129,13 +1484,30 @@ impl Io for CoreIo<'_> {
             let mut w = Writer::with_capacity(coll.len() + 16);
             w.utf8(b"find", coll.as_bytes());
             let probe = w.finish();
-            let mut io = CoreIo { cl: &mut *self.cl, kv: None, db, coll, auto: None };
-            crypt.auto_encrypt(&mut io, db, &probe, opts).map_err(engine_error)?;
+            let mut io = CoreIo {
+                cl: &mut *self.cl,
+                kv: None,
+                db,
+                coll,
+                auto: None,
+            };
+            crypt
+                .auto_encrypt(&mut io, db, &probe, opts)
+                .map_err(engine_error)?;
         }
         let run = |cl: &mut mongo_core::client::Client| {
             let rp = super::manager::client_read_preference(&cl.uri);
-            let rc = mongo_core::concern::ReadConcern { level: Some(b"majority".to_vec()) }.to_bson();
-            cl.find_all(db, coll, filter, Some((&rp.prefs(), super::manager::rp_parts(&rp))), &rc)
+            let rc = mongo_core::concern::ReadConcern {
+                level: Some(b"majority".to_vec()),
+            }
+            .to_bson();
+            cl.find_all(
+                db,
+                coll,
+                filter,
+                Some((&rp.prefs(), super::manager::rp_parts(&rp))),
+                &rc,
+            )
         };
         let r = match self.kv {
             Some(kv) if !std::ptr::eq(kv.shared(), &**self.cl.shared()) => run(&mut kv.checkout()),
@@ -1162,9 +1534,20 @@ fn engine_error(e: mongo_crypt::engine::Error<Error>) -> Error {
 }
 
 impl mongo_core::autocrypt::AutoCrypt for AutoDecrypt {
-    fn decrypt(&mut self, client: &mut mongo_core::client::Client, _db: &str, reply: &[u8]) -> Result<Vec<u8>, Error> {
+    fn decrypt(
+        &mut self,
+        client: &mut mongo_core::client::Client,
+        _db: &str,
+        reply: &[u8],
+    ) -> Result<Vec<u8>, Error> {
         let auto = self.encrypt.as_ref().map(|o| (&self.crypt, o));
-        let mut io = CoreIo { cl: client, kv: self.kv.as_ref(), db: &self.db, coll: &self.coll, auto };
+        let mut io = CoreIo {
+            cl: client,
+            kv: self.kv.as_ref(),
+            db: &self.db,
+            coll: &self.coll,
+            auto,
+        };
         self.crypt.decrypt_doc(&mut io, reply).map_err(engine_error)
     }
 
@@ -1172,28 +1555,61 @@ impl mongo_core::autocrypt::AutoCrypt for AutoDecrypt {
         self.encrypt.is_some()
     }
 
-    fn encrypt(&mut self, client: &mut mongo_core::client::Client, db: &str, cmd: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let Some(opts) = &self.encrypt else { return Ok(None) };
-        let mut io = CoreIo { cl: client, kv: self.kv.as_ref(), db: &self.db, coll: &self.coll, auto: Some((&self.crypt, opts)) };
-        self.crypt.auto_encrypt(&mut io, db, cmd, opts).map_err(engine_error)
+    fn encrypt(
+        &mut self,
+        client: &mut mongo_core::client::Client,
+        db: &str,
+        cmd: &[u8],
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let Some(opts) = &self.encrypt else {
+            return Ok(None);
+        };
+        let mut io = CoreIo {
+            cl: client,
+            kv: self.kv.as_ref(),
+            db: &self.db,
+            coll: &self.coll,
+            auto: Some((&self.crypt, opts)),
+        };
+        self.crypt
+            .auto_encrypt(&mut io, db, cmd, opts)
+            .map_err(engine_error)
     }
 }
 
 /// phongo_manager_set_auto_encryption_opts + mongoc_client_enable_auto_encryption: the hook to
 /// install (None: an exception was thrown)
-pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *mut sys::zval, use_persistent: bool) -> Option<Box<dyn mongo_core::autocrypt::AutoCrypt>> {
-    let Some(z) = opt(driver_options, b"autoEncryption") else { return None };
+pub unsafe fn auto_encryption(
+    m: &mut super::manager::Manager,
+    driver_options: *mut sys::zval,
+    use_persistent: bool,
+) -> Option<Box<dyn mongo_core::autocrypt::AutoCrypt>> {
+    let z = opt(driver_options, b"autoEncryption")?;
     if !zval::is(z, sys::IS_ARRAY) {
-        throw(E::InvalidArgument, format!("Expected \"autoEncryption\" driver option to be array, {} given", zval::type_name(z)));
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected \"autoEncryption\" driver option to be array, {} given",
+                zval::type_name(z)
+            ),
+        );
         return None;
     }
     let is_true = |k: &[u8]| opt(z, k).is_some_and(|v| zval::is_true(v));
     let bypass_auto = is_true(b"bypassAutoEncryption");
     let bypass_qa = is_true(b"bypassQueryAnalysis");
     let doc_opt = |k: &str| -> Result<Option<Vec<u8>>, ()> {
-        let Some(v) = opt(z, k.as_bytes()) else { return Ok(None) };
+        let Some(v) = opt(z, k.as_bytes()) else {
+            return Ok(None);
+        };
         if !zval::is(v, sys::IS_OBJECT) && !zval::is(v, sys::IS_ARRAY) {
-            throw(E::InvalidArgument, format!("Expected \"{k}\" autoEncryption option to be an array or object, {} given", zval::type_name(v)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"{k}\" autoEncryption option to be an array or object, {} given",
+                    zval::type_name(v)
+                ),
+            );
             return Err(());
         }
         encode::to_bson(v, encode::NONE).map(Some).ok_or(())
@@ -1204,13 +1620,24 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
     }
     let mut kv: Option<ClientRef> = None;
     if let Some(v) = opt(z, b"keyVaultClient") {
-        if !zval::is(v, sys::IS_OBJECT) || !obj::instanceof((*(*v).value.obj).ce, super::manager::CE) {
-            throw(E::InvalidArgument, format!("Expected \"keyVaultClient\" autoEncryption option to be MongoDB\\Driver\\Manager, {} given", zval::type_name(v)));
+        if !zval::is(v, sys::IS_OBJECT)
+            || !obj::instanceof((*(*v).value.obj).ce, super::manager::CE.get())
+        {
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"keyVaultClient\" autoEncryption option to be MongoDB\\Driver\\Manager, {} given",
+                    zval::type_name(v)
+                ),
+            );
             return None;
         }
         let km = obj::data::<super::manager::Manager>((*v).value.obj);
         if km.client.as_ref().is_some_and(super::is_persistent) != use_persistent {
-            throw(E::InvalidArgument, "The \"disableClientPersistence\" option for a Manager and its \"keyVaultClient\" must be the same");
+            throw(
+                E::InvalidArgument,
+                "The \"disableClientPersistence\" option for a Manager and its \"keyVaultClient\" must be the same",
+            );
             return None;
         }
         kv = km.client.clone();
@@ -1220,13 +1647,19 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
     if let Some(v) = opt(z, b"keyVaultNamespace") {
         let s = fetch_string(v);
         if s.contains(&0) {
-            throw(E::InvalidArgument, "Invalid namespace provided: namespaces may not contain a null byte");
+            throw(
+                E::InvalidArgument,
+                "Invalid namespace provided: namespaces may not contain a null byte",
+            );
             return None;
         }
         match String::from_utf8_lossy(&s).split_once('.') {
             Some((d, c)) => ns = Some((d.to_string(), c.to_string())),
             None => {
-                throw(E::InvalidArgument, "Expected \"keyVaultNamespace\" autoEncryption option to contain a full collection namespace");
+                throw(
+                    E::InvalidArgument,
+                    "Expected \"keyVaultNamespace\" autoEncryption option to contain a full collection namespace",
+                );
                 return None;
             }
         }
@@ -1247,19 +1680,43 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
     // _parse_extra
     if let Some(x) = &extra {
         let checks: [(&[u8], fn(&Value) -> bool, &str); 6] = [
-            (b"mongocryptdBypassSpawn", |v| matches!(v, Value::Bool(_)), "Expected bool for option 'mongocryptdBypassSpawn'"),
-            (b"mongocryptdSpawnPath", |v| matches!(v, Value::Utf8(_)), "Expected string for option 'mongocryptdSpawnPath'"),
-            (b"mongocryptdSpawnArgs", |v| matches!(v, Value::Array(_)), "Expected array for option 'mongocryptdSpawnArgs'"),
-            (b"mongocryptdURI", |v| matches!(v, Value::Utf8(_)), "Expected string for option 'mongocryptdURI'"),
-            (b"cryptSharedLibPath", |v| matches!(v, Value::Utf8(_)), "Expected a string for 'cryptSharedLibPath'"),
-            (b"cryptSharedLibRequired", |v| matches!(v, Value::Bool(_)), "Expected a bool for 'cryptSharedLibRequired'"),
+            (
+                b"mongocryptdBypassSpawn",
+                |v| matches!(v, Value::Bool(_)),
+                "Expected bool for option 'mongocryptdBypassSpawn'",
+            ),
+            (
+                b"mongocryptdSpawnPath",
+                |v| matches!(v, Value::Utf8(_)),
+                "Expected string for option 'mongocryptdSpawnPath'",
+            ),
+            (
+                b"mongocryptdSpawnArgs",
+                |v| matches!(v, Value::Array(_)),
+                "Expected array for option 'mongocryptdSpawnArgs'",
+            ),
+            (
+                b"mongocryptdURI",
+                |v| matches!(v, Value::Utf8(_)),
+                "Expected string for option 'mongocryptdURI'",
+            ),
+            (
+                b"cryptSharedLibPath",
+                |v| matches!(v, Value::Utf8(_)),
+                "Expected a string for 'cryptSharedLibPath'",
+            ),
+            (
+                b"cryptSharedLibRequired",
+                |v| matches!(v, Value::Bool(_)),
+                "Expected a bool for 'cryptSharedLibRequired'",
+            ),
         ];
         for (k, ok, msg) in checks {
-            if let Some(v) = find(x, k) {
-                if !ok(&v) {
-                    super::throw_error(&invalid_arg(msg), None);
-                    return None;
-                }
+            if let Some(v) = find(x, k)
+                && !ok(&v)
+            {
+                super::throw_error(&invalid_arg(msg), None);
+                return None;
             }
         }
     }
@@ -1280,23 +1737,38 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
             }
         }
     }
-    if let (Some(sm), Some(ef)) = (&schema_map, &efc) {
-        if let Some(mut it) = Iter::new(sm) {
-            while it.next() {
-                if find(ef, it.key()).is_some() {
-                    throw_crypt(&format!("{} is present in both schema_map and encrypted_field_config_map", String::from_utf8_lossy(it.key())));
-                    return None;
-                }
+    if let (Some(sm), Some(ef)) = (&schema_map, &efc)
+        && let Some(mut it) = Iter::new(sm)
+    {
+        while it.next() {
+            if find(ef, it.key()).is_some() {
+                throw_crypt(&format!(
+                    "{} is present in both schema_map and encrypted_field_config_map",
+                    String::from_utf8_lossy(it.key())
+                ));
+                return None;
             }
         }
     }
     if !bypass_auto && !bypass_qa {
         // query analysis (mongocryptd or crypt_shared, MongoDB Enterprise) is not ported: refuse
         // rather than send in clear
-        throw(E::InvalidArgument, "Cannot enable automatic field-level encryption: automatic encryption (query analysis through mongocryptd or crypt_shared) is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption, or \"bypassQueryAnalysis\" for Queryable Encryption with explicit encryption.".to_string());
+        throw(
+            E::InvalidArgument,
+            "Cannot enable automatic field-level encryption: automatic encryption (query analysis through mongocryptd or crypt_shared) is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption, or \"bypassQueryAnalysis\" for Queryable Encryption with explicit encryption.",
+        );
         return None;
     }
     // bypassAutoEncryption: decryption only; bypassQueryAnalysis: commands get encryptionInformation
-    let encrypt = (!bypass_auto).then(|| mongo_crypt::engine::AutoOpts { schema_map: schema_map.clone(), encrypted_fields_map: efc.clone() });
-    Some(Box::new(AutoDecrypt { crypt, kv, db, coll, encrypt }))
+    let encrypt = (!bypass_auto).then(|| mongo_crypt::engine::AutoOpts {
+        schema_map: schema_map.clone(),
+        encrypted_fields_map: efc.clone(),
+    });
+    Some(Box::new(AutoDecrypt {
+        crypt,
+        kv,
+        db,
+        coll,
+        encrypt,
+    }))
 }

@@ -89,7 +89,9 @@ fn io_err(e: io::Error) -> NetError {
     }
     match e.kind() {
         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => NetError::Timeout,
-        io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => NetError::Closed,
+        io::ErrorKind::UnexpectedEof
+        | io::ErrorKind::ConnectionReset
+        | io::ErrorKind::BrokenPipe => NetError::Closed,
         _ => NetError::Io(e),
     }
 }
@@ -150,8 +152,11 @@ pub struct Conn {
     stream: Stream,
     /// The server address as the topology names it ("host:port").
     pub addr: String,
-    /// The message being received (complete after `recv` / `try_recv` returned it).
+    /// The message being received: its first `rlen` bytes (complete after `recv` / `try_recv`
+    /// returned it). Every byte of the Vec is initialized: it only grows (zero-filled), so each
+    /// byte is zeroed once for the connection, not before every read.
     rbuf: Vec<u8>,
+    rlen: usize,
     max_msg: usize,
     nonblocking: bool,
     read_timeout: Option<Duration>,
@@ -174,7 +179,10 @@ impl Drop for Unregister {
 
 /// Resolves `host:port` (all addresses, in resolver order, as libmongoc tries them).
 pub fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, NetError> {
-    let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs().map_err(|e| NetError::Resolve(e.to_string()))?.collect();
+    let addrs: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| NetError::Resolve(e.to_string()))?
+        .collect();
     if addrs.is_empty() {
         return Err(NetError::Resolve(format!("no address for {host}")));
     }
@@ -194,12 +202,17 @@ impl Conn {
             match r {
                 Ok(stream) => {
                     stream.set_nodelay(true).map_err(NetError::Connect)?;
-                    let addr = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
+                    let addr = if host.contains(':') {
+                        format!("[{host}]:{port}")
+                    } else {
+                        format!("{host}:{port}")
+                    };
                     return Ok(Conn {
                         _unregister: Unregister(crate::os::raw(&stream)),
                         stream: Stream::Plain(stream),
                         addr,
                         rbuf: Vec::new(),
+                        rlen: 0,
                         max_msg: DEFAULT_MAX_MSG_SIZE,
                         nonblocking: false,
                         read_timeout: None,
@@ -218,7 +231,10 @@ impl Conn {
     /// (mongoc_topology_scanner_node_connect_unix, mongoc_client_connect_unix).
     #[cfg(windows)]
     pub fn connect_unix(_path: &str) -> Result<Conn, NetError> {
-        Err(NetError::Unix(crate::error::code::STREAM_CONNECT, "UNIX domain sockets not supported on win32.".into()))
+        Err(NetError::Unix(
+            crate::error::code::STREAM_CONNECT,
+            "UNIX domain sockets not supported on win32.".into(),
+        ))
     }
 
     /// Connects to the UNIX domain socket at `path` (mongoc_topology_scanner_node_connect_unix:
@@ -229,15 +245,28 @@ impl Conn {
         use std::os::fd::{FromRawFd, IntoRawFd};
         // sockaddr_un.sun_path, and libmongoc's check (`snprintf` into sizeof - 1 bytes must
         // not reach sizeof - 1)
-        const SUN_PATH: usize = if cfg!(any(target_os = "linux", target_os = "android")) { 108 } else { 104 };
+        const SUN_PATH: usize = if cfg!(any(target_os = "linux", target_os = "android")) {
+            108
+        } else {
+            104
+        };
         if path.len() >= SUN_PATH - 1 || path.contains('\0') {
-            return Err(NetError::Unix(code::STREAM_SOCKET, "Failed to define socket address path.".into()));
+            return Err(NetError::Unix(
+                code::STREAM_SOCKET,
+                "Failed to define socket address path.".into(),
+            ));
         }
         let unix = std::os::unix::net::UnixStream::connect(path).map_err(|e| {
             // bson_strerror_r: the system's text without Rust's " (os error N)"
             let text = e.to_string();
-            let text = text.rsplit_once(" (os error ").map_or(text.as_str(), |(t, _)| t).to_owned();
-            NetError::Unix(code::STREAM_CONNECT, format!("Failed to connect to UNIX domain socket: {text}"))
+            let text = text
+                .rsplit_once(" (os error ")
+                .map_or(text.as_str(), |(t, _)| t)
+                .to_owned();
+            NetError::Unix(
+                code::STREAM_CONNECT,
+                format!("Failed to connect to UNIX domain socket: {text}"),
+            )
         })?;
         // SAFETY: an owned, connected stream socket. TcpStream is used for the generic socket
         // calls only (read, write, SO_RCVTIMEO/SO_SNDTIMEO, O_NONBLOCK, close), which behave the
@@ -249,6 +278,7 @@ impl Conn {
             stream: Stream::Plain(stream),
             addr: path.to_owned(),
             rbuf: Vec::new(),
+            rlen: 0,
             max_msg: DEFAULT_MAX_MSG_SIZE,
             nonblocking: false,
             read_timeout: None,
@@ -273,7 +303,12 @@ impl Conn {
     /// bounded by `timeout` per read and write (connectTimeoutMS): the connection over TLS.
     /// Certificate and host name verification happen in the handshake; on failure the socket
     /// is closed.
-    pub fn into_tls(mut self, config: std::sync::Arc<rustls::ClientConfig>, name: rustls::pki_types::ServerName<'static>, timeout: Option<Duration>) -> Result<Conn, NetError> {
+    pub fn into_tls(
+        mut self,
+        config: std::sync::Arc<rustls::ClientConfig>,
+        name: rustls::pki_types::ServerName<'static>,
+        timeout: Option<Duration>,
+    ) -> Result<Conn, NetError> {
         self.set_blocking()?;
         let t = timeout.filter(|t| !t.is_zero());
         let mut sock = match self.stream {
@@ -282,11 +317,17 @@ impl Conn {
         };
         sock.set_read_timeout(t).map_err(NetError::Io)?;
         sock.set_write_timeout(t).map_err(NetError::Io)?;
-        let mut conn = rustls::ClientConnection::new(config, name).map_err(|e| NetError::Tls(crate::tls::describe(&e)))?;
+        let mut conn = rustls::ClientConnection::new(config, name)
+            .map_err(|e| NetError::Tls(crate::tls::describe(&e)))?;
         while conn.is_handshaking() {
             conn.complete_io(&mut sock).map_err(tls_io_err)?;
         }
-        Ok(Conn { stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))), read_timeout: t, write_timeout: t, ..self })
+        Ok(Conn {
+            stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))),
+            read_timeout: t,
+            write_timeout: t,
+            ..self
+        })
     }
 
     /// Starts a non-blocking connect to `sa` (mongoc_socket_new + mongoc_socket_connect with a
@@ -302,6 +343,7 @@ impl Conn {
             stream: Stream::Plain(stream),
             addr: addr.to_owned(),
             rbuf: Vec::new(),
+            rlen: 0,
             max_msg: DEFAULT_MAX_MSG_SIZE,
             nonblocking: true,
             read_timeout: None,
@@ -312,24 +354,36 @@ impl Conn {
     }
 
     /// Wraps the (non-blocking) socket in a TLS client whose handshake `try_handshake` drives.
-    pub fn tls_begin(self, config: std::sync::Arc<rustls::ClientConfig>, name: rustls::pki_types::ServerName<'static>) -> Result<Conn, NetError> {
+    pub fn tls_begin(
+        self,
+        config: std::sync::Arc<rustls::ClientConfig>,
+        name: rustls::pki_types::ServerName<'static>,
+    ) -> Result<Conn, NetError> {
         let sock = match self.stream {
             Stream::Plain(s) => s,
             Stream::Tls(_) => return Err(NetError::Tls("already TLS".into())),
         };
-        let conn = rustls::ClientConnection::new(config, name).map_err(|e| NetError::Tls(crate::tls::describe(&e)))?;
-        Ok(Conn { stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))), ..self })
+        let conn = rustls::ClientConnection::new(config, name)
+            .map_err(|e| NetError::Tls(crate::tls::describe(&e)))?;
+        Ok(Conn {
+            stream: Stream::Tls(Box::new(rustls::StreamOwned::new(conn, sock))),
+            ..self
+        })
     }
 
     /// Advances a non-blocking TLS handshake: None once it is complete (nothing left to send),
     /// else what the socket must become ready for.
     pub fn try_handshake(&mut self) -> Result<Option<Interest>, NetError> {
-        let Stream::Tls(t) = &mut self.stream else { return Ok(None) };
+        let Stream::Tls(t) = &mut self.stream else {
+            return Ok(None);
+        };
         loop {
             if t.conn.wants_write() {
                 match t.conn.write_tls(&mut t.sock) {
                     Ok(_) => continue,
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Some(Interest::Write)),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        return Ok(Some(Interest::Write));
+                    }
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(e) => return Err(tls_io_err(e)),
                 }
@@ -356,7 +410,9 @@ impl Conn {
     /// Non-blocking: writes the TLS records still buffered (plain TCP buffers nothing); true
     /// once everything is on the wire.
     pub fn try_flush(&mut self) -> Result<bool, NetError> {
-        let Stream::Tls(t) = &mut self.stream else { return Ok(true) };
+        let Stream::Tls(t) = &mut self.stream else {
+            return Ok(true);
+        };
         while t.conn.wants_write() {
             match t.conn.write_tls(&mut t.sock) {
                 Ok(_) => {}
@@ -381,7 +437,10 @@ impl Conn {
 
     fn set_blocking(&mut self) -> Result<(), NetError> {
         if self.nonblocking {
-            self.stream.tcp().set_nonblocking(false).map_err(NetError::Io)?;
+            self.stream
+                .tcp()
+                .set_nonblocking(false)
+                .map_err(NetError::Io)?;
             self.nonblocking = false;
         }
         Ok(())
@@ -390,7 +449,10 @@ impl Conn {
     /// Switches to non-blocking mode (for `try_send` / `try_recv`).
     pub fn set_nonblocking(&mut self) -> Result<(), NetError> {
         if !self.nonblocking {
-            self.stream.tcp().set_nonblocking(true).map_err(NetError::Io)?;
+            self.stream
+                .tcp()
+                .set_nonblocking(true)
+                .map_err(NetError::Io)?;
             self.nonblocking = true;
         }
         Ok(())
@@ -433,7 +495,10 @@ impl Conn {
     fn send_blocking(&mut self, msg: &[u8], t: Option<Duration>) -> Result<(), NetError> {
         self.set_blocking()?;
         if t != self.write_timeout {
-            self.stream.tcp().set_write_timeout(t).map_err(NetError::Io)?;
+            self.stream
+                .tcp()
+                .set_write_timeout(t)
+                .map_err(NetError::Io)?;
             self.write_timeout = t;
         }
         self.stream.write_all(msg).map_err(io_err)
@@ -443,12 +508,15 @@ impl Conn {
     fn recv_blocking(&mut self, t: Option<Duration>) -> Result<&[u8], NetError> {
         self.set_blocking()?;
         if t != self.read_timeout {
-            self.stream.tcp().set_read_timeout(t).map_err(NetError::Io)?;
+            self.stream
+                .tcp()
+                .set_read_timeout(t)
+                .map_err(NetError::Io)?;
             self.read_timeout = t;
         }
-        self.rbuf.clear();
+        self.rlen = 0;
         while !self.read_some()? {}
-        Ok(&self.rbuf)
+        Ok(&self.rbuf[..self.rlen])
     }
 
     /// Waits until the socket is ready for `interest`, up to `timeout` (the per-call socket
@@ -469,7 +537,9 @@ impl Conn {
             // the plaintext goes into TLS records (bounded by rustls's buffer limit), written as
             // the socket takes them
             loop {
-                let Stream::Tls(t) = &mut self.stream else { unreachable!() };
+                let Stream::Tls(t) = &mut self.stream else {
+                    unreachable!()
+                };
                 if off < msg.len() {
                     off += t.conn.writer().write(&msg[off..]).map_err(io_err)?;
                 }
@@ -489,15 +559,19 @@ impl Conn {
 
     /// `recv` in non-blocking mode, waiting through crate::aio (`wait_first`: for readiness
     /// before the first read).
-    fn recv_waiting(&mut self, timeout: Option<Duration>, wait_first: bool) -> Result<&[u8], NetError> {
+    fn recv_waiting(
+        &mut self,
+        timeout: Option<Duration>,
+        wait_first: bool,
+    ) -> Result<&[u8], NetError> {
         self.set_nonblocking()?;
-        self.rbuf.clear();
+        self.rlen = 0;
         if wait_first {
             self.wait(Interest::Read, timeout)?;
         }
         loop {
             match self.read_some() {
-                Ok(true) => return Ok(&self.rbuf),
+                Ok(true) => return Ok(&self.rbuf[..self.rlen]),
                 Ok(false) => {}
                 // the non-blocking socket has nothing yet (io_err maps WouldBlock so)
                 Err(NetError::Timeout) => {
@@ -529,7 +603,7 @@ impl Conn {
 
     /// Starts receiving a new message (non-blocking mode).
     pub fn begin_recv(&mut self) {
-        self.rbuf.clear();
+        self.rlen = 0;
     }
 
     /// Non-blocking receive; Ok(true) once the message is complete (see `message`).
@@ -542,17 +616,17 @@ impl Conn {
 
     /// The last complete message.
     pub fn message(&self) -> &[u8] {
-        &self.rbuf
+        &self.rbuf[..self.rlen]
     }
 
     /// Reads into rbuf (one read call at most once the header is known); true when complete.
     fn read_some(&mut self) -> Result<bool, NetError> {
         loop {
-            let have = self.rbuf.len();
+            let have = self.rlen;
             // the first read takes up to 16 KiB (most replies), then exactly what is missing:
             // one reply per request, so bytes beyond it are a protocol error
             let want = if have >= 4 {
-                let n = wire::message_length(&self.rbuf);
+                let n = wire::message_length(&self.rbuf[..have]);
                 // validated before anything beyond the header is read or reserved
                 if n < wire::HEADER_LEN as i32 || n as usize > self.max_msg {
                     return Err(NetError::Protocol("invalid reply length"));
@@ -568,15 +642,13 @@ impl Conn {
             } else {
                 16 * 1024 - have
             };
-            let want = want.min(READ_CHUNK);
-            self.rbuf.reserve(want);
-            let spare = self.rbuf.spare_capacity_mut();
-            // SAFETY: read() only writes into the buffer; we expose the uninitialized tail as
-            // bytes and set the length to what was written.
-            let dst = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, want) };
-            match self.stream.read(dst) {
+            let end = have + want.min(READ_CHUNK);
+            if self.rbuf.len() < end {
+                self.rbuf.resize(end, 0);
+            }
+            match self.stream.read(&mut self.rbuf[have..end]) {
                 Ok(0) => return Err(NetError::Closed),
-                Ok(n) => unsafe { self.rbuf.set_len(have + n) },
+                Ok(n) => self.rlen = have + n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(io_err(e)),
             }
@@ -641,14 +713,23 @@ mod tests {
             s.write_all(&bytes).unwrap();
             std::thread::sleep(Duration::from_millis(200));
         });
-        (Conn::connect("127.0.0.1", port, Some(Duration::from_secs(5))).unwrap(), h)
+        (
+            Conn::connect("127.0.0.1", port, Some(Duration::from_secs(5))).unwrap(),
+            h,
+        )
     }
 
     #[cfg(windows)]
     #[test]
     fn unix_domain_sockets_are_refused() {
         match Conn::connect_unix("/tmp/mongodb-27017.sock") {
-            Err(NetError::Unix(code, m)) => assert_eq!((code, m.as_str()), (crate::error::code::STREAM_CONNECT, "UNIX domain sockets not supported on win32.")),
+            Err(NetError::Unix(code, m)) => assert_eq!(
+                (code, m.as_str()),
+                (
+                    crate::error::code::STREAM_CONNECT,
+                    "UNIX domain sockets not supported on win32."
+                )
+            ),
             _ => panic!("connected"),
         }
     }
@@ -683,15 +764,34 @@ mod tests {
             _ => panic!("{p}: connected"),
         };
         let missing = dir.join("missing.sock");
-        assert_eq!(err(missing.to_str().unwrap()), (crate::error::code::STREAM_CONNECT, "Failed to connect to UNIX domain socket: No such file or directory".to_owned()));
+        assert_eq!(
+            err(missing.to_str().unwrap()),
+            (
+                crate::error::code::STREAM_CONNECT,
+                "Failed to connect to UNIX domain socket: No such file or directory".to_owned()
+            )
+        );
         let file = dir.join("file.sock");
         std::fs::write(&file, b"").unwrap();
-        assert!(err(file.to_str().unwrap()).1.starts_with("Failed to connect to UNIX domain socket: "));
+        assert!(
+            err(file.to_str().unwrap())
+                .1
+                .starts_with("Failed to connect to UNIX domain socket: ")
+        );
         // libmongoc's bound: the path and its NUL must leave one byte of sun_path free
         let max = if cfg!(target_os = "linux") { 108 } else { 104 } - 2;
         let long = format!("/{}", "a".repeat(max));
-        assert_eq!(err(&long), (crate::error::code::STREAM_SOCKET, "Failed to define socket address path.".to_owned()));
-        assert_eq!(err(&long[..max]).1, "Failed to connect to UNIX domain socket: No such file or directory");
+        assert_eq!(
+            err(&long),
+            (
+                crate::error::code::STREAM_SOCKET,
+                "Failed to define socket address path.".to_owned()
+            )
+        );
+        assert_eq!(
+            err(&long[..max]).1,
+            "Failed to connect to UNIX domain socket: No such file or directory"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -706,7 +806,11 @@ mod tests {
                 r => panic!("length {len}: {:?}", r.map(|m| m.len())),
             }
             // nothing beyond the first read was reserved for the declared length
-            assert!(c.rbuf.capacity() < 1024 * 1024, "length {len}: capacity {}", c.rbuf.capacity());
+            assert!(
+                c.rbuf.capacity() < 1024 * 1024,
+                "length {len}: capacity {}",
+                c.rbuf.capacity()
+            );
             h.join().unwrap();
         }
     }
@@ -717,7 +821,10 @@ mod tests {
         hdr.extend_from_slice(&[0; 12]);
         let (mut c, h) = peer(hdr);
         c.set_max_message_size(100);
-        assert!(matches!(c.recv(Some(Duration::from_secs(5))), Err(NetError::Protocol(_))));
+        assert!(matches!(
+            c.recv(Some(Duration::from_secs(5))),
+            Err(NetError::Protocol(_))
+        ));
         h.join().unwrap();
     }
 }

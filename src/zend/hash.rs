@@ -121,7 +121,11 @@ pub enum Key {
 }
 
 /// ZEND_HASH_FOREACH_KEY_VAL(_IND when `ind`): f returns false to stop.
-pub unsafe fn each(ht: *const sys::HashTable, ind: bool, mut f: impl FnMut(Key, *mut sys::zval) -> bool) {
+pub unsafe fn each(
+    ht: *const sys::HashTable,
+    ind: bool,
+    mut f: impl FnMut(Key, *mut sys::zval) -> bool,
+) {
     let n = (*ht).nNumUsed as usize;
     if flags(ht) & HASH_FLAG_PACKED != 0 {
         let base = (*ht).__bindgen_anon_1.arPacked;
@@ -148,7 +152,11 @@ pub unsafe fn each(ht: *const sys::HashTable, ind: bool, mut f: impl FnMut(Key, 
                     continue;
                 }
             }
-            let k = if (*b).key.is_null() { Key::Index((*b).h) } else { Key::Str((*b).key) };
+            let k = if (*b).key.is_null() {
+                Key::Index((*b).h)
+            } else {
+                Key::Str((*b).key)
+            };
             if !f(k, z) {
                 return;
             }
@@ -196,7 +204,11 @@ pub unsafe fn unhold_obj(o: *mut sys::zend_object, held: u32) {
 /// it as a possible GC root); otherwise it is released as zval_ptr_dtor does (freed when it was
 /// the last reference, else a possible GC root).
 #[inline]
-unsafe fn release_held(c: *mut sys::zend_refcounted_h, held: u32, owned: impl FnOnce() -> sys::zval) {
+unsafe fn release_held(
+    c: *mut sys::zend_refcounted_h,
+    held: u32,
+    owned: impl FnOnce() -> sys::zval,
+) {
     if (*c).refcount == held {
         (*c).refcount -= 1;
     } else {
@@ -209,7 +221,10 @@ unsafe fn release_held(c: *mut sys::zend_refcounted_h, held: u32, owned: impl Fn
 /// place even while it is held, so a walk that runs user code walks a copy (zend_array_dup).
 #[inline]
 pub unsafe fn custom_properties(o: *mut sys::zend_object) -> bool {
-    (*(*o).handlers).get_properties.map(|f| f as *const () as usize) != Some(sys::zend_std_get_properties as *const () as usize)
+    (*(*o).handlers)
+        .get_properties
+        .map(|f| f as *const () as usize)
+        != Some(sys::zend_std_get_properties as *const () as usize)
 }
 
 /// zend_array_dup: a copy of `ht` (refcount 1; release with `release`).

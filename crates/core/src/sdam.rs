@@ -1,7 +1,7 @@
 //! Server descriptions (port of libmongoc's mongoc-server-description.c).
 
 use crate::bson::iter::{Iter, Value};
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 
 /// mongoc_server_description_type_t (values = MongoDB\Driver\Server::TYPE_*).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -66,7 +66,11 @@ pub const ZERO_OID: [u8; 12] = [0; 12];
 pub fn monotonic_usec() -> i64 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     // offset by one second so that a fresh process never reports 0
-    START.get_or_init(std::time::Instant::now).elapsed().as_micros() as i64 + 1_000_000
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_micros() as i64
+        + 1_000_000
 }
 
 /// mongoc_server_description_t
@@ -197,7 +201,21 @@ impl ServerDescription {
             }
         }
         // bson_error_t: an unset error is all zeros (strncmp over BSON_ERROR_BUFFER_SIZE = 504)
-        let err = |e: &Option<Error>| e.as_ref().map_or((0, 0, String::new()), |e| (e.domain, e.code, e.message.chars().scan(0, |n, c| { *n += c.len_utf8(); (*n < 504).then_some(c) }).collect()));
+        let err = |e: &Option<Error>| {
+            e.as_ref().map_or((0, 0, String::new()), |e| {
+                (
+                    e.domain,
+                    e.code,
+                    e.message
+                        .chars()
+                        .scan(0, |n, c| {
+                            *n += c.len_utf8();
+                            (*n < 504).then_some(c)
+                        })
+                        .collect(),
+                )
+            })
+        };
         let docs_eq = |a: &[u8], b: &[u8]| {
             let e: &[u8] = &EMPTY_DOC;
             (if a.is_empty() { e } else { a }) == (if b.is_empty() { e } else { b })
@@ -307,7 +325,11 @@ impl ServerDescription {
     fn set_error(&mut self, error: Option<&Error>) {
         self.error = Some(match error {
             Some(e) if e.code != 0 => e.clone(),
-            _ => Error::new(domain::STREAM, code::STREAM_CONNECT, "unknown error calling hello"),
+            _ => Error::new(
+                domain::STREAM,
+                code::STREAM_CONNECT,
+                "unknown error calling hello",
+            ),
         });
         self.rtt_ms = RTT_UNSET;
     }
@@ -317,7 +339,11 @@ impl ServerDescription {
         if rtt_ms == RTT_UNSET {
             return;
         }
-        self.rtt_ms = if self.rtt_ms == RTT_UNSET { rtt_ms } else { (RTT_ALPHA * rtt_ms as f64 + (1.0 - RTT_ALPHA) * self.rtt_ms as f64) as i64 };
+        self.rtt_ms = if self.rtt_ms == RTT_UNSET {
+            rtt_ms
+        } else {
+            (RTT_ALPHA * rtt_ms as f64 + (1.0 - RTT_ALPHA) * self.rtt_ms as f64) as i64
+        };
     }
 
     /// mongoc_server_description_handle_hello: `None` = the check failed with `error`.
@@ -339,7 +365,14 @@ impl ServerDescription {
         let stored = stored.finish();
         self.has_hello_response = true;
         self.topology_version = EMPTY_DOC.to_vec();
-        let (mut is_primary, mut is_shard, mut is_secondary, mut is_arbiter, mut is_rs, mut is_hidden) = (false, false, false, false, false, false);
+        let (
+            mut is_primary,
+            mut is_shard,
+            mut is_secondary,
+            mut is_arbiter,
+            mut is_rs,
+            mut is_hidden,
+        ) = (false, false, false, false, false, false);
         let mut num_keys = 0;
         let mut it = Iter::new(&stored).expect("a built document");
         let mut fail: Option<Error> = None;
@@ -348,7 +381,17 @@ impl ServerDescription {
             num_keys += 1;
             let k = it.key();
             let v = it.value();
-            let type_fail = |v: &Value| Error::new(domain::STREAM, code::STREAM_INVALID_TYPE, format!("unexpected type {} for field {} in hello response", type_str(v), utf8(k)));
+            let type_fail = |v: &Value| {
+                Error::new(
+                    domain::STREAM,
+                    code::STREAM_INVALID_TYPE,
+                    format!(
+                        "unexpected type {} for field {} in hello response",
+                        type_str(v),
+                        utf8(k)
+                    ),
+                )
+            };
             macro_rules! typed {
                 ($p:pat => $e:expr) => {
                     match v {
@@ -365,7 +408,11 @@ impl ServerDescription {
                     if !as_bool(&v) {
                         // a failed hello is an authentication error (auth spec)
                         let msg = crate::cmd::error_message(&stored);
-                        self.error = Some(Error::server(domain::CLIENT, code::CLIENT_AUTHENTICATE, msg));
+                        self.error = Some(Error::server(
+                            domain::CLIENT,
+                            code::CLIENT_AUTHENTICATE,
+                            msg,
+                        ));
                         auth_fail = true;
                         break;
                     }
@@ -377,7 +424,9 @@ impl ServerDescription {
                 b"maxBsonObjectSize" => typed!(Value::Int32(i) => self.max_bson_obj_size = i),
                 b"maxWriteBatchSize" => typed!(Value::Int32(i) => self.max_write_batch_size = i),
                 b"logicalSessionTimeoutMinutes" => match v {
-                    Value::Double(_) | Value::Int32(_) | Value::Int64(_) => self.session_timeout_minutes = as_i64(&v),
+                    Value::Double(_) | Value::Int32(_) | Value::Int64(_) => {
+                        self.session_timeout_minutes = as_i64(&v)
+                    }
                     Value::Null => self.session_timeout_minutes = NO_SESSIONS,
                     _ => {
                         fail = Some(type_fail(&v));
@@ -401,7 +450,13 @@ impl ServerDescription {
                 b"hidden" => is_hidden = as_bool(&v),
                 b"lastWrite" => {
                     let date = match v {
-                        Value::Document(d) => Iter::new(d).and_then(|mut c| if c.find(b"lastWriteDate") { Some(c.value()) } else { None }),
+                        Value::Document(d) => Iter::new(d).and_then(|mut c| {
+                            if c.find(b"lastWriteDate") {
+                                Some(c.value())
+                            } else {
+                                None
+                            }
+                        }),
                         _ => None,
                     };
                     match date {
@@ -413,10 +468,14 @@ impl ServerDescription {
                     }
                 }
                 b"compression" => typed!(Value::Array(a) => self.compressors = strings(a)),
-                b"topologyVersion" => typed!(Value::Document(d) => self.topology_version = d.to_vec()),
+                b"topologyVersion" => {
+                    typed!(Value::Document(d) => self.topology_version = d.to_vec())
+                }
                 b"serviceId" => typed!(Value::Oid(o) => self.service_id = *o),
                 b"connectionId" => match v {
-                    Value::Double(_) | Value::Int32(_) | Value::Int64(_) => self.connection_id = as_i64(&v),
+                    Value::Double(_) | Value::Int32(_) | Value::Int64(_) => {
+                        self.connection_id = as_i64(&v)
+                    }
                     _ => {
                         fail = Some(type_fail(&v));
                         break;
@@ -464,17 +523,33 @@ impl ServerDescription {
 
     /// _is_data_node
     pub fn is_data_bearing(&self) -> bool {
-        matches!(self.ty, ServerType::Standalone | ServerType::Mongos | ServerType::RsPrimary | ServerType::RsSecondary | ServerType::LoadBalancer)
+        matches!(
+            self.ty,
+            ServerType::Standalone
+                | ServerType::Mongos
+                | ServerType::RsPrimary
+                | ServerType::RsSecondary
+                | ServerType::LoadBalancer
+        )
     }
 
     /// mongoc_server_description_has_rs_member
     pub fn has_rs_member(&self, address: &str) -> bool {
-        self.ty != ServerType::Unknown && self.hosts.iter().chain(&self.arbiters).chain(&self.passives).any(|h| h.eq_ignore_ascii_case(address))
+        self.ty != ServerType::Unknown
+            && self
+                .hosts
+                .iter()
+                .chain(&self.arbiters)
+                .chain(&self.passives)
+                .any(|h| h.eq_ignore_ascii_case(address))
     }
 
     /// The pool generation for `service_id` (mc_tpl_sd_get_generation).
     pub fn generation(&self, service_id: &[u8; 12]) -> u32 {
-        self.generations.iter().find(|(s, _)| s == service_id).map_or(0, |g| g.1)
+        self.generations
+            .iter()
+            .find(|(s, _)| s == service_id)
+            .map_or(0, |g| g.1)
     }
 
     /// Bumps the pool generation for `service_id` (mc_tpl_sd_increment_generation).
@@ -488,9 +563,24 @@ impl ServerDescription {
 
 fn find_oid_and_int(tv: &[u8]) -> Option<([u8; 12], Option<i64>)> {
     let mut it = Iter::new(tv)?;
-    let pid = if it.find(b"processId") { if let Value::Oid(o) = it.value() { *o } else { return None } } else { return None };
+    let pid = if it.find(b"processId") {
+        if let Value::Oid(o) = it.value() {
+            *o
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
     let mut it = Iter::new(tv)?;
-    let counter = if it.find(b"counter") { match it.value() { v @ (Value::Int32(_) | Value::Int64(_)) => Some(as_i64(&v)), _ => None } } else { None };
+    let counter = if it.find(b"counter") {
+        match it.value() {
+            v @ (Value::Int32(_) | Value::Int64(_)) => Some(as_i64(&v)),
+            _ => None,
+        }
+    } else {
+        None
+    };
     Some((pid, counter))
 }
 
@@ -499,11 +589,15 @@ pub fn topology_version_cmp(tv1: &[u8], tv2: &[u8]) -> i32 {
     if tv1.len() <= 5 || tv2.len() <= 5 {
         return -1;
     }
-    let (Some((p1, c1)), Some((p2, c2))) = (find_oid_and_int(tv1), find_oid_and_int(tv2)) else { return -1 };
+    let (Some((p1, c1)), Some((p2, c2))) = (find_oid_and_int(tv1), find_oid_and_int(tv2)) else {
+        return -1;
+    };
     if p1 != p2 {
         return -1;
     }
-    let (Some(c1), Some(c2)) = (c1, c2) else { return -1 };
+    let (Some(c1), Some(c2)) = (c1, c2) else {
+        return -1;
+    };
     match c1.cmp(&c2) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Greater => 1,

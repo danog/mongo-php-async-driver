@@ -65,7 +65,11 @@ pub fn interned_str(s: *mut sys::zend_string) -> sys::zval {
 #[inline]
 pub unsafe fn str_(s: *mut sys::zend_string) -> sys::zval {
     let interned = (*s).gc.u.type_info & sys::IS_STR_INTERNED != 0;
-    let mut z = with_type(if interned { sys::IS_INTERNED_STRING_EX } else { sys::IS_STRING_EX });
+    let mut z = with_type(if interned {
+        sys::IS_INTERNED_STRING_EX
+    } else {
+        sys::IS_STRING_EX
+    });
     z.value.str_ = s;
     z
 }

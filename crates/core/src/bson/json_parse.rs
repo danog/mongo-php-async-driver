@@ -10,14 +10,14 @@ use super::oid;
 use super::utf8;
 use super::writer::Writer;
 use std::borrow::Cow;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 
 /// jsonsl's level limit (libbson's STACK_MAX).
 const MAX_LEVELS: usize = 100;
 
 /// The parsed tree borrows from the input wherever it can: a string without escapes and every
 /// number token are slices of it (no allocation per value). The members of arrays and objects
-/// are slices of an `Arena` (no allocation per container either).
+/// are ranges of the tree's two member lists (no allocation per container either).
 enum J<'a> {
     Str(Cow<'a, [u8]>),
     /// an integer token: negative?, magnitude (None: does not fit u64), text
@@ -25,60 +25,54 @@ enum J<'a> {
     Float(&'a [u8]),
     Bool(bool),
     Null,
-    Arr(&'a [J<'a>]),
-    Obj(&'a [(Cow<'a, [u8]>, J<'a>)]),
+    /// members in `Tree::vals`
+    Arr(Span),
+    /// members in `Tree::pairs`
+    Obj(Span),
 }
 
 type Pair<'a> = (Cow<'a, [u8]>, J<'a>);
 
-/// Append-only storage for the tree's member lists: chunks that are never grown past their
-/// capacity, so the slices handed out stay where they are until the arena is dropped (its
-/// members are dropped with it). No Drop impl: Vec's lets the members borrow from the arena.
-struct Arena<T> {
-    /// the chunk being filled
-    cur: RefCell<Vec<T>>,
-    /// the chunks filled before it
-    full: RefCell<Vec<Vec<T>>>,
+/// The members of one container: `len` elements from `start` of a member list.
+#[derive(Clone, Copy)]
+struct Span {
+    start: usize,
+    len: usize,
 }
 
-impl<T> Arena<T> {
-    /// `first`: an empty chunk to fill first (a spare one of the thread's previous parse)
-    fn new(first: Vec<T>) -> Self {
-        Arena { cur: RefCell::new(first), full: RefCell::new(Vec::new()) }
-    }
+impl Span {
+    const EMPTY: Span = Span { start: 0, len: 0 };
+}
 
-    /// Moves `stack[start..]` into the arena.
-    fn take_from(&self, stack: &mut Vec<T>, start: usize) -> &[T] {
-        let n = stack.len() - start;
-        if n == 0 {
-            return &[];
-        }
-        let mut c = self.cur.borrow_mut();
-        if c.capacity() - c.len() < n {
-            let cap = (c.capacity() * 2).max(n).max(64);
-            let old = std::mem::replace(&mut *c, Vec::with_capacity(cap));
-            if old.capacity() != 0 {
-                // moving a Vec leaves its elements where they are
-                self.full.borrow_mut().push(old);
-            }
-        }
-        let at = c.len();
-        c.extend(stack.drain(start..));
-        // SAFETY: a chunk never reallocates (it is filled only within its capacity) and is
-        // dropped only with the arena (or by `recycle`), which the returned borrow keeps alive
-        unsafe { std::slice::from_raw_parts(c.as_ptr().add(at), n) }
-    }
+/// The member lists of the parsed tree: each container's members are contiguous in one of them
+/// (moved there from the parser's stack once the container is complete).
+struct Tree<'a> {
+    vals: Vec<J<'a>>,
+    pairs: Vec<Pair<'a>>,
+}
 
-    /// The chunk being filled, emptied, for the next parse.
-    /// SAFETY: no slice `take_from` returned is used afterwards.
-    unsafe fn recycle(&self) -> Vec<T> {
-        let mut c = self.cur.take();
-        c.clear();
-        c
+impl<'a> Tree<'a> {
+    #[inline]
+    fn arr(&self, s: Span) -> &[J<'a>] {
+        &self.vals[s.start..s.start + s.len]
+    }
+    #[inline]
+    fn obj(&self, s: Span) -> &[Pair<'a>] {
+        &self.pairs[s.start..s.start + s.len]
     }
 }
 
-/// The member stacks and the last arena chunks of the thread's previous parse, empty: a small
+/// Moves `stack[start..]` to the end of `list`: their span there.
+fn take_from<T>(list: &mut Vec<T>, stack: &mut Vec<T>, start: usize) -> Span {
+    let span = Span {
+        start: list.len(),
+        len: stack.len() - start,
+    };
+    list.extend(stack.drain(start..));
+    span
+}
+
+/// The member stacks and the member lists of the thread's previous parse, empty: a small
 /// document is then parsed without allocating (tree buffers over MAX_SPARE elements are freed).
 #[derive(Default)]
 struct Spare {
@@ -106,15 +100,25 @@ fn respare<T, U>(mut v: Vec<T>) -> Vec<U> {
     v.into_iter().map(|_| unreachable!()).collect()
 }
 
+/// The parser. Its layout is fixed so that `i` is not next to `s`: the position is stored after
+/// every token and read again with the input's length, and the two adjacent loads get merged
+/// into one (`ldp`) that cannot take its value from the 8-byte store still in flight, so it
+/// waits for it (measured: +5-6% on large documents; see also `string`).
+#[repr(C)]
 struct P<'a> {
     s: &'a [u8],
+    tree: Tree<'a>,
     i: usize,
-    vals: &'a Arena<J<'a>>,
-    pairs: &'a Arena<Pair<'a>>,
     /// the members of the containers being parsed (each container's at the top)
     val_stack: Vec<J<'a>>,
     pair_stack: Vec<Pair<'a>>,
 }
+
+// `i` is not adjacent to the input slice (pointer, length)
+const _: () = assert!(
+    std::mem::offset_of!(P<'static>, i)
+        >= std::mem::offset_of!(P<'static>, s) + 2 * std::mem::size_of::<&[u8]>()
+);
 
 type R<T> = Result<T, String>;
 
@@ -123,7 +127,10 @@ impl<'a> P<'a> {
         if self.i >= self.s.len() {
             return "Incomplete JSON".into();
         }
-        format!("Got parse error at \"{}\", position {}: \"{}\"", self.s[self.i] as char, self.i, what)
+        format!(
+            "Got parse error at \"{}\", position {}: \"{}\"",
+            self.s[self.i] as char, self.i, what
+        )
     }
     fn ws(&mut self) {
         while self.i < self.s.len() && matches!(self.s[self.i], b' ' | b'\t' | b'\n' | b'\r') {
@@ -145,7 +152,7 @@ impl<'a> P<'a> {
                 self.ws();
                 if self.i < self.s.len() && self.s[self.i] == b'}' {
                     self.i += 1;
-                    return Ok(J::Obj(&[]));
+                    return Ok(J::Obj(Span::EMPTY));
                 }
                 loop {
                     self.ws();
@@ -176,9 +183,13 @@ impl<'a> P<'a> {
                             self.i += 1;
                             if depth == 0 {
                                 // the root's members stay on the stack (see from_json)
-                                return Ok(J::Obj(&[]));
+                                return Ok(J::Obj(Span::EMPTY));
                             }
-                            return Ok(J::Obj(self.pairs.take_from(&mut self.pair_stack, start)));
+                            return Ok(J::Obj(take_from(
+                                &mut self.tree.pairs,
+                                &mut self.pair_stack,
+                                start,
+                            )));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
                     }
@@ -193,7 +204,7 @@ impl<'a> P<'a> {
                 self.ws();
                 if self.i < self.s.len() && self.s[self.i] == b']' {
                     self.i += 1;
-                    return Ok(J::Arr(&[]));
+                    return Ok(J::Arr(Span::EMPTY));
                 }
                 loop {
                     let val = self.value(depth + 1)?;
@@ -207,9 +218,13 @@ impl<'a> P<'a> {
                         b']' => {
                             self.i += 1;
                             if depth == 0 {
-                                return Ok(J::Arr(&[]));
+                                return Ok(J::Arr(Span::EMPTY));
                             }
-                            return Ok(J::Arr(self.vals.take_from(&mut self.val_stack, start)));
+                            return Ok(J::Arr(take_from(
+                                &mut self.tree.vals,
+                                &mut self.val_stack,
+                                start,
+                            )));
                         }
                         _ => return Err(self.err("MISSING_TOKEN")),
                     }
@@ -256,14 +271,20 @@ impl<'a> P<'a> {
         if float {
             return Ok(J::Float(t));
         }
-        let (neg, digits) = if t[0] == b'-' { (true, &t[1..]) } else { (false, t) };
+        let (neg, digits) = if t[0] == b'-' {
+            (true, &t[1..])
+        } else {
+            (false, t)
+        };
         if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
             self.i = st;
             return Err(self.err("INVALID_NUMBER"));
         }
         let mut m: Option<u64> = Some(0);
         for &d in digits {
-            m = m.and_then(|m| m.checked_mul(10)).and_then(|m| m.checked_add((d - b'0') as u64));
+            m = m
+                .and_then(|m| m.checked_mul(10))
+                .and_then(|m| m.checked_add((d - b'0') as u64));
         }
         Ok(J::Int(neg, m, t))
     }
@@ -271,7 +292,9 @@ impl<'a> P<'a> {
         if self.i + 4 > self.s.len() {
             return Err("Incomplete JSON".into());
         }
-        let h = std::str::from_utf8(&self.s[self.i..self.i + 4]).ok().and_then(|h| u32::from_str_radix(h, 16).ok());
+        let h = std::str::from_utf8(&self.s[self.i..self.i + 4])
+            .ok()
+            .and_then(|h| u32::from_str_radix(h, 16).ok());
         match h {
             Some(v) => {
                 self.i += 4;
@@ -281,32 +304,40 @@ impl<'a> P<'a> {
         }
     }
     fn string(&mut self) -> R<Cow<'a, [u8]>> {
-        self.i += 1;
+        // The position is kept in a local and written back where the function returns (or calls
+        // a method that reads it): kept in `self.i`, it would be stored before every call that
+        // may unwind (the Vec pushes) and loaded again after it, and when that load is merged
+        // with one of the neighbouring field (`ldp` of `s.len` and `i`) it waits for the store
+        // to complete at every escape (measured: +24% on a string with frequent escapes).
+        let s = self.s;
+        let st = self.i + 1;
         // the common case: no escape before the closing quote, the input itself
-        let st = self.i;
-        let j = super::swar::find2(self.s, st, b'"', b'\\');
-        if j < self.s.len() && self.s[j] == b'"' {
+        let j = super::swar::find2(s, st, b'"', b'\\');
+        if j < s.len() && s[j] == b'"' {
             self.i = j + 1;
-            return Ok(Cow::Borrowed(&self.s[st..j]));
+            return Ok(Cow::Borrowed(&s[st..j]));
         }
         let mut out = Vec::new();
+        let mut i = st;
         loop {
-            let st = self.i;
-            self.i = super::swar::find2(self.s, st, b'"', b'\\');
-            out.extend_from_slice(&self.s[st..self.i]);
-            if self.i >= self.s.len() {
+            let st = i;
+            i = super::swar::find2(s, st, b'"', b'\\');
+            out.extend_from_slice(&s[st..i]);
+            if i >= s.len() {
+                self.i = i;
                 return Err("Incomplete JSON".into());
             }
-            if self.s[self.i] == b'"' {
-                self.i += 1;
+            if s[i] == b'"' {
+                self.i = i + 1;
                 return Ok(Cow::Owned(out));
             }
-            self.i += 1;
-            if self.i >= self.s.len() {
+            i += 1;
+            if i >= s.len() {
+                self.i = i;
                 return Err("Incomplete JSON".into());
             }
-            let c = self.s[self.i];
-            self.i += 1;
+            let c = s[i];
+            i += 1;
             match c {
                 b'"' | b'\\' | b'/' => out.push(c),
                 b'b' => out.push(8),
@@ -315,9 +346,11 @@ impl<'a> P<'a> {
                 b'r' => out.push(b'\r'),
                 b't' => out.push(b'\t'),
                 b'u' => {
+                    // rare: hex4 and err work on self.i
+                    self.i = i;
                     let mut cp = self.hex4()?;
                     if (0xd800..0xdc00).contains(&cp) {
-                        if self.s.get(self.i) == Some(&b'\\') && self.s.get(self.i + 1) == Some(&b'u') {
+                        if s.get(self.i) == Some(&b'\\') && s.get(self.i + 1) == Some(&b'u') {
                             self.i += 2;
                             let lo = self.hex4()?;
                             if !(0xdc00..0xe000).contains(&lo) {
@@ -331,12 +364,13 @@ impl<'a> P<'a> {
                     } else if (0xdc00..0xe000).contains(&cp) {
                         return Err(self.err("INVALID_CODEPOINT"));
                     }
+                    i = self.i;
                     let ch = char::from_u32(cp).unwrap();
                     let mut b = [0u8; 4];
                     out.extend_from_slice(ch.encode_utf8(&mut b).as_bytes());
                 }
                 _ => {
-                    self.i -= 1;
+                    self.i = i - 1;
                     return Err(self.err("ESCAPE_INVALID"));
                 }
             }
@@ -345,8 +379,26 @@ impl<'a> P<'a> {
 }
 
 const KNOWN: &[&[u8]] = &[
-    b"$binary", b"$code", b"$date", b"$dbPointer", b"$maxKey", b"$minKey", b"$numberDecimal", b"$numberDouble", b"$numberInt", b"$numberLong",
-    b"$oid", b"$options", b"$regex", b"$regularExpression", b"$scope", b"$symbol", b"$timestamp", b"$type", b"$undefined", b"$uuid",
+    b"$binary",
+    b"$code",
+    b"$date",
+    b"$dbPointer",
+    b"$maxKey",
+    b"$minKey",
+    b"$numberDecimal",
+    b"$numberDouble",
+    b"$numberInt",
+    b"$numberLong",
+    b"$oid",
+    b"$options",
+    b"$regex",
+    b"$regularExpression",
+    b"$scope",
+    b"$symbol",
+    b"$timestamp",
+    b"$type",
+    b"$undefined",
+    b"$uuid",
 ];
 
 fn type_name(t: u8) -> &'static str {
@@ -385,13 +437,24 @@ fn lossy(b: &[u8]) -> String {
 /// `bson_new_from_json`: the document, or the error message.
 pub fn from_json(input: &[u8]) -> Result<Vec<u8>, String> {
     let sp = SPARE.take();
-    let (vals, pairs) = (Arena::new(respare(sp.vals)), Arena::new(respare(sp.pairs)));
-    let mut p = P { s: input, i: 0, vals: &vals, pairs: &pairs, val_stack: respare(sp.val_stack), pair_stack: respare(sp.pair_stack) };
+    let tree = Tree {
+        vals: respare(sp.vals),
+        pairs: respare(sp.pairs),
+    };
+    let mut p = P {
+        s: input,
+        i: 0,
+        tree,
+        val_stack: respare(sp.val_stack),
+        pair_stack: respare(sp.pair_stack),
+    };
     let r = parse(&mut p);
-    let (val_stack, pair_stack) = (respare(p.val_stack), respare(p.pair_stack));
-    // SAFETY: the tree is not used after parse
-    let (vals, pairs) = unsafe { (vals.recycle(), pairs.recycle()) };
-    SPARE.set(Spare { val_stack, pair_stack, vals: respare(vals), pairs: respare(pairs) });
+    SPARE.set(Spare {
+        val_stack: respare(p.val_stack),
+        pair_stack: respare(p.pair_stack),
+        vals: respare(p.tree.vals),
+        pairs: respare(p.tree.pairs),
+    });
     r
 }
 
@@ -412,33 +475,36 @@ fn parse(p: &mut P) -> Result<Vec<u8>, String> {
                 J::Bool(_) => "boolean",
                 _ => "null",
             };
-            return Err(format!("Invalid read of {} without key in state REGULAR", what));
+            return Err(format!(
+                "Invalid read of {} without key in state REGULAR",
+                what
+            ));
         }
     };
     let mut w = Writer::with_capacity(input.len());
     // the root container's members were left on the stack (all of it: nothing else is open)
     match root {
-        J::Obj(_) => doc(&mut w, &p.pair_stack)?,
-        J::Arr(_) => arr(&mut w, &p.val_stack)?,
+        J::Obj(_) => doc(&mut w, &p.tree, &p.pair_stack)?,
+        J::Arr(_) => arr(&mut w, &p.tree, &p.val_stack)?,
         _ => unreachable!(),
     }
     Ok(w.finish())
 }
 
-fn doc(w: &mut Writer, o: &[(Cow<[u8]>, J)]) -> R<()> {
+fn doc(w: &mut Writer, t: &Tree, o: &[Pair]) -> R<()> {
     for (k, v) in o {
         if !utf8::validate(k, false) {
             return Err("invalid bytes in UTF8 string".into());
         }
-        value(w, k, v)?;
+        value(w, t, k, v)?;
     }
     Ok(())
 }
 
-fn arr(w: &mut Writer, a: &[J]) -> R<()> {
+fn arr(w: &mut Writer, t: &Tree, a: &[J]) -> R<()> {
     let mut buf = [0u8; 20];
     for (i, v) in a.iter().enumerate() {
-        value(w, index_key(&mut buf, i), v)?;
+        value(w, t, index_key(&mut buf, i), v)?;
     }
     Ok(())
 }
@@ -456,7 +522,7 @@ fn index_key(buf: &mut [u8; 20], mut i: usize) -> &[u8] {
     }
 }
 
-fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
+fn value(w: &mut Writer, t: &Tree, k: &[u8], v: &J) -> R<()> {
     match v {
         J::Str(s) => {
             if !utf8::validate(s, true) {
@@ -467,9 +533,17 @@ fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
         J::Int(neg, m, t) => match (neg, m) {
             (false, Some(m)) if *m <= i32::MAX as u64 => w.int32(k, *m as i32),
             (false, Some(m)) if *m <= i64::MAX as u64 => w.int64(k, *m as i64),
-            (true, Some(m)) if *m <= i32::MAX as u64 + 1 => w.int32(k, (*m as i64).wrapping_neg() as i32),
+            (true, Some(m)) if *m <= i32::MAX as u64 + 1 => {
+                w.int32(k, (*m as i64).wrapping_neg() as i32)
+            }
             (true, Some(m)) if *m <= i64::MAX as u64 + 1 => w.int64(k, (*m as i64).wrapping_neg()),
-            (_, Some(m)) => return Err(format!("Number \"{}{}\" is out of range", if *neg { "-" } else { "" }, m)),
+            (_, Some(m)) => {
+                return Err(format!(
+                    "Number \"{}{}\" is out of range",
+                    if *neg { "-" } else { "" },
+                    m
+                ));
+            }
             (_, None) => return Err(format!("Number \"{}\" is out of range", lossy(t))),
         },
         J::Float(t) => w.double(k, json_double(t)?),
@@ -477,17 +551,18 @@ fn value(w: &mut Writer, k: &[u8], v: &J) -> R<()> {
         J::Null => w.null(k),
         J::Arr(a) => {
             let p = w.begin(iter::T_ARRAY, k);
-            arr(w, a)?;
+            arr(w, t, t.arr(*a))?;
             w.end(p);
         }
         J::Obj(o) => {
-            if let Some((k0, _)) = o.first() {
-                if KNOWN.contains(&k0.as_ref()) {
-                    return special(w, k, o);
-                }
+            let o = t.obj(*o);
+            if let Some((k0, _)) = o.first()
+                && KNOWN.contains(&k0.as_ref())
+            {
+                return special(w, t, k, o);
             }
             let p = w.begin(iter::T_DOCUMENT, k);
-            doc(w, o)?;
+            doc(w, t, o)?;
             w.end(p);
         }
     }
@@ -521,7 +596,11 @@ fn strtod(s: &[u8]) -> R<f64> {
         return Ok(if sign < 0.0 { -f64::NAN } else { f64::NAN });
     }
     let b = t.as_bytes();
-    let mut i = if matches!(b.first(), Some(b'-') | Some(b'+')) { 1 } else { 0 };
+    let mut i = if matches!(b.first(), Some(b'-') | Some(b'+')) {
+        1
+    } else {
+        0
+    };
     let ds = i;
     while i < b.len() && b[i].is_ascii_digit() {
         i += 1;
@@ -618,16 +697,34 @@ pub fn iso8601_parse(s: &[u8]) -> R<i64> {
     let mut ok = true;
     y = tok(&mut ptr, b"-");
     ok &= y.2;
-    m = if ok { tok(&mut ptr, b"-") } else { (0, 0, false) };
+    m = if ok {
+        tok(&mut ptr, b"-")
+    } else {
+        (0, 0, false)
+    };
     ok &= m.2;
-    d = if ok { tok(&mut ptr, b"T") } else { (0, 0, false) };
+    d = if ok {
+        tok(&mut ptr, b"T")
+    } else {
+        (0, 0, false)
+    };
     ok &= d.2;
-    h = if ok { tok(&mut ptr, b":") } else { (0, 0, false) };
+    h = if ok {
+        tok(&mut ptr, b":")
+    } else {
+        (0, 0, false)
+    };
     ok &= h.2;
-    mi = if ok { tok(&mut ptr, b":+-Z") } else { (0, 0, false) };
+    mi = if ok {
+        tok(&mut ptr, b":+-Z")
+    } else {
+        (0, 0, false)
+    };
     ok &= mi.2;
     if !ok {
-        return e("use ISO8601 format yyyy-mm-ddThh:mm plus timezone, either \"Z\" or like \"+0500\" or like \"+05:00\"");
+        return e(
+            "use ISO8601 format yyyy-mm-ddThh:mm plus timezone, either \"Z\" or like \"+0500\" or like \"+05:00\"",
+        );
     }
     let mut sec = (0usize, 0usize);
     let mut ms = (0usize, 0usize);
@@ -658,14 +755,26 @@ pub fn iso8601_parse(s: &[u8]) -> R<i64> {
         if (want >= 0 && l != want as usize) || !digits(st, l) {
             return None;
         }
-        let v = s[st..st + l].iter().fold(0i64, |a, &c| a * 10 + (c - b'0') as i64);
+        let v = s[st..st + l]
+            .iter()
+            .fold(0i64, |a, &c| a * 10 + (c - b'0') as i64);
         (min..=max).contains(&v).then_some(v)
     };
-    let Some(year) = num(y.0, y.1, 4, -9999, 9999) else { return e("year must be an integer") };
-    let Some(month) = num(m.0, m.1, 2, 1, 12) else { return e("month must be an integer") };
-    let Some(day) = num(d.0, d.1, 2, 1, 31) else { return e("day must be an integer") };
-    let Some(hour) = num(h.0, h.1, 2, 0, 23) else { return e("hour must be an integer") };
-    let Some(min) = num(mi.0, mi.1, 2, 0, 59) else { return e("minute must be an integer") };
+    let Some(year) = num(y.0, y.1, 4, -9999, 9999) else {
+        return e("year must be an integer");
+    };
+    let Some(month) = num(m.0, m.1, 2, 1, 12) else {
+        return e("month must be an integer");
+    };
+    let Some(day) = num(d.0, d.1, 2, 1, 31) else {
+        return e("day must be an integer");
+    };
+    let Some(hour) = num(h.0, h.1, 2, 0, 23) else {
+        return e("hour must be an integer");
+    };
+    let Some(min) = num(mi.0, mi.1, 2, 0, 59) else {
+        return e("minute must be an integer");
+    };
     let mut secs = 0;
     if sec.1 > 0 {
         match num(sec.0, sec.1, 2, 0, 60) {
@@ -678,12 +787,21 @@ pub fn iso8601_parse(s: &[u8]) -> R<i64> {
         let t0 = s[tz.0];
         if t0 == b'Z' && tz.1 == 1 {
         } else if t0 == b'+' || t0 == b'-' {
-            if (tz.1 != 5 || !digits(tz.0 + 1, 4)) && (tz.1 != 6 || !digits(tz.0 + 1, 2) || s[tz.0 + 3] != b':' || !digits(tz.0 + 4, 2)) {
+            if (tz.1 != 5 || !digits(tz.0 + 1, 4))
+                && (tz.1 != 6
+                    || !digits(tz.0 + 1, 2)
+                    || s[tz.0 + 3] != b':'
+                    || !digits(tz.0 + 4, 2))
+            {
                 return e("could not parse timezone");
             }
-            let Some(tzh) = num(tz.0 + 1, 2, -1, -23, 23) else { return e("timezone hour must be at most 23") };
+            let Some(tzh) = num(tz.0 + 1, 2, -1, -23, 23) else {
+                return e("timezone hour must be at most 23");
+            };
             let off = if s[tz.0 + 3] == b':' { 1 } else { 0 };
-            let Some(tzm) = num(tz.0 + 3 + off, 2, -1, 0, 59) else { return e("timezone minute must be at most 59") };
+            let Some(tzm) = num(tz.0 + 3 + off, 2, -1, 0, 59) else {
+                return e("timezone minute must be at most 59");
+            };
             tz_adj = (if t0 == b'-' { 1 } else { -1 }) * (tzm * 60 + tzh * 3600);
             if !(tz_adj > -86400 && tz_adj < 86400) {
                 return e("timezone offset must be less than 24 hours");
@@ -697,7 +815,9 @@ pub fn iso8601_parse(s: &[u8]) -> R<i64> {
         if ms.1 > 3 || !digits(ms.0, ms.1) {
             return e("milliseconds must be an integer");
         }
-        millis = s[ms.0..ms.0 + ms.1].iter().fold(0i64, |a, &c| a * 10 + (c - b'0') as i64);
+        millis = s[ms.0..ms.0 + ms.1]
+            .iter()
+            .fold(0i64, |a, &c| a * 10 + (c - b'0') as i64);
         millis *= [0, 100, 10, 1][ms.1];
     }
     let days = days_from_civil(year, month, day);
@@ -777,14 +897,23 @@ fn wrong(k: &[u8], v: &J, ty: u8, rs: &str) -> String {
         J::Int(neg, m, _) => {
             let n = format!("{}{}", if *neg { "-" } else { "" }, m.unwrap_or(u64::MAX));
             match k {
-                b"$numberInt" | b"$numberLong" => format!("Invalid state for integer read: {}, expected number as quoted string like \"123\"", state_name(k)),
-                _ if rs == "IN_BSON_TYPE" || rs == "IN_BSON_TYPE_TIMESTAMP_VALUES" => format!("Unexpected integer {} in type \"{}\"", n, type_name(ty)),
+                b"$numberInt" | b"$numberLong" => format!(
+                    "Invalid state for integer read: {}, expected number as quoted string like \"123\"",
+                    state_name(k)
+                ),
+                _ if rs == "IN_BSON_TYPE" || rs == "IN_BSON_TYPE_TIMESTAMP_VALUES" => {
+                    format!("Unexpected integer {} in type \"{}\"", n, type_name(ty))
+                }
                 _ => format!("Unexpected integer {} in state \"{}\"", n, rs),
             }
         }
         J::Obj(_) => format!("Unexpected nested object value for \"{}\" key", lossy(k)),
         J::Arr(_) => format!("Invalid read of \"[\" in state \"{}\"", rs),
-        J::Str(s) => format!("Invalid input string \"{}\", looking for {}", lossy(s), state_name(k)),
+        J::Str(s) => format!(
+            "Invalid input string \"{}\", looking for {}",
+            lossy(s),
+            state_name(k)
+        ),
         _ => format!("Invalid read of {} in state {}", kind_of(v), rs),
     }
 }
@@ -801,11 +930,16 @@ fn str_of<'v>(k: &[u8], v: &'v J, ty: u8, rs: &str, allow_null: bool) -> R<&'v [
     }
 }
 
-fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
+fn special(w: &mut Writer, t: &Tree, key: &[u8], o: &[Pair]) -> R<()> {
     let mut sp = Spec::default();
     let check = |sp: &mut Spec, k: &[u8], t: u8| -> R<()> {
         if sp.ty != 0 && sp.ty != t {
-            return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\", got \"{}\"", lossy(k), type_name(sp.ty), type_name(t)));
+            return Err(format!(
+                "Invalid key \"{}\".  Looking for values for type \"{}\", got \"{}\"",
+                lossy(k),
+                type_name(sp.ty),
+                type_name(t)
+            ));
         }
         sp.ty = t;
         Ok(())
@@ -816,7 +950,11 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             return Err("invalid bytes in UTF8 string".into());
         }
         if sp.closed {
-            return Err(format!("Invalid read of {} in state {}", kind_of(v), "IN_BSON_TYPE_TIMESTAMP_ENDMAP"));
+            return Err(format!(
+                "Invalid read of {} in state {}",
+                kind_of(v),
+                "IN_BSON_TYPE_TIMESTAMP_ENDMAP"
+            ));
         }
         let ks: &[u8] = k.as_ref();
         match ks {
@@ -836,7 +974,12 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 sp.oid = match (s.len() == 24).then(|| oid::from_hex(s)).flatten() {
                     Some(o) => o,
                     None if s.len() == 24 => oid_lenient(s),
-                    None => return Err(format!("Invalid input string \"{}\", looking for OID", lossy(s))),
+                    None => {
+                        return Err(format!(
+                            "Invalid input string \"{}\", looking for OID",
+                            lossy(s)
+                        ));
+                    }
                 };
             }
             b"$binary" => {
@@ -844,21 +987,26 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 match v {
                     J::Obj(inner) => {
                         sp.legacy = false;
-                        binary_values(&mut sp, inner)?;
+                        binary_values(&mut sp, t.obj(*inner))?;
                         sp.closed = true;
                     }
                     _ => {
                         let s = str_of(k, v, sp.ty, RS, true)?;
                         sp.legacy = true;
                         sp.has_binary = true;
-                        sp.bin = base64_decode(s).ok_or_else(|| format!("Invalid input string \"{}\", looking for base64-encoded binary", lossy(s)))?;
+                        sp.bin = base64_decode(s).ok_or_else(|| {
+                            format!(
+                                "Invalid input string \"{}\", looking for base64-encoded binary",
+                                lossy(s)
+                            )
+                        })?;
                     }
                 }
             }
             b"$type" => {
                 check(&mut sp, k, iter::T_BINARY)?;
                 match v {
-                    J::Obj(_) if idx == 0 => return regular_doc(w, key, o),
+                    J::Obj(_) if idx == 0 => return regular_doc(w, t, key, o),
                     J::Str(s) => {
                         if !utf8::validate(s, true) {
                             return Err("invalid bytes in UTF8 string".into());
@@ -867,8 +1015,13 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                         sp.has_subtype = true;
                         match scan_hex2(s) {
                             Some(t) => sp.subtype = t,
-                            None if !sp.has_binary => return regular_doc(w, key, o),
-                            None => return Err(format!("Invalid input string \"{}\", looking for binary subtype", lossy(s))),
+                            None if !sp.has_binary => return regular_doc(w, t, key, o),
+                            None => {
+                                return Err(format!(
+                                    "Invalid input string \"{}\", looking for binary subtype",
+                                    lossy(s)
+                                ));
+                            }
                         }
                     }
                     _ => return Err(wrong(k, v, sp.ty, RS)),
@@ -880,19 +1033,32 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 sp.has_binary = true;
                 sp.has_subtype = true;
                 sp.subtype = 4;
-                sp.bin = parse_uuid(s).ok_or_else(|| format!("Invalid input string \"{}\", looking for a dash-separated UUID string", lossy(s)))?;
+                sp.bin = parse_uuid(s).ok_or_else(|| {
+                    format!(
+                        "Invalid input string \"{}\", looking for a dash-separated UUID string",
+                        lossy(s)
+                    )
+                })?;
             }
             b"$date" => {
                 check(&mut sp, k, iter::T_DATE_TIME)?;
                 match v {
                     J::Int(neg, Some(m), _) if *m <= i64::MAX as u64 + 1 => {
-                        sp.date = if *neg { (*m as i64).wrapping_neg() } else { *m as i64 };
+                        sp.date = if *neg {
+                            (*m as i64).wrapping_neg()
+                        } else {
+                            *m as i64
+                        };
                     }
                     J::Int(neg, m, t) => {
                         return Err(match m {
-                            Some(m) => format!("Number \"{}{}\" is out of range", if *neg { "-" } else { "" }, m),
+                            Some(m) => format!(
+                                "Number \"{}{}\" is out of range",
+                                if *neg { "-" } else { "" },
+                                m
+                            ),
                             None => format!("Number \"{}\" is out of range", lossy(t)),
-                        })
+                        });
                     }
                     J::Str(s) => {
                         if !utf8::validate(s, true) {
@@ -901,9 +1067,14 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                         sp.date = iso8601_parse(s)?;
                     }
                     J::Obj(inner) => {
+                        let inner = t.obj(*inner);
                         for (ik, iv) in inner.iter() {
                             if ik.as_ref() != b"$numberLong" {
-                                return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty)));
+                                return Err(format!(
+                                    "Invalid key \"{}\".  Looking for values for type \"{}\"",
+                                    lossy(ik),
+                                    type_name(sp.ty)
+                                ));
                             }
                             let s = str_of(ik, iv, sp.ty, "IN_BSON_TYPE_DATE_NUMBERLONG", true)?;
                             sp.date = strtoll(s)?;
@@ -926,9 +1097,13 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 let mk = ks == b"$minKey";
                 check(&mut sp, k, if mk { iter::T_MINKEY } else { iter::T_MAXKEY })?;
                 match v {
-                    J::Int(true, m, _) => return Err(format!("Invalid MinKey value: \"-{}\"", m.unwrap_or(0))),
+                    J::Int(true, m, _) => {
+                        return Err(format!("Invalid MinKey value: \"-{}\"", m.unwrap_or(0)));
+                    }
                     J::Int(false, Some(1), _) => {}
-                    J::Int(false, m, _) => return Err(format!("Invalid MinKey value: \"{}\"", m.unwrap_or(0))),
+                    J::Int(false, m, _) => {
+                        return Err(format!("Invalid MinKey value: \"{}\"", m.unwrap_or(0)));
+                    }
                     _ => return Err(wrong(k, v, sp.ty, RS)),
                 }
             }
@@ -937,7 +1112,10 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 let s = str_of(k, v, sp.ty, RS, true)?;
                 let n = strtoll(s)?;
                 if n < i32::MIN as i64 || n > i32::MAX as i64 {
-                    return Err(format!("Invalid input string \"{}\", looking for INT32", lossy(s)));
+                    return Err(format!(
+                        "Invalid input string \"{}\", looking for INT32",
+                        lossy(s)
+                    ));
                 }
                 sp.i32v = n as i32;
             }
@@ -953,7 +1131,12 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                 check(&mut sp, k, iter::T_DECIMAL128)?;
                 let s = str_of(k, v, sp.ty, RS, true)?;
                 let nul = s.iter().position(|&c| c == 0).unwrap_or(s.len());
-                sp.dec = Some(Decimal128::parse(&s[..nul]).ok_or_else(|| format!("Invalid input string \"{}\", looking for DECIMAL128", lossy(s)))?);
+                sp.dec = Some(Decimal128::parse(&s[..nul]).ok_or_else(|| {
+                    format!(
+                        "Invalid input string \"{}\", looking for DECIMAL128",
+                        lossy(s)
+                    )
+                })?);
             }
             b"$symbol" => {
                 check(&mut sp, k, iter::T_SYMBOL)?;
@@ -961,21 +1144,35 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             }
             b"$timestamp" => {
                 check(&mut sp, k, iter::T_TIMESTAMP)?;
-                let J::Obj(inner) = v else { return Err(timestamp_wrong(v)) };
+                let J::Obj(inner) = v else {
+                    return Err(timestamp_wrong(v));
+                };
+                let inner = t.obj(*inner);
                 for (ik, iv) in inner.iter() {
                     let which = match ik.as_ref() {
                         b"t" => 0,
                         b"i" => 1,
-                        _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty))),
+                        _ => {
+                            return Err(format!(
+                                "Invalid key \"{}\".  Looking for values for type \"{}\"",
+                                lossy(ik),
+                                type_name(sp.ty)
+                            ));
+                        }
                     };
                     let n = match iv {
-                        J::Int(true, m, _) => return Err(format!("Invalid timestamp value: \"-{}\"", m.unwrap_or(0))),
+                        J::Int(true, m, _) => {
+                            return Err(format!(
+                                "Invalid timestamp value: \"-{}\"",
+                                m.unwrap_or(0)
+                            ));
+                        }
                         J::Int(false, Some(m), _) if *m <= i64::MAX as u64 => *m as u32,
                         J::Int(false, m, t) => {
                             return Err(match m {
                                 Some(m) => format!("Number \"{}\" is out of range", m),
                                 None => format!("Number \"{}\" is out of range", lossy(t)),
-                            })
+                            });
                         }
                         _ => return Err(wrong(ik, iv, sp.ty, "IN_BSON_TYPE_TIMESTAMP_VALUES")),
                     };
@@ -992,12 +1189,29 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             }
             b"$regularExpression" => {
                 check(&mut sp, k, iter::T_REGEX)?;
-                let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_REGEX_STARTMAP")) };
+                let J::Obj(inner) = v else {
+                    return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_REGEX_STARTMAP"));
+                };
+                let inner = t.obj(*inner);
                 for (ik, iv) in inner.iter() {
                     match ik.as_ref() {
-                        b"pattern" => sp.pattern = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
-                        b"options" => sp.options = Some(str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec()),
-                        _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(ik), type_name(sp.ty))),
+                        b"pattern" => {
+                            sp.pattern = Some(
+                                str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec(),
+                            )
+                        }
+                        b"options" => {
+                            sp.options = Some(
+                                str_of(ik, iv, sp.ty, "IN_BSON_TYPE_REGEX_VALUES", false)?.to_vec(),
+                            )
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Invalid key \"{}\".  Looking for values for type \"{}\"",
+                                lossy(ik),
+                                type_name(sp.ty)
+                            ));
+                        }
                     }
                 }
                 if inner.is_empty() {
@@ -1007,22 +1221,36 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             }
             b"$dbPointer" => {
                 check(&mut sp, k, iter::T_DBPOINTER)?;
-                let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_DBPOINTER_STARTMAP")) };
+                let J::Obj(inner) = v else {
+                    return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_DBPOINTER_STARTMAP"));
+                };
+                let inner = t.obj(*inner);
                 if inner.is_empty() {
                     return Err("Empty $dbPointer".into());
                 }
                 let mut sub = Writer::new();
-                doc(&mut sub, inner)?;
+                doc(&mut sub, t, inner)?;
                 let d = sub.finish();
                 let mut it = Iter::new(&d).unwrap();
                 let (mut ns, mut id) = (None, None);
                 while it.next() {
                     match (it.key(), it.value()) {
                         (b"$id", Value::Oid(o)) => id = Some(*o),
-                        (b"$id", _) => return Err("$dbPointer.$id must be like {\"$oid\": ...\"}".into()),
+                        (b"$id", _) => {
+                            return Err("$dbPointer.$id must be like {\"$oid\": ...\"}".into());
+                        }
                         (b"$ref", Value::Utf8(s)) => ns = Some(s.to_vec()),
-                        (b"$ref", _) => return Err("$dbPointer.$ref must be a string like \"db.collection\"".into()),
-                        (k2, _) => return Err(format!("$dbPointer contains invalid key: \"{}\"", lossy(k2))),
+                        (b"$ref", _) => {
+                            return Err(
+                                "$dbPointer.$ref must be a string like \"db.collection\"".into()
+                            );
+                        }
+                        (k2, _) => {
+                            return Err(format!(
+                                "$dbPointer contains invalid key: \"{}\"",
+                                lossy(k2)
+                            ));
+                        }
                     }
                 }
                 match (ns, id) {
@@ -1042,12 +1270,21 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
                     check(&mut sp, k, iter::T_CODEWSCOPE)?;
                 }
                 sp.ty = iter::T_CODEWSCOPE;
-                let J::Obj(inner) = v else { return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_SCOPE_STARTMAP")) };
+                let J::Obj(inner) = v else {
+                    return Err(wrong(k, v, sp.ty, "IN_BSON_TYPE_SCOPE_STARTMAP"));
+                };
+                let inner = t.obj(*inner);
                 let mut sub = Writer::new();
-                doc(&mut sub, inner)?;
+                doc(&mut sub, t, inner)?;
                 sp.scope = Some(sub.finish());
             }
-            _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(k), type_name(sp.ty))),
+            _ => {
+                return Err(format!(
+                    "Invalid key \"{}\".  Looking for values for type \"{}\"",
+                    lossy(k),
+                    type_name(sp.ty)
+                ));
+            }
         }
     }
     // end of the wrapper object
@@ -1062,10 +1299,16 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             } else if sp.options.is_none() {
                 return Err("Missing \"options\" after \"pattern\" in regular expression".into());
             }
-            w.regex(key, sp.pattern.as_deref().unwrap_or(b""), sp.options.as_deref().unwrap_or(b""));
+            w.regex(
+                key,
+                sp.pattern.as_deref().unwrap_or(b""),
+                sp.options.as_deref().unwrap_or(b""),
+            );
         }
         iter::T_CODE | iter::T_CODEWSCOPE => {
-            let Some(code) = sp.code else { return Err("Missing $code after $scope".into()) };
+            let Some(code) = sp.code else {
+                return Err("Missing $code after $scope".into());
+            };
             // bson_append_code[_with_scope] takes a C string: the code ends at its first NUL (CDRIVER-1879)
             let code = &code[..code.iter().position(|&b| b == 0).unwrap_or(code.len())];
             match sp.scope {
@@ -1080,9 +1323,13 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
             }
             if sp.legacy {
                 if !sp.has_binary {
-                    return Err("Missing \"$binary\" after \"$type\" reading type \"binary\"".into());
+                    return Err(
+                        "Missing \"$binary\" after \"$type\" reading type \"binary\"".into(),
+                    );
                 } else if !sp.has_subtype {
-                    return Err("Missing \"$type\" after \"$binary\" reading type \"binary\"".into());
+                    return Err(
+                        "Missing \"$type\" after \"$binary\" reading type \"binary\"".into(),
+                    );
                 }
             }
             w.binary(key, sp.subtype, &sp.bin);
@@ -1112,10 +1359,20 @@ fn special(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
 
 fn timestamp_wrong(v: &J) -> String {
     match v {
-        J::Int(neg, m, _) => format!("Unexpected integer {}{} in state \"IN_BSON_TYPE_TIMESTAMP_STARTMAP\"", if *neg { "-" } else { "" }, m.unwrap_or(0)),
+        J::Int(neg, m, _) => format!(
+            "Unexpected integer {}{} in state \"IN_BSON_TYPE_TIMESTAMP_STARTMAP\"",
+            if *neg { "-" } else { "" },
+            m.unwrap_or(0)
+        ),
         J::Arr(_) => "Invalid read of \"[\" in state \"IN_BSON_TYPE_TIMESTAMP_STARTMAP\"".into(),
-        J::Str(s) => format!("Invalid input string \"{}\", looking for TIMESTAMP_T", lossy(s)),
-        _ => format!("Invalid read of {} in state IN_BSON_TYPE_TIMESTAMP_STARTMAP", kind_of(v)),
+        J::Str(s) => format!(
+            "Invalid input string \"{}\", looking for TIMESTAMP_T",
+            lossy(s)
+        ),
+        _ => format!(
+            "Invalid read of {} in state IN_BSON_TYPE_TIMESTAMP_STARTMAP",
+            kind_of(v)
+        ),
     }
 }
 
@@ -1137,21 +1394,37 @@ fn oid_lenient(s: &[u8]) -> [u8; 12] {
 }
 
 /// The canonical `"$binary": {"base64": ..., "subType": ...}` object.
-fn binary_values(sp: &mut Spec, inner: &[(Cow<[u8]>, J)]) -> R<()> {
+fn binary_values(sp: &mut Spec, inner: &[Pair]) -> R<()> {
     const RS: &str = "IN_BSON_TYPE_BINARY_VALUES";
     for (k, v) in inner {
         match k.as_ref() {
             b"base64" => {
                 let s = str_of(k, v, sp.ty, RS, true)?;
                 sp.has_binary = true;
-                sp.bin = base64_decode(s).ok_or_else(|| format!("Invalid input string \"{}\", looking for base64-encoded binary", lossy(s)))?;
+                sp.bin = base64_decode(s).ok_or_else(|| {
+                    format!(
+                        "Invalid input string \"{}\", looking for base64-encoded binary",
+                        lossy(s)
+                    )
+                })?;
             }
             b"subType" => {
                 let s = str_of(k, v, sp.ty, RS, true)?;
                 sp.has_subtype = true;
-                sp.subtype = scan_hex2(s).ok_or_else(|| format!("Invalid input string \"{}\", looking for binary subtype", lossy(s)))?;
+                sp.subtype = scan_hex2(s).ok_or_else(|| {
+                    format!(
+                        "Invalid input string \"{}\", looking for binary subtype",
+                        lossy(s)
+                    )
+                })?;
             }
-            _ => return Err(format!("Invalid key \"{}\".  Looking for values for type \"{}\"", lossy(k), type_name(sp.ty))),
+            _ => {
+                return Err(format!(
+                    "Invalid key \"{}\".  Looking for values for type \"{}\"",
+                    lossy(k),
+                    type_name(sp.ty)
+                ));
+            }
         }
     }
     if inner.is_empty() {
@@ -1197,7 +1470,12 @@ fn parse_uuid(s: &[u8]) -> Option<Vec<u8>> {
     if s.len() != 36 || s[8] != b'-' || s[13] != b'-' || s[18] != b'-' || s[23] != b'-' {
         return None;
     }
-    let hex: Vec<u8> = s.iter().enumerate().filter(|(i, _)| ![8, 13, 18, 23].contains(i)).map(|(_, &c)| c).collect();
+    let hex: Vec<u8> = s
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| ![8, 13, 18, 23].contains(i))
+        .map(|(_, &c)| c)
+        .collect();
     let mut out = Vec::with_capacity(16);
     for i in 0..16 {
         let h = std::str::from_utf8(&hex[2 * i..2 * i + 2]).ok()?;
@@ -1210,9 +1488,9 @@ fn parse_uuid(s: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// A wrapper-looking object that turns out to be a regular document (a `$type` query operator).
-fn regular_doc(w: &mut Writer, key: &[u8], o: &[(Cow<[u8]>, J)]) -> R<()> {
+fn regular_doc(w: &mut Writer, t: &Tree, key: &[u8], o: &[Pair]) -> R<()> {
     let p = w.begin(iter::T_DOCUMENT, key);
-    doc(w, o)?;
+    doc(w, t, o)?;
     w.end(p);
     Ok(())
 }

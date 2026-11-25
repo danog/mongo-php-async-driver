@@ -74,7 +74,18 @@ mod tests {
 
     #[test]
     fn scans_match_bytewise() {
-        let alphabet = [0u8, 1, b'"', b'\\', 0x7f, 0x80, 0xff, b'a', 0x22 ^ 0x80, 0x5c ^ 0x01];
+        let alphabet = [
+            0u8,
+            1,
+            b'"',
+            b'\\',
+            0x7f,
+            0x80,
+            0xff,
+            b'a',
+            0x22 ^ 0x80,
+            0x5c ^ 0x01,
+        ];
         let mut x: u64 = 0xdead_beef_1234_5678;
         for _ in 0..200_000 {
             x ^= x << 13;
@@ -89,8 +100,17 @@ mod tests {
                 })
                 .collect();
             for from in 0..=n {
-                assert_eq!(find_nul(&s, from), s[from..].iter().position(|&c| c == 0).map(|p| p + from));
-                assert_eq!(find2(&s, from, b'"', b'\\'), s[from..].iter().position(|&c| c == b'"' || c == b'\\').map_or(n, |p| p + from));
+                assert_eq!(
+                    find_nul(&s, from),
+                    s[from..].iter().position(|&c| c == 0).map(|p| p + from)
+                );
+                assert_eq!(
+                    find2(&s, from, b'"', b'\\'),
+                    s[from..]
+                        .iter()
+                        .position(|&c| c == b'"' || c == b'\\')
+                        .map_or(n, |p| p + from)
+                );
             }
         }
     }

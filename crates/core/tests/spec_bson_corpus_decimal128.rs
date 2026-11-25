@@ -11,7 +11,10 @@ fn corpus_dir() -> PathBuf {
 }
 
 fn hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 /// The decimal of a one-element document {"d": decimal128}.
@@ -30,7 +33,12 @@ fn decimal128_corpus() {
     let mut files: Vec<_> = std::fs::read_dir(corpus_dir())
         .expect("run `git submodule update --init` for tests/spec")
         .map(|e| e.unwrap().path())
-        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("decimal128-"))
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("decimal128-")
+        })
         .collect();
     files.sort();
     let (mut valid, mut errors, mut failures) = (0, 0, vec![]);
@@ -53,7 +61,10 @@ fn decimal128_corpus() {
             if let Some(db) = case["degenerate_bson"].as_str() {
                 let dd = dec_of(&hex(db));
                 if dd.to_string() != cs {
-                    failures.push(format!("{desc}: degenerate to_string {} != {cs}", dd.to_string()));
+                    failures.push(format!(
+                        "{desc}: degenerate to_string {} != {cs}",
+                        dd.to_string()
+                    ));
                 }
             }
             if let Some(dj) = case["degenerate_extjson"].as_str() {
@@ -68,11 +79,23 @@ fn decimal128_corpus() {
         for case in j["parseErrors"].as_array().into_iter().flatten() {
             let s = case["string"].as_str().unwrap();
             if let Some(p) = Decimal128::parse(s.as_bytes()) {
-                failures.push(format!("{}: parse({s}) should fail, got {p:?}", case["description"]));
+                failures.push(format!(
+                    "{}: parse({s}) should fail, got {p:?}",
+                    case["description"]
+                ));
             }
             errors += 1;
         }
     }
-    assert!(valid > 300 && errors > 50, "too few cases: {valid} valid, {errors} parse errors");
-    assert!(failures.is_empty(), "{} of {} cases failed:\n{}", failures.len(), valid + errors, failures.join("\n"));
+    assert!(
+        valid > 300 && errors > 50,
+        "too few cases: {valid} valid, {errors} parse errors"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} of {} cases failed:\n{}",
+        failures.len(),
+        valid + errors,
+        failures.join("\n")
+    );
 }

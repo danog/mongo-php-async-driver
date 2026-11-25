@@ -114,14 +114,29 @@ pub struct Error {
 
 impl Error {
     pub fn new(domain: u32, code: u32, message: impl Into<String>) -> Self {
-        Error { domain, code, category: Category::Driver, message: message.into() }
+        Error {
+            domain,
+            code,
+            category: Category::Driver,
+            message: message.into(),
+        }
     }
     pub fn server(domain: u32, code: u32, message: impl Into<String>) -> Self {
-        Error { domain, code, category: Category::Server, message: message.into() }
+        Error {
+            domain,
+            code,
+            category: Category::Server,
+            message: message.into(),
+        }
     }
     /// The PHP exception code: `code`, except 0 for this port's own errors.
     pub fn php_code(&self) -> i64 {
-        if self.domain == domain::CLIENT && matches!(self.code, code::CLIENT_NO_EVENT_LOOP | code::CLIENT_SESSION_IN_USE) {
+        if self.domain == domain::CLIENT
+            && matches!(
+                self.code,
+                code::CLIENT_NO_EVENT_LOOP | code::CLIENT_SESSION_IN_USE
+            )
+        {
             0
         } else {
             self.code as i64
@@ -143,7 +158,11 @@ impl Error {
     }
     /// _mongoc_error_is_shutdown
     pub fn is_shutdown(&self) -> bool {
-        self.is_server() && matches!(self.code, server_code::INTERRUPTED_AT_SHUTDOWN | server_code::SHUTDOWN_IN_PROGRESS)
+        self.is_server()
+            && matches!(
+                self.code,
+                server_code::INTERRUPTED_AT_SHUTDOWN | server_code::SHUTDOWN_IN_PROGRESS
+            )
     }
     /// _mongoc_error_is_recovering
     pub fn is_recovering(&self) -> bool {
@@ -152,8 +171,15 @@ impl Error {
         }
         use server_code::*;
         match self.code {
-            INTERRUPTED_AT_SHUTDOWN | INTERRUPTED_DUE_TO_REPL_STATE_CHANGE | NOT_PRIMARY_OR_SECONDARY | PRIMARY_STEPPED_DOWN | SHUTDOWN_IN_PROGRESS => true,
-            code::QUERY_FAILURE => self.message.contains("not master or secondary") || self.message.contains("node is recovering"),
+            INTERRUPTED_AT_SHUTDOWN
+            | INTERRUPTED_DUE_TO_REPL_STATE_CHANGE
+            | NOT_PRIMARY_OR_SECONDARY
+            | PRIMARY_STEPPED_DOWN
+            | SHUTDOWN_IN_PROGRESS => true,
+            code::QUERY_FAILURE => {
+                self.message.contains("not master or secondary")
+                    || self.message.contains("node is recovering")
+            }
             _ => false,
         }
     }
@@ -175,7 +201,8 @@ impl Error {
     }
     /// _mongoc_error_is_network
     pub fn is_network(&self) -> bool {
-        self.domain == domain::STREAM || (self.domain == domain::PROTOCOL && self.code == code::PROTOCOL_INVALID_REPLY)
+        self.domain == domain::STREAM
+            || (self.domain == domain::PROTOCOL && self.code == code::PROTOCOL_INVALID_REPLY)
     }
     /// _mongoc_error_is_auth
     pub fn is_auth(&self) -> bool {

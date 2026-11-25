@@ -3,9 +3,9 @@
 
 use crate::bson::writer::Writer;
 use crate::client::Client;
-use crate::cmdparts::{cursor_batch, Parts};
-use crate::topology::OpType;
+use crate::cmdparts::{Parts, cursor_batch};
 use crate::error::Error;
+use crate::topology::OpType;
 
 impl Client {
     /// `{listCollections: 1, filter}` on the primary, every result (getMore included)
@@ -23,7 +23,9 @@ impl Client {
             self.next_operation_id();
             let mut c = self.assemble(parts, sid, false)?;
             let el = self.read_eligibility(&c, false, true);
-            let reply = self.run_retryable_read(&mut c, session.as_mut(), el).map_err(|f| f.error);
+            let reply = self
+                .run_retryable_read(&mut c, session.as_mut(), el)
+                .map_err(|f| f.error);
             self.release_temp_session(&mut c);
             let reply = reply?;
             let mut out = Vec::new();
@@ -41,7 +43,9 @@ impl Client {
                 parts.is_read = true;
                 parts.session = session.as_mut();
                 let mut c = self.assemble(parts, sid, false)?;
-                let reply = self.run_monitored(&mut c, &[], session.as_mut()).map_err(|f| f.error);
+                let reply = self
+                    .run_monitored(&mut c, &[], session.as_mut())
+                    .map_err(|f| f.error);
                 self.release_temp_session(&mut c);
                 (id, batch) = cursor_batch(&reply?, b"nextBatch");
             }

@@ -3,13 +3,13 @@
 //! members are local fake servers.
 
 use mongo_core::bson::writer::Writer;
-use mongo_core::client::{Client, Settings, MAX_DISCOVERED_PER_SCAN};
+use mongo_core::client::{Client, MAX_DISCOVERED_PER_SCAN, Settings};
 use mongo_core::uri::Uri;
-use mongo_core::wire::{MsgBuilder, HEADER_LEN};
+use mongo_core::wire::{HEADER_LEN, MsgBuilder};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 /// Every hello answered by any fake member.
@@ -51,7 +51,11 @@ fn serve(mut s: TcpStream, me: &str) {
             return;
         }
         HELLOS.fetch_add(1, Ordering::SeqCst);
-        let next = if MEMBERS.load(Ordering::SeqCst) < MEMBER_LIMIT { member() } else { "127.0.0.1:1".to_owned() };
+        let next = if MEMBERS.load(Ordering::SeqCst) < MEMBER_LIMIT {
+            member()
+        } else {
+            "127.0.0.1:1".to_owned()
+        };
         let mut w = Writer::new();
         w.double(b"ok", 1.0);
         w.bool(b"helloOk", true);
@@ -81,7 +85,10 @@ fn serve(mut s: TcpStream, me: &str) {
 #[test]
 fn scan_with_endless_discovery_is_bounded() {
     let seed = member();
-    let uri = Uri::parse(&format!("mongodb://{seed}/?replicaSet=rs&connectTimeoutMS=2000")).unwrap();
+    let uri = Uri::parse(&format!(
+        "mongodb://{seed}/?replicaSet=rs&connectTimeoutMS=2000"
+    ))
+    .unwrap();
     let s = Settings::from_uri(&uri);
     let mut c = Client::new(uri, s).unwrap();
     c.scan_once(false);
@@ -91,5 +98,9 @@ fn scan_with_endless_discovery_is_bounded() {
     // the next scan goes on from there, again bounded
     c.scan_once(false);
     let n2 = HELLOS.load(Ordering::SeqCst) - n;
-    assert!(n2 <= c.td().servers.len(), "second scan: {n2} hellos for {} servers", c.td().servers.len());
+    assert!(
+        n2 <= c.td().servers.len(),
+        "second scan: {n2} hellos for {} servers",
+        c.td().servers.len()
+    );
 }

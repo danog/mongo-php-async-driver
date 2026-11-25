@@ -52,13 +52,19 @@ pub struct Opts(pub Vec<(String, OptVal)>);
 
 impl Opts {
     pub fn get(&self, key: &str) -> Option<&OptVal> {
-        self.0.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v)
+        self.0
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v)
     }
     pub fn has(&self, key: &str) -> bool {
         self.get(key).is_some()
     }
     fn get_mut(&mut self, key: &str) -> Option<&mut OptVal> {
-        self.0.iter_mut().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v)
+        self.0
+            .iter_mut()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v)
     }
     /// _bson_upsert_utf8_icase: erase every case variant, append under the lowercased key.
     fn upsert(&mut self, key: &str, v: OptVal) {
@@ -92,7 +98,12 @@ pub struct WriteConcern {
 
 impl Default for WriteConcern {
     fn default() -> Self {
-        WriteConcern { w: W_DEFAULT, wtag: None, wtimeout: 0, journal: None }
+        WriteConcern {
+            w: W_DEFAULT,
+            wtag: None,
+            wtimeout: 0,
+            journal: None,
+        }
     }
 }
 
@@ -128,19 +139,50 @@ type R<T> = Result<T, String>;
 
 const INT64_OPTS: &[&str] = &["wtimeoutms"];
 const INT32_OPTS: &[&str] = &[
-    "connecttimeoutms", "heartbeatfrequencyms", "serverselectiontimeoutms", "socketcheckintervalms", "sockettimeoutms",
-    "localthresholdms", "maxpoolsize", "maxstalenessseconds", "waitqueuetimeoutms", "zlibcompressionlevel", "srvmaxhosts",
+    "connecttimeoutms",
+    "heartbeatfrequencyms",
+    "serverselectiontimeoutms",
+    "socketcheckintervalms",
+    "sockettimeoutms",
+    "localthresholdms",
+    "maxpoolsize",
+    "maxstalenessseconds",
+    "waitqueuetimeoutms",
+    "zlibcompressionlevel",
+    "srvmaxhosts",
     "maxadaptiveretries",
 ];
 const BOOL_OPTS: &[&str] = &[
-    "canonicalizehostname", "directconnection", "journal", "retryreads", "retrywrites", "enableoverloadretargeting", "safe",
-    "serverselectiontryonce", "tls", "tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames",
-    "tlsdisablecertificaterevocationcheck", "tlsdisableocspendpointcheck", "loadbalanced", "ssl",
-    "sslallowinvalidcertificates", "sslallowinvalidhostnames",
+    "canonicalizehostname",
+    "directconnection",
+    "journal",
+    "retryreads",
+    "retrywrites",
+    "enableoverloadretargeting",
+    "safe",
+    "serverselectiontryonce",
+    "tls",
+    "tlsinsecure",
+    "tlsallowinvalidcertificates",
+    "tlsallowinvalidhostnames",
+    "tlsdisablecertificaterevocationcheck",
+    "tlsdisableocspendpointcheck",
+    "loadbalanced",
+    "ssl",
+    "sslallowinvalidcertificates",
+    "sslallowinvalidhostnames",
 ];
 const UTF8_OPTS: &[&str] = &[
-    "appname", "replicaset", "readpreference", "servermonitoringmode", "srvservicename", "tlscertificatekeyfile",
-    "tlscertificatekeyfilepassword", "tlscafile", "sslclientcertificatekeyfile", "sslclientcertificatekeypassword",
+    "appname",
+    "replicaset",
+    "readpreference",
+    "servermonitoringmode",
+    "srvservicename",
+    "tlscertificatekeyfile",
+    "tlscertificatekeyfilepassword",
+    "tlscafile",
+    "sslclientcertificatekeyfile",
+    "sslclientcertificatekeypassword",
     "sslcertificateauthorityfile",
 ];
 
@@ -165,33 +207,81 @@ pub fn canonicalize(key: &str) -> &str {
     const MAP: &[(&str, &str)] = &[
         ("ssl", "tls"),
         ("sslclientcertificatekeyfile", "tlscertificatekeyfile"),
-        ("sslclientcertificatekeypassword", "tlscertificatekeyfilepassword"),
+        (
+            "sslclientcertificatekeypassword",
+            "tlscertificatekeyfilepassword",
+        ),
         ("sslcertificateauthorityfile", "tlscafile"),
         ("sslallowinvalidcertificates", "tlsallowinvalidcertificates"),
         ("sslallowinvalidhostnames", "tlsallowinvalidhostnames"),
     ];
-    MAP.iter().find(|(a, _)| a.eq_ignore_ascii_case(key)).map(|(_, b)| *b).unwrap_or(key)
+    MAP.iter()
+        .find(|(a, _)| a.eq_ignore_ascii_case(key))
+        .map(|(_, b)| *b)
+        .unwrap_or(key)
 }
 
 /// _known_uri_option's vocabulary (libmongoc's MONGOC_URI_* names; gssapiservicename is not
 /// in it).
 const KNOWN_OPTIONS: &[&str] = &[
-    "appname", "authmechanism", "authmechanismproperties", "authsource", "canonicalizehostname", "connecttimeoutms",
-    "compressors", "directconnection", "heartbeatfrequencyms", "journal", "loadbalanced",
-    "localthresholdms", "maxpoolsize", "maxstalenessseconds", "readconcernlevel", "readpreference", "readpreferencetags",
-    "replicaset", "retryreads", "retrywrites", "maxadaptiveretries", "enableoverloadretargeting", "safe",
-    "servermonitoringmode", "serverselectiontimeoutms", "serverselectiontryonce", "socketcheckintervalms",
-    "sockettimeoutms", "srvservicename", "srvmaxhosts", "tls", "tlscertificatekeyfile", "tlscertificatekeyfilepassword",
-    "tlscafile", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames", "tlsinsecure",
-    "tlsdisablecertificaterevocationcheck", "tlsdisableocspendpointcheck", "w", "waitqueuetimeoutms", "wtimeoutms",
-    "zlibcompressionlevel", "ssl", "sslclientcertificatekeyfile", "sslclientcertificatekeypassword",
-    "sslcertificateauthorityfile", "sslallowinvalidcertificates", "sslallowinvalidhostnames",
+    "appname",
+    "authmechanism",
+    "authmechanismproperties",
+    "authsource",
+    "canonicalizehostname",
+    "connecttimeoutms",
+    "compressors",
+    "directconnection",
+    "heartbeatfrequencyms",
+    "journal",
+    "loadbalanced",
+    "localthresholdms",
+    "maxpoolsize",
+    "maxstalenessseconds",
+    "readconcernlevel",
+    "readpreference",
+    "readpreferencetags",
+    "replicaset",
+    "retryreads",
+    "retrywrites",
+    "maxadaptiveretries",
+    "enableoverloadretargeting",
+    "safe",
+    "servermonitoringmode",
+    "serverselectiontimeoutms",
+    "serverselectiontryonce",
+    "socketcheckintervalms",
+    "sockettimeoutms",
+    "srvservicename",
+    "srvmaxhosts",
+    "tls",
+    "tlscertificatekeyfile",
+    "tlscertificatekeyfilepassword",
+    "tlscafile",
+    "tlsallowinvalidcertificates",
+    "tlsallowinvalidhostnames",
+    "tlsinsecure",
+    "tlsdisablecertificaterevocationcheck",
+    "tlsdisableocspendpointcheck",
+    "w",
+    "waitqueuetimeoutms",
+    "wtimeoutms",
+    "zlibcompressionlevel",
+    "ssl",
+    "sslclientcertificatekeyfile",
+    "sslclientcertificatekeypassword",
+    "sslcertificateauthorityfile",
+    "sslallowinvalidcertificates",
+    "sslallowinvalidhostnames",
 ];
 
 /// _known_uri_option: the canonical name of a known option, for diagnostics, which never quote
 /// the input (not even a known name in the user's spelling).
 pub fn known_option(key: &str) -> Option<&'static str> {
-    KNOWN_OPTIONS.iter().find(|n| n.eq_ignore_ascii_case(key)).map(|n| canonicalize(n))
+    KNOWN_OPTIONS
+        .iter()
+        .find(|n| n.eq_ignore_ascii_case(key))
+        .map(|n| canonicalize(n))
 }
 
 /// A known option's canonical name (libmongoc formats a NULL one as glibc does).
@@ -222,11 +312,7 @@ fn nat64_parse(s: &str, base: u32) -> Result<u64, bool> {
         overflow |= o2;
         v = a;
     }
-    if overflow {
-        Err(false)
-    } else {
-        Ok(v)
-    }
+    if overflow { Err(false) } else { Ok(v) }
 }
 
 /// mlib_i64_parse (base 0: auto-detect 0x/0o/0b and a leading 0 as octal).
@@ -299,7 +385,8 @@ fn pct_decode(sv: &str) -> R<String> {
         if b.len() - i < 3 {
             return Err("Truncated %-sequence: expected two hexadecimal digits".into());
         }
-        let pair = std::str::from_utf8(&b[i + 1..i + 3]).map_err(|_| ())
+        let pair = std::str::from_utf8(&b[i + 1..i + 3])
+            .map_err(|_| ())
             .and_then(|p| nat64_parse(p, 16).map_err(|_| ()));
         match pair {
             Ok(v) => out.push(v as u8),
@@ -329,19 +416,40 @@ pub fn host_from_hostport(host: &str, port: u16) -> R<Host> {
         return Err("Empty hostname in URI".into());
     }
     if host.len() > HOST_NAME_MAX {
-        return Err(format!("Hostname provided in URI is too long, max is {} chars", HOST_NAME_MAX));
+        return Err(format!(
+            "Hostname provided in URI is too long, max is {} chars",
+            HOST_NAME_MAX
+        ));
     }
     if host.contains(':') {
         if host.len() > HOST_NAME_MAX - 2 {
-            return Err(format!("IPv6 literal provided in URI is too long, max is {} chars", HOST_NAME_MAX - 2));
+            return Err(format!(
+                "IPv6 literal provided in URI is too long, max is {} chars",
+                HOST_NAME_MAX - 2
+            ));
         }
         let h = host.to_ascii_lowercase();
-        Ok(Host { host_and_port: format!("[{h}]:{port}"), host: h, port, family: Family::Inet6 })
+        Ok(Host {
+            host_and_port: format!("[{h}]:{port}"),
+            host: h,
+            port,
+            family: Family::Inet6,
+        })
     } else if host.contains('/') && host.contains(".sock") {
-        Ok(Host { host: host.to_owned(), port, host_and_port: host.to_owned(), family: Family::Unix })
+        Ok(Host {
+            host: host.to_owned(),
+            port,
+            host_and_port: host.to_owned(),
+            family: Family::Unix,
+        })
     } else {
         let h = host.to_ascii_lowercase();
-        Ok(Host { host_and_port: format!("{h}:{port}"), host: h, port, family: Family::Unspec })
+        Ok(Host {
+            host_and_port: format!("{h}:{port}"),
+            host: h,
+            port,
+            family: Family::Unspec,
+        })
     }
 }
 
@@ -353,10 +461,14 @@ pub fn host_from_string(spec: &str) -> R<Host> {
         if !spec.starts_with('[') {
             return Err(format!("{base}: Must start with a bracket '['"));
         }
-        let Some(close) = spec.find(']') else { return Err(format!("{base}: Missing closing bracket ']'")) };
+        let Some(close) = spec.find(']') else {
+            return Err(format!("{base}: Missing closing bracket ']'"));
+        };
         let has_port = spec.as_bytes().get(close + 1) == Some(&b':');
         if !has_port && close != spec.len() - 1 {
-            return Err(format!("{base}: Invalid trailing content following closing bracket ']'"));
+            return Err(format!(
+                "{base}: Invalid trailing content following closing bracket ']'"
+            ));
         }
         let mut port = DEFAULT_PORT;
         if has_port {
@@ -368,7 +480,8 @@ pub fn host_from_string(spec: &str) -> R<Host> {
     let mut port = DEFAULT_PORT;
     let mut hostname = spec;
     if let Some((h, ps)) = spec.split_once(':') {
-        port = parse_port(ps).map_err(|e| format!("Invalid host specifier: Invalid port string: {e}"))?;
+        port = parse_port(ps)
+            .map_err(|e| format!("Invalid host specifier: Invalid port string: {e}"))?;
         hostname = h;
     }
     host_from_hostport(hostname, port)
@@ -402,10 +515,23 @@ fn check_srv_service_name(s: &str) -> bool {
 }
 
 /// The authentication mechanisms (mongoc_uri_finalize_auth's vocabulary).
-const MECHANISMS: &[&str] = &["SCRAM-SHA-1", "SCRAM-SHA-256", "PLAIN", "MONGODB-X509", "GSSAPI", "MONGODB-AWS", "MONGODB-OIDC"];
+const MECHANISMS: &[&str] = &[
+    "SCRAM-SHA-1",
+    "SCRAM-SHA-256",
+    "PLAIN",
+    "MONGODB-X509",
+    "GSSAPI",
+    "MONGODB-AWS",
+    "MONGODB-OIDC",
+];
 
 /// (environment, supports a username, requires TOKEN_RESOURCE): mongoc-oidc-env.c
-const OIDC_ENVS: &[(&str, bool, bool)] = &[("test", false, false), ("azure", true, true), ("gcp", false, true), ("k8s", false, false)];
+const OIDC_ENVS: &[(&str, bool, bool)] = &[
+    ("test", false, false),
+    ("azure", true, true),
+    ("gcp", false, true),
+    ("k8s", false, false),
+];
 
 /// The password is never printed (see `redact`).
 impl std::fmt::Debug for Uri {
@@ -424,10 +550,21 @@ impl std::fmt::Debug for Uri {
 pub const REDACTED: &str = "******";
 
 /// URI options whose values are secrets.
-const SECRET_OPTIONS: &[&str] = &["tlscertificatekeyfilepassword", "sslclientcertificatekeypassword"];
+const SECRET_OPTIONS: &[&str] = &[
+    "tlscertificatekeyfilepassword",
+    "sslclientcertificatekeypassword",
+];
 /// authMechanismProperties keys whose values are not secrets (everything else, such as
 /// AWS_SESSION_TOKEN, is).
-const PUBLIC_MECHANISM_PROPERTIES: &[&str] = &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST", "ENVIRONMENT", "TOKEN_RESOURCE", "ALLOWED_HOSTS"];
+const PUBLIC_MECHANISM_PROPERTIES: &[&str] = &[
+    "SERVICE_NAME",
+    "CANONICALIZE_HOST_NAME",
+    "SERVICE_REALM",
+    "SERVICE_HOST",
+    "ENVIRONMENT",
+    "TOKEN_RESOURCE",
+    "ALLOWED_HOSTS",
+];
 
 /// Whether the value of the URI option `key` must not be shown.
 pub fn is_secret_option(key: &str) -> bool {
@@ -506,7 +643,9 @@ fn push_userinfo(out: &mut String, userinfo: &str) {
 
 /// Whether the value `v` of the URI option `k` is a secret.
 fn secret_value(k: &str, v: &str) -> bool {
-    !v.is_empty() && (is_secret_option(k) || (k.eq_ignore_ascii_case("authmechanismproperties") && !public_properties(v)))
+    !v.is_empty()
+        && (is_secret_option(k)
+            || (k.eq_ignore_ascii_case("authmechanismproperties") && !public_properties(v)))
 }
 
 /// Replaces the values of the secret options anywhere an option may start ('?' or '&') up to
@@ -519,14 +658,14 @@ fn redact_option_values(s: &str) -> String {
         let at_option = i > 0 && matches!(b[i - 1], b'?' | b'&');
         if at_option {
             let entry_end = s[i..].find('&').map_or(s.len(), |e| i + e);
-            if let Some((k, v)) = s[i..entry_end].split_once('=') {
-                if secret_value(k, v) {
-                    out.push_str(k);
-                    out.push('=');
-                    out.push_str(REDACTED);
-                    i = entry_end;
-                    continue;
-                }
+            if let Some((k, v)) = s[i..entry_end].split_once('=')
+                && secret_value(k, v)
+            {
+                out.push_str(k);
+                out.push('=');
+                out.push_str(REDACTED);
+                i = entry_end;
+                continue;
             }
         }
         let c = s[i..].chars().next().expect("in bounds");
@@ -539,7 +678,14 @@ fn redact_option_values(s: &str) -> String {
 /// Whether an authMechanismProperties value names only public properties.
 fn public_properties(v: &str) -> bool {
     let Ok(d) = pct_decode(v) else { return false };
-    d.split(',').all(|p| p.is_empty() || PUBLIC_MECHANISM_PROPERTIES.iter().any(|k| p.split(':').next().is_some_and(|x| x.eq_ignore_ascii_case(k))))
+    d.split(',').all(|p| {
+        p.is_empty()
+            || PUBLIC_MECHANISM_PROPERTIES.iter().any(|k| {
+                p.split(':')
+                    .next()
+                    .is_some_and(|x| x.eq_ignore_ascii_case(k))
+            })
+    })
 }
 
 impl Uri {
@@ -598,9 +744,14 @@ impl Uri {
 
     /// mongoc_uri_parse (+ _decompose_uri_string)
     fn parse_str(&mut self, s: &str) -> R<()> {
-        let Some((scheme, mut remain)) = s.split_once("://") else { return Err("Invalid URI, no scheme part specified".into()) };
+        let Some((scheme, mut remain)) = s.split_once("://") else {
+            return Err("Invalid URI, no scheme part specified".into());
+        };
         let userinfo_end = remain.find('@').unwrap_or(0);
-        let term = remain[userinfo_end..].find(['/', '?']).map(|p| p + userinfo_end).unwrap_or(remain.len());
+        let term = remain[userinfo_end..]
+            .find(['/', '?'])
+            .map(|p| p + userinfo_end)
+            .unwrap_or(remain.len());
         let authority = &remain[..term];
         remain = &remain[term..];
         let path_end = remain.find('?').unwrap_or(remain.len());
@@ -608,7 +759,12 @@ impl Uri {
         match scheme {
             "mongodb" => self.is_srv = false,
             "mongodb+srv" => self.is_srv = true,
-            _ => return Err("Invalid URI scheme. Expected one of \"mongodb://\" or \"mongodb+srv://\"".into()),
+            _ => {
+                return Err(
+                    "Invalid URI scheme. Expected one of \"mongodb://\" or \"mongodb+srv://\""
+                        .into(),
+                );
+            }
         }
         self.parse_authority(authority)?;
         self.parse_path(path)?;
@@ -627,13 +783,24 @@ impl Uri {
             None => authority,
         };
         if hostinfo.starts_with('@') {
-            return Err(format!("Invalid username or password. {ESCAPE_INSTRUCTIONS}"));
+            return Err(format!(
+                "Invalid username or password. {ESCAPE_INSTRUCTIONS}"
+            ));
         }
         // safety: an unescaped '@' in the userinfo leaves part of the password in the host list
         // (libmongoc then resolves it as a host name and shows it in errors and descriptions)
         if hostinfo.contains('@') {
-            let what = if authority.split_once('@').is_some_and(|(u, _)| u.contains(':')) { "Password" } else { "Username" };
-            return Err(format!("{what} must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"));
+            let what = if authority
+                .split_once('@')
+                .is_some_and(|(u, _)| u.contains(':'))
+            {
+                "Password"
+            } else {
+                "Username"
+            };
+            return Err(format!(
+                "{what} must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"
+            ));
         }
         if self.is_srv {
             self.parse_srv_hostname(hostinfo)
@@ -649,14 +816,24 @@ impl Uri {
         };
         const PROHIBITED: &[char] = &['@', ':', '/'];
         if user.contains(PROHIBITED) {
-            return Err(format!("Username must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"));
+            return Err(format!(
+                "Username must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"
+            ));
         }
         if pass.is_some_and(|p| p.contains(PROHIBITED)) {
-            return Err(format!("Password must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"));
+            return Err(format!(
+                "Password must not have unescaped chars. {ESCAPE_INSTRUCTIONS}"
+            ));
         }
-        self.username = Some(pct_decode(user).map_err(|_| "Invalid %-encoding in username in URI string".to_owned())?);
+        self.username = Some(
+            pct_decode(user)
+                .map_err(|_| "Invalid %-encoding in username in URI string".to_owned())?,
+        );
         if let Some(p) = pass {
-            self.password = Some(pct_decode(p).map_err(|_| "Invalid %-encoding in password in URI string".to_owned())?);
+            self.password = Some(
+                pct_decode(p)
+                    .map_err(|_| "Invalid %-encoding in password in URI string".to_owned())?,
+            );
         }
         Ok(())
     }
@@ -665,11 +842,20 @@ impl Uri {
         if s.is_empty() {
             return Err("Missing service name in SRV URI".into());
         }
-        let service = match pct_decode(s) {
-            Ok(v) if valid_hostname(&v) && v.matches('.').count() - usize::from(v.starts_with('.')) >= 2 => v,
-            Ok(_) => return Err("Invalid SRV service name: expected a hostname with at least three components".into()),
-            Err(e) => return Err(format!("Invalid SRV service name: {e}")),
-        };
+        let service =
+            match pct_decode(s) {
+                Ok(v)
+                    if valid_hostname(&v)
+                        && v.matches('.').count() - usize::from(v.starts_with('.')) >= 2 =>
+                {
+                    v
+                }
+                Ok(_) => return Err(
+                    "Invalid SRV service name: expected a hostname with at least three components"
+                        .into(),
+                ),
+                Err(e) => return Err(format!("Invalid SRV service name: {e}")),
+            };
         if service.contains(',') {
             return Err("Multiple service names are prohibited in an SRV URI".into());
         }
@@ -705,7 +891,11 @@ impl Uri {
         let hp = pct_decode(hostport).map_err(|e| format!("Invalid host specifier: {e}"))?;
         let h = host_from_string(&hp).map_err(|e| format!("Invalid host specifier: {e}"))?;
         // _mongoc_host_list_upsert: replace a case-insensitively equal host_and_port in place
-        match self.hosts.iter_mut().find(|x| x.host_and_port.eq_ignore_ascii_case(&h.host_and_port)) {
+        match self
+            .hosts
+            .iter_mut()
+            .find(|x| x.host_and_port.eq_ignore_ascii_case(&h.host_and_port))
+        {
             Some(x) => *x = h,
             None => self.hosts.push(h),
         }
@@ -744,13 +934,31 @@ impl Uri {
         self.apply_options(&options, from_dns)
     }
 
-    fn handle_query_param(&mut self, options: &mut Opts, s: &str, position: usize, from_dns: bool) -> R<()> {
+    fn handle_query_param(
+        &mut self,
+        options: &mut Opts,
+        s: &str,
+        position: usize,
+        from_dns: bool,
+    ) -> R<()> {
         let source = if from_dns { "TXT record" } else { "query" };
-        let Some((key, val)) = s.split_once('=') else { return Err(format!("URI option at {source} position {position} contains no \"=\" sign")) };
-        if from_dns && !["authsource", "loadbalanced", "replicaset"].iter().any(|k| k.eq_ignore_ascii_case(key)) {
-            return Err(format!("URI option at {source} position {position} prohibited in TXT records"));
+        let Some((key, val)) = s.split_once('=') else {
+            return Err(format!(
+                "URI option at {source} position {position} contains no \"=\" sign"
+            ));
+        };
+        if from_dns
+            && !["authsource", "loadbalanced", "replicaset"]
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(key))
+        {
+            return Err(format!(
+                "URI option at {source} position {position} prohibited in TXT records"
+            ));
         }
-        let value = pct_decode(val).map_err(|e| format!("Value for URI option at {source} position {position} is invalid: {e}"))?;
+        let value = pct_decode(val).map_err(|e| {
+            format!("Value for URI option at {source} position {position} is invalid: {e}")
+        })?;
         if key.eq_ignore_ascii_case("readpreferencetags") {
             let mut tags = crate::bson::writer::Writer::with_capacity(32);
             let mut r = value.as_str();
@@ -780,15 +988,21 @@ impl Uri {
                 return Ok(());
             }
             match known_option(key) {
-                Some(name) => self.warn(format!("Overwriting previously provided value for '{name}'")),
-                None => self.warn(format!("Overwriting previously provided URI option at {source} position {position}")),
+                Some(name) => self.warn(format!(
+                    "Overwriting previously provided value for '{name}'"
+                )),
+                None => self.warn(format!(
+                    "Overwriting previously provided URI option at {source} position {position}"
+                )),
             }
         }
         if key.eq_ignore_ascii_case("replicaset") && value.is_empty() {
             return Err("Value for URI option \"replicaset\" cannot be empty string".into());
         }
         if known_option(key).is_none() {
-            self.warn(format!("Unsupported URI option at {source} position {position}"));
+            self.warn(format!(
+                "Unsupported URI option at {source} position {position}"
+            ));
         }
         options.upsert(key, OptVal::Str(value));
         Ok(())
@@ -796,16 +1010,30 @@ impl Uri {
 
     fn set_int32(&mut self, option_orig: &str, value: i32) -> R<()> {
         let option = canonicalize(option_orig);
-        if option.eq_ignore_ascii_case("heartbeatfrequencyms") && value < MIN_HEARTBEAT_FREQUENCY_MS {
-            return Err(format!("Invalid \"{}\" of {value}: must be at least {MIN_HEARTBEAT_FREQUENCY_MS}", known_name(option)));
+        if option.eq_ignore_ascii_case("heartbeatfrequencyms") && value < MIN_HEARTBEAT_FREQUENCY_MS
+        {
+            return Err(format!(
+                "Invalid \"{}\" of {value}: must be at least {MIN_HEARTBEAT_FREQUENCY_MS}",
+                known_name(option)
+            ));
         }
         if option.eq_ignore_ascii_case("zlibcompressionlevel") && !(-1..=9).contains(&value) {
-            return Err(format!("Invalid \"zlibcompressionlevel\" of {value}: must be between -1 and 9"));
+            return Err(format!(
+                "Invalid \"zlibcompressionlevel\" of {value}: must be between -1 and 9"
+            ));
         }
         match self.options.get_mut(option) {
             Some(OptVal::Int32(v)) => *v = value,
-            Some(_) => return Err(format!("Cannot set URI option \"{}\" to {value}, it already has a non-32-bit integer value", known_name(option))),
-            None => self.options.0.push((option.to_ascii_lowercase(), OptVal::Int32(value))),
+            Some(_) => {
+                return Err(format!(
+                    "Cannot set URI option \"{}\" to {value}, it already has a non-32-bit integer value",
+                    known_name(option)
+                ));
+            }
+            None => self
+                .options
+                .0
+                .push((option.to_ascii_lowercase(), OptVal::Int32(value))),
         }
         Ok(())
     }
@@ -814,8 +1042,16 @@ impl Uri {
         let option = canonicalize(option_orig);
         match self.options.get_mut(option) {
             Some(OptVal::Int64(v)) => *v = value,
-            Some(_) => return Err(format!("Cannot set URI option \"{}\" to {value}, it already has a non-64-bit integer value", known_name(option))),
-            None => self.options.0.push((option.to_ascii_lowercase(), OptVal::Int64(value))),
+            Some(_) => {
+                return Err(format!(
+                    "Cannot set URI option \"{}\" to {value}, it already has a non-64-bit integer value",
+                    known_name(option)
+                ));
+            }
+            None => self
+                .options
+                .0
+                .push((option.to_ascii_lowercase(), OptVal::Int64(value))),
         }
         Ok(())
     }
@@ -824,7 +1060,10 @@ impl Uri {
         let option = canonicalize(option);
         match self.options.get_mut(option) {
             Some(v) => *v = OptVal::Bool(value),
-            None => self.options.0.push((option.to_ascii_lowercase(), OptVal::Bool(value))),
+            None => self
+                .options
+                .0
+                .push((option.to_ascii_lowercase(), OptVal::Bool(value))),
         }
     }
 
@@ -837,7 +1076,10 @@ impl Uri {
         match self.options.get_mut(o) {
             Some(OptVal::Bool(b)) => *b = value,
             Some(_) => return false,
-            None => self.options.0.push((o.to_ascii_lowercase(), OptVal::Bool(value))),
+            None => self
+                .options
+                .0
+                .push((o.to_ascii_lowercase(), OptVal::Bool(value))),
         }
         true
     }
@@ -849,7 +1091,9 @@ impl Uri {
         }
         let o = canonicalize(key);
         if !option_is_int32(o) {
-            self.warn(format!("Unsupported value for \"{key}\": {value}, \"{o}\" is not an int32 option"));
+            self.warn(format!(
+                "Unsupported value for \"{key}\": {value}, \"{o}\" is not an int32 option"
+            ));
             return false;
         }
         match self.set_int32(key, value) {
@@ -867,11 +1111,15 @@ impl Uri {
         if !option_is_int64(o) && option_is_int32(key) {
             return match i32::try_from(value) {
                 Ok(v) => {
-                    self.warn(format!("Setting value for 32-bit option \"{key}\" through 64-bit method"));
+                    self.warn(format!(
+                        "Setting value for 32-bit option \"{key}\" through 64-bit method"
+                    ));
                     self.set_option_as_int32(key, v)
                 }
                 Err(_) => {
-                    self.warn(format!("Unsupported value for \"{key}\": {value}, \"{o}\" is not an int64 option"));
+                    self.warn(format!(
+                        "Unsupported value for \"{key}\": {value}, \"{o}\" is not an int64 option"
+                    ));
                     false
                 }
             };
@@ -895,7 +1143,9 @@ impl Uri {
         if o.eq_ignore_ascii_case("appname") && value.len() > APPNAME_MAX {
             return false;
         }
-        if o.eq_ignore_ascii_case("servermonitoringmode") && !["stream", "poll", "auto"].contains(&value) {
+        if o.eq_ignore_ascii_case("servermonitoringmode")
+            && !["stream", "poll", "auto"].contains(&value)
+        {
             return false;
         }
         self.options.upsert(o, OptVal::Str(value.to_owned()));
@@ -911,10 +1161,12 @@ impl Uri {
     }
     /// mongoc_uri_set_auth_mechanism / set_auth_source
     pub fn set_auth_mechanism(&mut self, v: &str) {
-        self.credentials.upsert("authmechanism", OptVal::Str(v.to_owned()));
+        self.credentials
+            .upsert("authmechanism", OptVal::Str(v.to_owned()));
     }
     pub fn set_auth_source(&mut self, v: &str) {
-        self.credentials.upsert("authsource", OptVal::Str(v.to_owned()));
+        self.credentials
+            .upsert("authsource", OptVal::Str(v.to_owned()));
     }
     /// mongoc_uri_set_mechanism_properties
     pub fn set_mechanism_properties_pub(&mut self, props: Vec<(String, String)>) {
@@ -988,11 +1240,7 @@ impl Uri {
                 _ => 0,
             }
         };
-        if v == 0 {
-            fallback
-        } else {
-            v as i32
-        }
+        if v == 0 { fallback } else { v as i32 }
     }
 
     /// mongoc_uri_get_option_as_int64
@@ -1006,8 +1254,12 @@ impl Uri {
 
     fn set_mechanism_properties(&mut self, props: Vec<(String, String)>) {
         self.mechanism_property_types.clear();
-        self.credentials.0.retain(|(k, _)| k != "authmechanismproperties");
-        self.credentials.0.push(("authmechanismproperties".into(), OptVal::Doc(props)));
+        self.credentials
+            .0
+            .retain(|(k, _)| k != "authmechanismproperties");
+        self.credentials
+            .0
+            .push(("authmechanismproperties".into(), OptVal::Doc(props)));
     }
 
     fn parse_mechanism_properties(&mut self, s: &str) {
@@ -1036,11 +1288,15 @@ impl Uri {
                 () => {
                     if from_dns {
                         if key != "authsource" {
-                            self.warn(format!("Cannot override URI option \"{name}\" from TXT record"));
+                            self.warn(format!(
+                                "Cannot override URI option \"{name}\" from TXT record"
+                            ));
                         }
                         continue;
                     }
-                    self.warn(format!("Overwriting previously provided value for '{name}'"));
+                    self.warn(format!(
+                        "Overwriting previously provided value for '{name}'"
+                    ));
                 };
             }
             if option_is_int64(key) {
@@ -1048,7 +1304,9 @@ impl Uri {
                     self.warn(format!("Empty value provided for \"{name}\""));
                     continue;
                 }
-                let Ok(i) = i64_parse(value, 0) else { return unsupported() };
+                let Ok(i) = i64_parse(value, 0) else {
+                    return unsupported();
+                };
                 self.set_int64(&canon, i)?;
             } else if option_is_int32(key) {
                 if value.is_empty() {
@@ -1059,13 +1317,17 @@ impl Uri {
                 let i = match i32_parse(value, 0) {
                     Ok(i) => i,
                     Err(_) if retry => {
-                        self.warn(format!("Unsupported value for \"{name}\": expected an integer"));
+                        self.warn(format!(
+                            "Unsupported value for \"{name}\": expected an integer"
+                        ));
                         continue;
                     }
                     Err(_) => return unsupported(),
                 };
                 if retry && i < 0 {
-                    self.warn(format!("Invalid \"{name}\" of {i}: must be a non-negative integer"));
+                    self.warn(format!(
+                        "Invalid \"{name}\" of {i}: must be a non-negative integer"
+                    ));
                     continue;
                 }
                 self.set_int32(&canon, i)?;
@@ -1095,14 +1357,20 @@ impl Uri {
                 } else if lv == "false" {
                     false
                 } else if value == "1" || lv == "yes" || lv == "y" || lv == "t" {
-                    self.warn(format!("Deprecated boolean value for \"{name}\", please update to \"{name}=true\""));
+                    self.warn(format!(
+                        "Deprecated boolean value for \"{name}\", please update to \"{name}=true\""
+                    ));
                     true
                 } else if lv == "0" || lv == "-1" || value == "no" || value == "n" || value == "f" {
-                    self.warn(format!("Deprecated boolean value for \"{name}\", please update to \"{name}=false\""));
+                    self.warn(format!(
+                        "Deprecated boolean value for \"{name}\", please update to \"{name}=false\""
+                    ));
                     false
                 } else {
                     if canon.eq_ignore_ascii_case("enableoverloadretargeting") {
-                        self.warn(format!("Unsupported value for \"{name}\": expected a boolean"));
+                        self.warn(format!(
+                            "Unsupported value for \"{name}\": expected a boolean"
+                        ));
                         continue;
                     }
                     return unsupported();
@@ -1120,7 +1388,12 @@ impl Uri {
                 }
                 self.read_concern_level = Some(value.clone());
             } else if key == "gssapiservicename" {
-                if self.credentials.0.iter().any(|(k, _)| k == "authmechanismproperties") {
+                if self
+                    .credentials
+                    .0
+                    .iter()
+                    .any(|(k, _)| k == "authmechanismproperties")
+                {
                     self.warn("authMechanismProperties SERVICE_NAME already set, ignoring 'gssapiservicename'".into());
                 } else {
                     self.warn("gssapiservicename is deprecated, use authmechanismproperties with SERVICE_NAME instead".into());
@@ -1186,10 +1459,15 @@ impl Uri {
         }
         if self.get_bool("loadbalanced", false) {
             if self.hosts.len() > 1 {
-                return Err("URI with \"loadbalanced\" enabled must not contain more than one host".into());
+                return Err(
+                    "URI with \"loadbalanced\" enabled must not contain more than one host".into(),
+                );
             }
             if self.options.has("replicaset") {
-                return Err("URI with \"loadbalanced\" enabled must not contain option \"replicaset\"".into());
+                return Err(
+                    "URI with \"loadbalanced\" enabled must not contain option \"replicaset\""
+                        .into(),
+                );
             }
             if self.get_bool("directconnection", false) {
                 return Err("URI with \"loadbalanced\" enabled must not contain option \"directconnection\" enabled".into());
@@ -1209,7 +1487,9 @@ impl Uri {
         } else {
             let max = self.get_int32("srvmaxhosts", 0);
             if max < 0 {
-                return Err(format!("srvmaxhosts is required to be a non-negative integer, but has value {max}"));
+                return Err(format!(
+                    "srvmaxhosts is required to be a non-negative integer, but has value {max}"
+                ));
             }
             if max > 0 {
                 if self.options.has("replicaset") {
@@ -1229,11 +1509,16 @@ impl Uri {
         }
         let h = |k: &str| self.options.has(k);
         if h("tlsinsecure")
-            && (h("tlsallowinvalidcertificates") || h("tlsallowinvalidhostnames") || h("tlsdisableocspendpointcheck") || h("tlsdisablecertificaterevocationcheck"))
+            && (h("tlsallowinvalidcertificates")
+                || h("tlsallowinvalidhostnames")
+                || h("tlsdisableocspendpointcheck")
+                || h("tlsdisablecertificaterevocationcheck"))
         {
             return Err("tlsinsecure may not be specified with tlsallowinvalidcertificates, tlsallowinvalidhostnames, tlsdisableocspendpointcheck, or tlsdisablecertificaterevocationcheck".into());
         }
-        if h("tlsallowinvalidcertificates") && (h("tlsdisablecertificaterevocationcheck") || h("tlsdisableocspendpointcheck")) {
+        if h("tlsallowinvalidcertificates")
+            && (h("tlsdisablecertificaterevocationcheck") || h("tlsdisableocspendpointcheck"))
+        {
             return Err("tlsallowinvalidcertificates may not be specified with tlsdisableocspendpointcheck or tlsdisablecertificaterevocationcheck".into());
         }
         if h("tlsdisablecertificaterevocationcheck") && h("tlsdisableocspendpointcheck") {
@@ -1248,8 +1533,14 @@ impl Uri {
             return *b;
         }
         [
-            "tlscertificatekeyfile", "tlscafile", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames", "tlsinsecure",
-            "tlscertificatekeyfilepassword", "tlsdisableocspendpointcheck", "tlsdisablecertificaterevocationcheck",
+            "tlscertificatekeyfile",
+            "tlscafile",
+            "tlsallowinvalidcertificates",
+            "tlsallowinvalidhostnames",
+            "tlsinsecure",
+            "tlscertificatekeyfilepassword",
+            "tlsdisableocspendpointcheck",
+            "tlsdisablecertificaterevocationcheck",
         ]
         .iter()
         .any(|k| self.options.has(k))
@@ -1269,7 +1560,12 @@ impl Uri {
         let db = self.database.as_deref();
         match self.auth_mechanism() {
             None => db.unwrap_or("admin"),
-            Some(m) if m.eq_ignore_ascii_case("SCRAM-SHA-1") || m.eq_ignore_ascii_case("SCRAM-SHA-256") => db.unwrap_or("admin"),
+            Some(m)
+                if m.eq_ignore_ascii_case("SCRAM-SHA-1")
+                    || m.eq_ignore_ascii_case("SCRAM-SHA-256") =>
+            {
+                db.unwrap_or("admin")
+            }
             Some(m) if m.eq_ignore_ascii_case("PLAIN") => db.unwrap_or("$external"),
             Some(_) => "$external",
         }
@@ -1289,7 +1585,9 @@ impl Uri {
         if let Some(s) = &source {
             // _mongoc_validate_db_name
             if s.contains('\0') {
-                return Err("Invalid authSource: database name invalid: contains a NUL byte".into());
+                return Err(
+                    "Invalid authSource: database name invalid: contains a NUL byte".into(),
+                );
             }
             if s.contains('.') {
                 return Err("Invalid authSource: database name invalid: contains \".\"".into());
@@ -1317,7 +1615,9 @@ impl Uri {
             "SCRAM-SHA-1" | "SCRAM-SHA-256" | "PLAIN" => {
                 req_user(user.as_deref(), m)?;
                 if pass.is_none() {
-                    return Err(format!("'{m}' authentication mechanism requires a password"));
+                    return Err(format!(
+                        "'{m}' authentication mechanism requires a password"
+                    ));
                 }
             }
             "MONGODB-X509" => {
@@ -1328,15 +1628,30 @@ impl Uri {
             "GSSAPI" => {
                 req_user(user.as_deref(), m)?;
                 self.default_external(source.as_deref(), m)?;
-                check_props(props.as_deref(), &self.mechanism_property_types, &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST"], "GSSAPI")?;
-                if let Some(p) = &props {
-                    if let Some((_, v)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("CANONICALIZE_HOST_NAME")) {
-                        if !v.eq_ignore_ascii_case("true") && !v.eq_ignore_ascii_case("false") {
-                            return Err("'GSSAPI' authentication mechanism requires CANONICALIZE_HOST_NAME is either \"true\" or \"false\"".into());
-                        }
-                    }
+                check_props(
+                    props.as_deref(),
+                    &self.mechanism_property_types,
+                    &[
+                        "SERVICE_NAME",
+                        "CANONICALIZE_HOST_NAME",
+                        "SERVICE_REALM",
+                        "SERVICE_HOST",
+                    ],
+                    "GSSAPI",
+                )?;
+                if let Some(p) = &props
+                    && let Some((_, v)) = p
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("CANONICALIZE_HOST_NAME"))
+                    && !v.eq_ignore_ascii_case("true")
+                    && !v.eq_ignore_ascii_case("false")
+                {
+                    return Err("'GSSAPI' authentication mechanism requires CANONICALIZE_HOST_NAME is either \"true\" or \"false\"".into());
                 }
-                if !props.as_ref().is_some_and(|p| p.iter().any(|(k, _)| k.eq_ignore_ascii_case("SERVICE_NAME"))) {
+                if !props.as_ref().is_some_and(|p| {
+                    p.iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("SERVICE_NAME"))
+                }) {
                     let mut p = props.clone().unwrap_or_default();
                     p.push(("SERVICE_NAME".into(), "mongodb".into()));
                     self.set_mechanism_properties(p);
@@ -1345,31 +1660,57 @@ impl Uri {
             "MONGODB-AWS" => {
                 allowed_user(user.as_deref(), m)?;
                 self.default_external(source.as_deref(), m)?;
-                check_props(props.as_deref(), &self.mechanism_property_types, &["AWS_SESSION_TOKEN"], "MONGODB-AWS")?;
+                check_props(
+                    props.as_deref(),
+                    &self.mechanism_property_types,
+                    &["AWS_SESSION_TOKEN"],
+                    "MONGODB-AWS",
+                )?;
                 if user.is_none() != pass.is_none() {
-                    return Err(format!("'{m}' authentication mechanism does not accept a username or a password without the other"));
+                    return Err(format!(
+                        "'{m}' authentication mechanism does not accept a username or a password without the other"
+                    ));
                 }
             }
             "MONGODB-OIDC" => {
                 allowed_user(user.as_deref(), m)?;
                 self.default_external(source.as_deref(), m)?;
                 prohibit_pass(pass.as_deref(), m)?;
-                check_props(props.as_deref(), &self.mechanism_property_types, &["ENVIRONMENT", "TOKEN_RESOURCE"], "MONGODB-OIDC")?;
-                if let Some(p) = &props {
-                    if let Some((_, env)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("ENVIRONMENT")) {
-                        let Some(&(_, user_ok, token_req)) = OIDC_ENVS.iter().find(|(n, _, _)| n == env) else {
-                            return Err(format!("'{m}' authentication has unrecognized ENVIRONMENT property"));
-                        };
-                        if user.is_some() && !user_ok {
-                            return Err(format!("'{m}' authentication environment does not accept a username"));
-                        }
-                        let has_tr = p.iter().any(|(k, _)| k.eq_ignore_ascii_case("TOKEN_RESOURCE"));
-                        if has_tr && !token_req {
-                            return Err(format!("'{m}' authentication environment does not accept TOKEN_RESOURCE"));
-                        }
-                        if !has_tr && token_req {
-                            return Err(format!("'{m}' authentication environment requires TOKEN_RESOURCE"));
-                        }
+                check_props(
+                    props.as_deref(),
+                    &self.mechanism_property_types,
+                    &["ENVIRONMENT", "TOKEN_RESOURCE"],
+                    "MONGODB-OIDC",
+                )?;
+                if let Some(p) = &props
+                    && let Some((_, env)) = p
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("ENVIRONMENT"))
+                {
+                    let Some(&(_, user_ok, token_req)) =
+                        OIDC_ENVS.iter().find(|(n, _, _)| n == env)
+                    else {
+                        return Err(format!(
+                            "'{m}' authentication has unrecognized ENVIRONMENT property"
+                        ));
+                    };
+                    if user.is_some() && !user_ok {
+                        return Err(format!(
+                            "'{m}' authentication environment does not accept a username"
+                        ));
+                    }
+                    let has_tr = p
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("TOKEN_RESOURCE"));
+                    if has_tr && !token_req {
+                        return Err(format!(
+                            "'{m}' authentication environment does not accept TOKEN_RESOURCE"
+                        ));
+                    }
+                    if !has_tr && token_req {
+                        return Err(format!(
+                            "'{m}' authentication environment requires TOKEN_RESOURCE"
+                        ));
                     }
                 }
             }
@@ -1381,10 +1722,14 @@ impl Uri {
     fn default_external(&mut self, source: Option<&str>, m: &str) -> R<()> {
         match source {
             None => {
-                self.credentials.0.push(("authsource".into(), OptVal::Str("$external".into())));
+                self.credentials
+                    .0
+                    .push(("authsource".into(), OptVal::Str("$external".into())));
                 Ok(())
             }
-            Some(s) if !s.eq_ignore_ascii_case("$external") => Err(format!("'{m}' authentication mechanism requires \"$external\" authSource")),
+            Some(s) if !s.eq_ignore_ascii_case("$external") => Err(format!(
+                "'{m}' authentication mechanism requires \"$external\" authSource"
+            )),
             Some(_) => Ok(()),
         }
     }
@@ -1397,23 +1742,32 @@ impl Uri {
                 "secondary" => ReadMode::Secondary,
                 "secondarypreferred" => ReadMode::SecondaryPreferred,
                 "nearest" => ReadMode::Nearest,
-                _ => return Err("Error while assigning URI read preference: Unsupported readPreference value".into()),
+                _ => return Err(
+                    "Error while assigning URI read preference: Unsupported readPreference value"
+                        .into(),
+                ),
             };
         }
         Ok(())
     }
 
     fn max_staleness_option(&mut self) -> i32 {
-        let Some(OptVal::Int32(v)) = self.options.get("maxstalenessseconds").cloned() else { return NO_MAX_STALENESS };
+        let Some(OptVal::Int32(v)) = self.options.get("maxstalenessseconds").cloned() else {
+            return NO_MAX_STALENESS;
+        };
         if v == 0 || (v < 0 && v != -1) {
-            self.warn(format!("Unsupported value for \"maxstalenessseconds\": \"{v}\""));
+            self.warn(format!(
+                "Unsupported value for \"maxstalenessseconds\": \"{v}\""
+            ));
             return NO_MAX_STALENESS;
         }
         v
     }
 
     fn read_prefs_valid(&self) -> bool {
-        if self.read_mode == ReadMode::Primary && (!self.read_tags.is_empty() || self.max_staleness_seconds != NO_MAX_STALENESS) {
+        if self.read_mode == ReadMode::Primary
+            && (!self.read_tags.is_empty() || self.max_staleness_seconds != NO_MAX_STALENESS)
+        {
             return false;
         }
         !(self.max_staleness_seconds != NO_MAX_STALENESS && self.max_staleness_seconds <= 0)
@@ -1426,7 +1780,9 @@ impl Uri {
         }
         let wt = self.get_int64("wtimeoutms", 0);
         if wt < 0 {
-            return Err(format!("Unsupported wtimeoutMS value {wt}: must be non-negative"));
+            return Err(format!(
+                "Unsupported wtimeoutMS value {wt}: must be non-negative"
+            ));
         }
         wc.wtimeout = wt;
         if let Some(OptVal::Bool(b)) = self.options.get("journal") {
@@ -1456,31 +1812,47 @@ impl Uri {
 
 fn req_user(u: Option<&str>, m: &str) -> R<()> {
     if u.is_none_or(str::is_empty) {
-        return Err(format!("'{m}' authentication mechanism requires a username"));
+        return Err(format!(
+            "'{m}' authentication mechanism requires a username"
+        ));
     }
     Ok(())
 }
 fn allowed_user(u: Option<&str>, m: &str) -> R<()> {
     if u == Some("") {
-        return Err(format!("'{m}' authentication mechanism requires a non-empty username"));
+        return Err(format!(
+            "'{m}' authentication mechanism requires a non-empty username"
+        ));
     }
     Ok(())
 }
 fn prohibit_pass(p: Option<&str>, m: &str) -> R<()> {
     if p.is_some() {
-        return Err(format!("'{m}' authentication mechanism does not accept a password"));
+        return Err(format!(
+            "'{m}' authentication mechanism does not accept a password"
+        ));
     }
     Ok(())
 }
 /// _supported_mechanism_properties_check: every supported property is a string; `types` lists
 /// the values that are not (by key: BSON type code).
-fn check_props(props: Option<&[(String, String)]>, types: &[(String, u8)], supported: &[&str], m: &str) -> R<()> {
+fn check_props(
+    props: Option<&[(String, String)]>,
+    types: &[(String, u8)],
+    supported: &[&str],
+    m: &str,
+) -> R<()> {
     for (k, _) in props.unwrap_or(&[]) {
         let Some(name) = supported.iter().find(|s| s.eq_ignore_ascii_case(k)) else {
-            return Err(format!("Unsupported '{m}' authentication mechanism property"));
+            return Err(format!(
+                "Unsupported '{m}' authentication mechanism property"
+            ));
         };
         if let Some((_, t)) = types.iter().find(|(tk, _)| tk == k) {
-            return Err(format!("'{m}' authentication mechanism property '{name}' has incorrect type '{}', should be 'UTF8'", bson_type_name(*t)));
+            return Err(format!(
+                "'{m}' authentication mechanism property '{name}' has incorrect type '{}', should be 'UTF8'",
+                bson_type_name(*t)
+            ));
         }
     }
     Ok(())
@@ -1524,10 +1896,13 @@ fn validate_names(a: &Opts, b: &Opts) -> R<()> {
             continue;
         }
         for other in [a, b] {
-            if let Some((_, OptVal::Str(cval))) = other.0.iter().find(|(k, _)| k == canon) {
-                if cval != value {
-                    return Err(format!("Deprecated option conflicts with canonical name '{}'", known_name(canon)));
-                }
+            if let Some((_, OptVal::Str(cval))) = other.0.iter().find(|(k, _)| k == canon)
+                && cval != value
+            {
+                return Err(format!(
+                    "Deprecated option conflicts with canonical name '{}'",
+                    known_name(canon)
+                ));
             }
         }
     }
@@ -1541,33 +1916,72 @@ mod redact_tests {
     #[test]
     fn redacts_secrets() {
         let cases = [
-            ("mongodb://u:secret@h/db?appname=x", "mongodb://u:******@h/db?appname=x"),
+            (
+                "mongodb://u:secret@h/db?appname=x",
+                "mongodb://u:******@h/db?appname=x",
+            ),
             ("mongodb://u@h/", "mongodb://u@h/"),
             ("mongodb://u:@h/", "mongodb://u:******@h/"),
-            ("mongodb://h:27017/?replicaSet=rs0", "mongodb://h:27017/?replicaSet=rs0"),
+            (
+                "mongodb://h:27017/?replicaSet=rs0",
+                "mongodb://h:27017/?replicaSet=rs0",
+            ),
             // '@' percent-encoded in the password
             ("mongodb://u:p%40ss@h/", "mongodb://u:******@h/"),
             // '@' in appname (valid with a userinfo: the parser splits at the first '@')
-            ("mongodb://u:pass@h/?appname=a@b", "mongodb://u:******@h/?appname=a@b"),
-            ("mongodb://u:p?ss@h/?appname=a@b", "mongodb://u:******@h/?appname=a@b"),
+            (
+                "mongodb://u:pass@h/?appname=a@b",
+                "mongodb://u:******@h/?appname=a@b",
+            ),
+            (
+                "mongodb://u:p?ss@h/?appname=a@b",
+                "mongodb://u:******@h/?appname=a@b",
+            ),
             // '@' in a secret mechanism property
             (
                 "mongodb://k:pass@h/?authMechanism=MONGODB-AWS&authMechanismProperties=AWS_SESSION_TOKEN:x@y",
                 "mongodb://k:******@h/?authMechanism=MONGODB-AWS&authMechanismProperties=******",
             ),
-            ("mongodb://h/?authMechanismProperties=AWS_SESSION_TOKEN%3Atok", "mongodb://h/?authMechanismProperties=******"),
-            ("mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true", "mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true"),
+            (
+                "mongodb://h/?authMechanismProperties=AWS_SESSION_TOKEN%3Atok",
+                "mongodb://h/?authMechanismProperties=******",
+            ),
+            (
+                "mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true",
+                "mongodb://u@h/?authMechanismProperties=SERVICE_NAME:other,CANONICALIZE_HOST_NAME:true",
+            ),
             // several hosts, IPv6
-            ("mongodb://u:pw@h1:1,h2,[::1]:27017/?replicaSet=rs", "mongodb://u:******@h1:1,h2,[::1]:27017/?replicaSet=rs"),
-            ("mongodb://u:pw@[fe80::1]/admin", "mongodb://u:******@[fe80::1]/admin"),
-            ("mongodb+srv://u:%40x@c.example.com/", "mongodb+srv://u:******@c.example.com/"),
-            ("mongodb://h/?tlsCertificateKeyFilePassword=pw&tls=true", "mongodb://h/?tlsCertificateKeyFilePassword=******&tls=true"),
-            ("mongodb://h/?sslClientCertificateKeyPassword=pw", "mongodb://h/?sslClientCertificateKeyPassword=******"),
+            (
+                "mongodb://u:pw@h1:1,h2,[::1]:27017/?replicaSet=rs",
+                "mongodb://u:******@h1:1,h2,[::1]:27017/?replicaSet=rs",
+            ),
+            (
+                "mongodb://u:pw@[fe80::1]/admin",
+                "mongodb://u:******@[fe80::1]/admin",
+            ),
+            (
+                "mongodb+srv://u:%40x@c.example.com/",
+                "mongodb+srv://u:******@c.example.com/",
+            ),
+            (
+                "mongodb://h/?tlsCertificateKeyFilePassword=pw&tls=true",
+                "mongodb://h/?tlsCertificateKeyFilePassword=******&tls=true",
+            ),
+            (
+                "mongodb://h/?sslClientCertificateKeyPassword=pw",
+                "mongodb://h/?sslClientCertificateKeyPassword=******",
+            ),
             // not parseable: conservative
             ("mongodb://u:p@ss@h/", "mongodb://u:******@h/"),
             ("mongodb://u:p/ss@h/", "mongodb://u:******@h/"),
-            ("mongodb://u:pass@h/?tlsCertificateKeyFilePassword=a@b&w=bogus", "mongodb://u:******@h/?tlsCertificateKeyFilePassword=******&w=bogus"),
-            ("mongodb://u:pass@h/?authMechanismProperties=AWS_SESSION_TOKEN:x@y&w=-5", "mongodb://u:******@h/?authMechanismProperties=******&w=-5"),
+            (
+                "mongodb://u:pass@h/?tlsCertificateKeyFilePassword=a@b&w=bogus",
+                "mongodb://u:******@h/?tlsCertificateKeyFilePassword=******&w=bogus",
+            ),
+            (
+                "mongodb://u:pass@h/?authMechanismProperties=AWS_SESSION_TOKEN:x@y&w=-5",
+                "mongodb://u:******@h/?authMechanismProperties=******&w=-5",
+            ),
             ("not a uri u:pw@x", "not a uri u:******@x"),
         ];
         for (i, o) in cases {

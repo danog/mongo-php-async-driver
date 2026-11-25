@@ -6,7 +6,7 @@
 //! the order they happened and before the operation's own error is thrown.
 
 use super::ClientRef;
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
 use crate::zend::{obj, sys, zval};
 use mongo_core::apm::{CommandInfo, Event, Timed};
@@ -55,7 +55,9 @@ pub(crate) unsafe fn takes_hrtime(ce: *mut sys::zend_class_entry, name: &[u8], n
     const ZEND_ACC_VARIADIC: u32 = 1 << 14;
     const MAY_BE_LONG: u32 = 1 << 4;
     const TYPE_MASK: u32 = (1 << 25) - 1;
-    let Some(z) = crate::zend::hash::find(&(*ce).function_table, name) else { return false };
+    let Some(z) = crate::zend::hash::find(&(*ce).function_table, name) else {
+        return false;
+    };
     let f = (*z).value.ptr as *const sys::zend_function;
     if f.is_null() || (*f).type_ != ZEND_USER_FUNCTION {
         return false;
@@ -113,7 +115,12 @@ unsafe fn ce(n: &CStr) -> *mut sys::zend_class_entry {
 
 fn update_count() {
     let g = GLOBAL.with(|g| g.borrow().len());
-    let m: usize = MANAGERS.with(|m| m.borrow().iter().map(|(o, _)| unsafe { super::manager::subscribers_of(*o).len() }).sum());
+    let m: usize = MANAGERS.with(|m| {
+        m.borrow()
+            .iter()
+            .map(|(o, _)| unsafe { super::manager::subscribers_of(*o).len() })
+            .sum()
+    });
     mongo_core::apm::set_subscriber_count(g + m);
 }
 
@@ -152,14 +159,22 @@ pub unsafe fn remove(list: &mut Subscribers, z: *mut sys::zval) {
 
 unsafe fn parse_subscriber(ex: Ex) -> Option<*mut sys::zval> {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"O".as_ptr(), &mut z, ce(c"mongodb\\driver\\monitoring\\subscriber")) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"O".as_ptr(),
+        &mut z,
+        ce(c"mongodb\\driver\\monitoring\\subscriber"),
+    ) != 0
+    {
         return None;
     }
     Some(z)
 }
 
 pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_addSubscriber(ex: Ex, _rv: *mut sys::zval) {
-    let Some(z) = parse_subscriber(ex) else { return };
+    let Some(z) = parse_subscriber(ex) else {
+        return;
+    };
     GLOBAL.with(|g| add(&mut g.borrow_mut(), z));
     update_count();
     if super::log::is_logger(z) {
@@ -167,8 +182,13 @@ pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_addSubscriber(ex: Ex, _rv
     }
 }
 
-pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(ex: Ex, _rv: *mut sys::zval) {
-    let Some(z) = parse_subscriber(ex) else { return };
+pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(
+    ex: Ex,
+    _rv: *mut sys::zval,
+) {
+    let Some(z) = parse_subscriber(ex) else {
+        return;
+    };
     let mut taken = None;
     GLOBAL.with(|g| {
         let mut g = g.borrow_mut();
@@ -186,17 +206,24 @@ pub unsafe extern "C" fn zif_MongoDB_Driver_Monitoring_removeSubscriber(ex: Ex, 
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_addSubscriber(ex: Ex, _rv: *mut sys::zval) {
-    let Some(z) = parse_subscriber(ex) else { return };
+    let Some(z) = parse_subscriber(ex) else {
+        return;
+    };
     // phongo throws and still registers it (only its APM interfaces are ever used)
     if super::log::is_logger(z) {
-        throw(E::InvalidArgument, "LogSubscriber instances cannot be registered with a Manager");
+        throw(
+            E::InvalidArgument,
+            "LogSubscriber instances cannot be registered with a Manager",
+        );
     }
     add(super::manager::subscribers_of(call::this(ex)), z);
     update_count();
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_removeSubscriber(ex: Ex, _rv: *mut sys::zval) {
-    let Some(z) = parse_subscriber(ex) else { return };
+    let Some(z) = parse_subscriber(ex) else {
+        return;
+    };
     remove(super::manager::subscribers_of(call::this(ex)), z);
     update_count();
 }
@@ -209,14 +236,24 @@ unsafe fn subscribers_for(c: &ClientRef, of: *mut sys::zend_class_entry) -> Vec<
     let mut take = |list: &Subscribers| {
         for (h, z, m) in list {
             // a subscriber the GC has freed (or is freeing) is never called
-            if zval::is(z, sys::IS_OBJECT) && obj::is_live(z.value.obj) && obj::instanceof((*z.value.obj).ce, of) && !seen.contains(h) {
+            if zval::is(z, sys::IS_OBJECT)
+                && obj::is_live(z.value.obj)
+                && obj::instanceof((*z.value.obj).ce, of)
+                && !seen.contains(h)
+            {
                 seen.push(*h);
                 out.push((zval::copy(z), *m));
             }
         }
     };
     GLOBAL.with(|g| take(&g.borrow()));
-    let managers: Vec<*mut sys::zend_object> = MANAGERS.with(|m| m.borrow().iter().filter(|(_, mc)| std::rc::Rc::ptr_eq(mc, c)).map(|(o, _)| *o).collect());
+    let managers: Vec<*mut sys::zend_object> = MANAGERS.with(|m| {
+        m.borrow()
+            .iter()
+            .filter(|(_, mc)| std::rc::Rc::ptr_eq(mc, c))
+            .map(|(o, _)| *o)
+            .collect()
+    });
     for o in managers {
         take(super::manager::subscribers_of(o));
     }
@@ -243,20 +280,47 @@ pub unsafe fn flush(c: &ClientRef) {
 }
 
 unsafe fn dispatch(c: &ClientRef, Timed { at, event: ev }: Timed) {
-    let is_command = matches!(ev, Event::CommandStarted { .. } | Event::CommandSucceeded { .. } | Event::CommandFailed { .. });
-    let sub_ce = if is_command { ce(c"mongodb\\driver\\monitoring\\commandsubscriber") } else { ce(c"mongodb\\driver\\monitoring\\sdamsubscriber") };
+    let is_command = matches!(
+        ev,
+        Event::CommandStarted { .. } | Event::CommandSucceeded { .. } | Event::CommandFailed { .. }
+    );
+    let sub_ce = if is_command {
+        ce(c"mongodb\\driver\\monitoring\\commandsubscriber")
+    } else {
+        ce(c"mongodb\\driver\\monitoring\\sdamsubscriber")
+    };
     let subs = subscribers_for(c, sub_ce);
     if !subs.is_empty() {
         let (method, z): (&CStr, sys::zval) = match ev {
-            Event::CommandStarted { info, command } => (c"commandStarted", started_event(&info, &command)),
-            Event::CommandSucceeded { info, duration_us, reply } => (c"commandSucceeded", succeeded_event(&info, duration_us, &reply)),
-            Event::CommandFailed { info, duration_us, error, reply } => (c"commandFailed", failed_event(&info, duration_us, &error, &reply)),
+            Event::CommandStarted { info, command } => {
+                (c"commandStarted", started_event(&info, &command))
+            }
+            Event::CommandSucceeded {
+                info,
+                duration_us,
+                reply,
+            } => (
+                c"commandSucceeded",
+                succeeded_event(&info, duration_us, &reply),
+            ),
+            Event::CommandFailed {
+                info,
+                duration_us,
+                error,
+                reply,
+            } => (
+                c"commandFailed",
+                failed_event(&info, duration_us, &error, &reply),
+            ),
             ev => match super::apm_sdam::event_object(ev) {
                 Some(x) => x,
                 None => return,
             },
         };
-        let bit = METHODS.iter().position(|m| *m == method).map_or(0, |i| 1u16 << i);
+        let bit = METHODS
+            .iter()
+            .position(|m| *m == method)
+            .map_or(0, |i| 1u16 << i);
         for (s, mask) in &subs {
             if call::has_exception() {
                 break;
@@ -279,15 +343,45 @@ pub(crate) unsafe fn set(o: *mut sys::zend_object, name: &[u8], mut v: sys::zval
 unsafe fn common(o: *mut sys::zend_object, info: &CommandInfo) {
     set(o, b"host", zval::string(info.host.as_bytes()));
     set(o, b"port", zval::long(info.port as i64));
-    set(o, b"commandName", zval::string(info.command_name.as_bytes()));
-    set(o, b"databaseName", zval::string(info.database_name.as_bytes()));
+    set(
+        o,
+        b"commandName",
+        zval::string(info.command_name.as_bytes()),
+    );
+    set(
+        o,
+        b"databaseName",
+        zval::string(info.database_name.as_bytes()),
+    );
 }
 
 unsafe fn ids(o: *mut sys::zend_object, info: &CommandInfo) {
-    set(o, b"operationId", zval::string(info.operation_id.to_string().as_bytes()));
-    set(o, b"requestId", zval::string(info.request_id.to_string().as_bytes()));
-    set(o, b"serviceId", info.service_id.as_ref().map_or_else(zval::null, |s| crate::bson::types::new_objectid(s)));
-    set(o, b"serverConnectionId", if info.server_connection_id == -1 { zval::null() } else { zval::long(info.server_connection_id) });
+    set(
+        o,
+        b"operationId",
+        zval::string(info.operation_id.to_string().as_bytes()),
+    );
+    set(
+        o,
+        b"requestId",
+        zval::string(info.request_id.to_string().as_bytes()),
+    );
+    set(
+        o,
+        b"serviceId",
+        info.service_id
+            .as_ref()
+            .map_or_else(zval::null, |s| crate::bson::types::new_objectid(s)),
+    );
+    set(
+        o,
+        b"serverConnectionId",
+        if info.server_connection_id == -1 {
+            zval::null()
+        } else {
+            zval::long(info.server_connection_id)
+        },
+    );
 }
 
 /// phongo_commandstartedevent_init
@@ -329,7 +423,12 @@ pub(crate) unsafe fn error_object(error: &mongo_core::error::Error) -> sys::zval
 }
 
 /// phongo_commandfailedevent_init
-unsafe fn failed_event(info: &CommandInfo, duration_us: i64, error: &mongo_core::error::Error, reply: &[u8]) -> sys::zval {
+unsafe fn failed_event(
+    info: &CommandInfo,
+    duration_us: i64,
+    error: &mongo_core::error::Error,
+    reply: &[u8],
+) -> sys::zval {
     let z = obj::new_zval(ce(c"mongodb\\driver\\monitoring\\commandfailedevent"));
     let o = z.value.obj;
     common(o, info);
@@ -349,7 +448,14 @@ pub(crate) unsafe fn prop(ex: Ex, rv: *mut sys::zval, name: &CStr) {
     }
     let o = call::this(ex);
     let mut tmp = zval::undef();
-    let z = sys::zend_read_property((*o).ce, o, name.as_ptr(), name.to_bytes().len(), false, &mut tmp);
+    let z = sys::zend_read_property(
+        (*o).ce,
+        o,
+        name.as_ptr(),
+        name.to_bytes().len(),
+        false,
+        &mut tmp,
+    );
     zval::write(rv, zval::copy(zval::deref(z)));
 }
 
@@ -357,131 +463,256 @@ unsafe fn private_ctor() {
     throw(E::Runtime, "Accessing private constructor");
 }
 
-
 // the command event getters (PHONGO_PROPERTY_GETTER)
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getCommandName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"commandName")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDatabaseName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDatabaseName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"databaseName")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getDurationMicros(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"duration")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getError(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getError(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"error")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getHost(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getHost(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"host")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getOperationId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getOperationId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"operationId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getPort(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getPort(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"port")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getReply(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"reply")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getRequestId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getRequestId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"requestId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConnectionId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServerConnectionId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"serverConnectionId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent_getServiceId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"serviceId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommand(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommand(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"command")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getCommandName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"commandName")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getDatabaseName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getDatabaseName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"databaseName")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getHost(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getHost(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"host")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getOperationId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getOperationId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"operationId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getPort(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getPort(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"port")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getRequestId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getRequestId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"requestId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConnectionId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServerConnectionId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"serverConnectionId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent_getServiceId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"serviceId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getCommandName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"commandName")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDatabaseName(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDatabaseName(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"databaseName")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getDurationMicros(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"duration")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getHost(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getHost(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"host")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getOperationId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getOperationId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"operationId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getPort(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getPort(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"port")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getReply(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getReply(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"reply")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getRequestId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getRequestId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"requestId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServerConnectionId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"serverConnectionId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent_getServiceId(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     prop(ex, rv, c"serviceId")
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandFailedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandStartedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_CommandSucceededEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerClosedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerClosedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatFailedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatStartedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerHeartbeatSucceededEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerOpeningEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyClosedEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }
-pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyOpeningEvent___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     private_ctor()
 }

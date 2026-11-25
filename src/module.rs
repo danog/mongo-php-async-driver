@@ -1,10 +1,10 @@
 //! The module entry: registered as `mongodb`, with ext-mongodb's version, dependencies, INI
 //! settings and phpinfo() rows (phongo.c, phongo_ini.c).
 
-use crate::zend::{self, sys};
-use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOCRYPT_VERSION, LIBMONGOC_VERSION};
-use std::ffi::{c_char, c_int, c_void, CStr};
-use std::ptr::{addr_of, addr_of_mut, null, null_mut};
+use crate::zend::{self, EngineCell, sys};
+use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOC_VERSION, LIBMONGOCRYPT_VERSION};
+use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ptr::{addr_of, null, null_mut};
 
 const VERSION: &CStr = c"2.5.8";
 const _: () = assert!(VERSION.to_bytes().len() == EXT_VERSION.len());
@@ -12,7 +12,12 @@ const _: () = assert!(VERSION.to_bytes().len() == EXT_VERSION.len());
 const MODULE_DEP_REQUIRED: u8 = 1;
 
 const fn dep(name: &'static CStr) -> sys::zend_module_dep {
-    sys::zend_module_dep { name: name.as_ptr(), rel: null(), version: null(), type_: MODULE_DEP_REQUIRED }
+    sys::zend_module_dep {
+        name: name.as_ptr(),
+        rel: null(),
+        version: null(),
+        type_: MODULE_DEP_REQUIRED,
+    }
 }
 
 static DEPS: zend::Static<[sys::zend_module_dep; 5]> = zend::Static([
@@ -20,7 +25,12 @@ static DEPS: zend::Static<[sys::zend_module_dep; 5]> = zend::Static([
     dep(c"json"),
     dep(c"spl"),
     dep(c"standard"),
-    sys::zend_module_dep { name: null(), rel: null(), version: null(), type_: 0 },
+    sys::zend_module_dep {
+        name: null(),
+        rel: null(),
+        version: null(),
+        type_: 0,
+    },
 ]);
 
 unsafe extern "C" fn on_update_debug(
@@ -31,7 +41,11 @@ unsafe extern "C" fn on_update_debug(
     _a3: *mut c_void,
     _stage: c_int,
 ) -> sys::zend_result {
-    crate::driver::log::set_debug(if new_value.is_null() { None } else { Some(zend::zstr::bytes(new_value)) });
+    crate::driver::log::set_debug(if new_value.is_null() {
+        None
+    } else {
+        Some(zend::zstr::bytes(new_value))
+    });
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
@@ -71,13 +85,25 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
     crate::driver::apm::minit();
     sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
     crate::zend::obj::init_std();
-    crate::gen::api::register_all();
-    sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
+    crate::r#gen::api::register_all();
+    sys::zend_register_string_constant(
+        c"MONGODB_VERSION".as_ptr(),
+        15,
+        VERSION.as_ptr(),
+        CONST_PERSISTENT,
+        module_number,
+    );
     if !crate::driver::aio::minit(module_number) {
         // PHP reports "Unable to start mongodb module" and does not start
         return sys::ZEND_RESULT_CODE_FAILURE;
     }
-    sys::zend_register_string_constant(c"MONGODB_STABILITY".as_ptr(), 17, c"stable".as_ptr(), CONST_PERSISTENT, module_number);
+    sys::zend_register_string_constant(
+        c"MONGODB_STABILITY".as_ptr(),
+        17,
+        c"stable".as_ptr(),
+        CONST_PERSISTENT,
+        module_number,
+    );
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
@@ -128,7 +154,7 @@ unsafe extern "C" fn minfo(module: *mut sys::zend_module_entry) {
     sys::display_ini_entries(module);
 }
 
-static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
+static MODULE: EngineCell<sys::zend_module_entry> = EngineCell::new(sys::zend_module_entry {
     size: std::mem::size_of::<sys::zend_module_entry>() as u16,
     zend_api: const_parse(env!("PHP_MODULE_API")),
     zend_debug: 0,
@@ -154,7 +180,7 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     #[cfg(php_zts)]
     globals_size: std::mem::size_of::<usize>(),
     #[cfg(php_zts)]
-    globals_id_ptr: addr_of_mut!(GLOBALS_ID),
+    globals_id_ptr: GLOBALS_ID.get(),
     #[cfg(php_zts)]
     globals_ctor: Some(gctor),
     #[cfg(php_zts)]
@@ -165,13 +191,13 @@ static mut MODULE: sys::zend_module_entry = sys::zend_module_entry {
     handle: null_mut(),
     module_number: 0,
     build_id: concat!(env!("PHP_BUILD_ID"), "\0").as_ptr() as *const c_char,
-};
+});
 
 /// ZTS: the TSRM id of the module's per-thread globals, which hold nothing but the thread they
 /// were made for: their destructor (GSHUTDOWN) destroys that thread's persistent clients
 /// (phongo_pclient_destroy_all at GSHUTDOWN), as each thread has its own (thread_local).
 #[cfg(php_zts)]
-static mut GLOBALS_ID: c_int = 0;
+static GLOBALS_ID: EngineCell<c_int> = EngineCell::new(0);
 
 /// A per-thread address: the identity of the calling thread while it lives.
 #[cfg(php_zts)]
@@ -211,8 +237,8 @@ const fn const_parse(s: &str) -> u32 {
 }
 
 /// The entry point PHP looks up when loading the extension.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn get_module() -> *mut sys::zend_module_entry {
-    unsafe { (*addr_of_mut!(MODULE)).functions = crate::gen::api::functions() };
-    addr_of_mut!(MODULE)
+    unsafe { (*MODULE.get()).functions = crate::r#gen::api::functions() };
+    MODULE.get()
 }

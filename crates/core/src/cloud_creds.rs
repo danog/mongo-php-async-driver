@@ -5,7 +5,7 @@
 //! The metadata services are reached over plain HTTP at their link-local addresses, as libmongoc.
 
 use crate::bson::iter::{Iter, Value};
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 use crate::http::{self, Url};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -55,13 +55,27 @@ fn env(name: &str) -> Option<String> {
 }
 
 /// `_validate_and_set_creds`: Ok(None) when nothing is set
-fn validate(akid: Option<&str>, secret: Option<&str>, token: Option<&str>) -> Result<Option<AwsCredentials>, Error> {
+fn validate(
+    akid: Option<&str>,
+    secret: Option<&str>,
+    token: Option<&str>,
+) -> Result<Option<AwsCredentials>, Error> {
     let has = |v: Option<&str>| v.is_some_and(|x| !x.is_empty());
     match (has(akid), has(secret)) {
-        (true, false) => return Err(auth_err("ACCESS_KEY_ID is set, but SECRET_ACCESS_KEY is missing")),
-        (false, true) => return Err(auth_err("SECRET_ACCESS_KEY is set, but ACCESS_KEY_ID is missing")),
+        (true, false) => {
+            return Err(auth_err(
+                "ACCESS_KEY_ID is set, but SECRET_ACCESS_KEY is missing",
+            ));
+        }
+        (false, true) => {
+            return Err(auth_err(
+                "SECRET_ACCESS_KEY is set, but ACCESS_KEY_ID is missing",
+            ));
+        }
         (false, false) if has(token) => {
-            return Err(auth_err("AWS_SESSION_TOKEN is set, but ACCESS_KEY_ID and SECRET_ACCESS_KEY are missing"));
+            return Err(auth_err(
+                "AWS_SESSION_TOKEN is set, but ACCESS_KEY_ID and SECRET_ACCESS_KEY are missing",
+            ));
         }
         (false, false) => return Ok(None),
         (true, true) => {}
@@ -80,15 +94,22 @@ const EXPIRATION_WINDOW: Duration = Duration::from_secs(5 * 60);
 /// `expiration_ms_to_timer`: milliseconds since the epoch to the instant the credentials expire
 /// (less the window); already expired times give `now`
 fn expires_at(expiration_ms: i64) -> Instant {
-    let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-    let left = Duration::from_millis(expiration_ms.saturating_sub(now_ms).max(0) as u64).saturating_sub(EXPIRATION_WINDOW);
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64);
+    let left = Duration::from_millis(expiration_ms.saturating_sub(now_ms).max(0) as u64)
+        .saturating_sub(EXPIRATION_WINDOW);
     Instant::now() + left
 }
 
 /// `expiration_iso8601_to_timer`
 fn expires_iso8601(s: &str) -> Result<Instant, Error> {
-    let json = format!("{{\"Expiration\" : {{\"$date\" : \"{}\"}}}}", s.replace(['"', '\\'], ""));
-    let doc = crate::bson::json_parse::from_json(json.as_bytes()).map_err(|e| auth_err(format!("failed to parse Expiration: {e}")))?;
+    let json = format!(
+        "{{\"Expiration\" : {{\"$date\" : \"{}\"}}}}",
+        s.replace(['"', '\\'], "")
+    );
+    let doc = crate::bson::json_parse::from_json(json.as_bytes())
+        .map_err(|e| auth_err(format!("failed to parse Expiration: {e}")))?;
     match Iter::new(&doc).and_then(|mut i| i.next().then(|| i.value())) {
         Some(Value::DateTime(ms)) => Ok(expires_at(ms)),
         _ => Err(auth_err("failed to parse Expiration")),
@@ -108,9 +129,24 @@ fn utf8_case(doc: &[u8], key: &str) -> Option<String> {
 }
 
 /// `_send_http_request` over plain HTTP: 10 s for the whole exchange
-fn get(host: &(String, u16), method: &str, path: &str, headers: &str) -> Result<http::Response, String> {
+fn get(
+    host: &(String, u16),
+    method: &str,
+    path: &str,
+    headers: &str,
+) -> Result<http::Response, String> {
     check_path(path)?;
-    http::send(method, &Url { host: host.0.clone(), port: host.1, path: path.to_owned() }, headers, &[], Duration::from_secs(10))
+    http::send(
+        method,
+        &Url {
+            host: host.0.clone(),
+            port: host.1,
+            path: path.to_owned(),
+        },
+        headers,
+        &[],
+        Duration::from_secs(10),
+    )
 }
 
 /// Request targets are visible ASCII only, so no value (an environment variable, a token file, a
@@ -124,7 +160,12 @@ fn check_path(path: &str) -> Result<(), String> {
 
 /// ECS/EC2 credentials JSON (`_obtain_creds_from_ecs` / `_from_ec2`)
 fn creds_from_json(r: &http::Response, what: &str) -> Result<Option<AwsCredentials>, Error> {
-    let doc = crate::bson::json_parse::from_json(&r.body).map_err(|_| auth_err(format!("invalid JSON in {what} response. Response headers: {}", r.headers)))?;
+    let doc = crate::bson::json_parse::from_json(&r.body).map_err(|_| {
+        auth_err(format!(
+            "invalid JSON in {what} response. Response headers: {}",
+            r.headers
+        ))
+    })?;
     let expires = match utf8_case(&doc, "Expiration") {
         Some(e) => Some(expires_iso8601(&e)?),
         None => None,
@@ -132,39 +173,73 @@ fn creds_from_json(r: &http::Response, what: &str) -> Result<Option<AwsCredentia
     let akid = utf8_case(&doc, "AccessKeyId");
     let secret = utf8_case(&doc, "SecretAccessKey");
     let token = utf8_case(&doc, "Token");
-    Ok(validate(akid.as_deref(), secret.as_deref(), token.as_deref())?.map(|c| AwsCredentials { expires, ..c }))
+    Ok(
+        validate(akid.as_deref(), secret.as_deref(), token.as_deref())?
+            .map(|c| AwsCredentials { expires, ..c }),
+    )
 }
 
 fn from_ecs(hosts: &Hosts) -> Result<Option<AwsCredentials>, Error> {
-    let Some(uri) = env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").filter(|u| !u.is_empty()) else { return Ok(None) };
-    let r = get(&hosts.ecs, "GET", &uri, "").map_err(|e| auth_err(format!("failed to contact ECS link local server: {e}")))?;
+    let Some(uri) = env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").filter(|u| !u.is_empty()) else {
+        return Ok(None);
+    };
+    let r = get(&hosts.ecs, "GET", &uri, "")
+        .map_err(|e| auth_err(format!("failed to contact ECS link local server: {e}")))?;
     creds_from_json(&r, "ECS")
 }
 
 fn from_ec2(hosts: &Hosts) -> Result<Option<AwsCredentials>, Error> {
     let fail = |e: String| auth_err(format!("failed to contact EC2 link local server: {e}"));
-    let r = get(&hosts.ec2, "PUT", "/latest/api/token", "X-aws-ec2-metadata-token-ttl-seconds: 30\r\n").map_err(fail)?;
+    let r = get(
+        &hosts.ec2,
+        "PUT",
+        "/latest/api/token",
+        "X-aws-ec2-metadata-token-ttl-seconds: 30\r\n",
+    )
+    .map_err(fail)?;
     if r.body.is_empty() {
-        return Err(auth_err(format!("unable to retrieve token from EC2 metadata. Headers: {}", r.headers)));
+        return Err(auth_err(format!(
+            "unable to retrieve token from EC2 metadata. Headers: {}",
+            r.headers
+        )));
     }
     let token = String::from_utf8_lossy(&r.body).trim_end().to_owned();
     if !token.bytes().all(|b| b.is_ascii_graphic()) {
-        return Err(auth_err("unable to retrieve token from EC2 metadata: invalid characters"));
+        return Err(auth_err(
+            "unable to retrieve token from EC2 metadata: invalid characters",
+        ));
     }
     let header = format!("X-aws-ec2-metadata-token: {token}\r\n");
-    let r = get(&hosts.ec2, "GET", "/latest/meta-data/iam/security-credentials/", &header).map_err(fail)?;
+    let r = get(
+        &hosts.ec2,
+        "GET",
+        "/latest/meta-data/iam/security-credentials/",
+        &header,
+    )
+    .map_err(fail)?;
     if r.body.is_empty() {
-        return Err(auth_err(format!("unable to retrieve role_name from EC2 metadata. Headers: {}", r.headers)));
+        return Err(auth_err(format!(
+            "unable to retrieve role_name from EC2 metadata. Headers: {}",
+            r.headers
+        )));
     }
     let role = String::from_utf8_lossy(&r.body).trim_end().to_owned();
-    let r = get(&hosts.ec2, "GET", &format!("/latest/meta-data/iam/security-credentials/{role}"), &header).map_err(fail)?;
+    let r = get(
+        &hosts.ec2,
+        "GET",
+        &format!("/latest/meta-data/iam/security-credentials/{role}"),
+        &header,
+    )
+    .map_err(fail)?;
     creds_from_json(&r, "EC2")
 }
 
 /// `_mongoc_get_aws_sts_endpoint`
 fn sts_endpoint() -> String {
     match (env("AWS_STS_REGIONAL_ENDPOINTS"), env("AWS_REGION")) {
-        (Some(r), Some(region)) if r == "regional" && !region.is_empty() => format!("sts.{region}.amazonaws.com"),
+        (Some(r), Some(region)) if r == "regional" && !region.is_empty() => {
+            format!("sts.{region}.amazonaws.com")
+        }
         _ => "sts.amazonaws.com".into(),
     }
 }
@@ -173,7 +248,9 @@ fn sts_endpoint() -> String {
 const MAX_TOKEN_FILE: u64 = 1024 * 1024;
 
 fn from_web_identity(hosts: &Hosts) -> Result<Option<AwsCredentials>, Error> {
-    let (Some(file), Some(arn)) = (env("AWS_WEB_IDENTITY_TOKEN_FILE"), env("AWS_ROLE_ARN")) else { return Ok(None) };
+    let (Some(file), Some(arn)) = (env("AWS_WEB_IDENTITY_TOKEN_FILE"), env("AWS_ROLE_ARN")) else {
+        return Ok(None);
+    };
     if file.is_empty() || arn.is_empty() {
         return Ok(None);
     }
@@ -181,82 +258,132 @@ fn from_web_identity(hosts: &Hosts) -> Result<Option<AwsCredentials>, Error> {
         Some(s) => s,
         None => {
             let mut b = [0u8; 16];
-            getrandom_fill(&mut b).map_err(|_| auth_err("unable to generate random bytes for AWS_ROLE_SESSION_NAME"))?;
+            getrandom_fill(&mut b).map_err(|_| {
+                auth_err("unable to generate random bytes for AWS_ROLE_SESSION_NAME")
+            })?;
             b.iter().map(|x| format!("{x:02x}")).collect()
         }
     };
     let jwt = {
         use std::io::Read;
-        let f = std::fs::File::open(&file).map_err(|e| auth_err(format!("failed to open AWS_WEB_IDENTITY_TOKEN_FILE: {file}. Reason: {e}")))?;
+        let f = std::fs::File::open(&file).map_err(|e| {
+            auth_err(format!(
+                "failed to open AWS_WEB_IDENTITY_TOKEN_FILE: {file}. Reason: {e}"
+            ))
+        })?;
         let mut s = Vec::new();
-        f.take(MAX_TOKEN_FILE).read_to_end(&mut s).map_err(|e| auth_err(format!("failed to read AWS_WEB_IDENTITY_TOKEN_FILE: {file}. Reason: {e}")))?;
+        f.take(MAX_TOKEN_FILE).read_to_end(&mut s).map_err(|e| {
+            auth_err(format!(
+                "failed to read AWS_WEB_IDENTITY_TOKEN_FILE: {file}. Reason: {e}"
+            ))
+        })?;
         String::from_utf8_lossy(&s).trim_end().to_owned()
     };
-    let path = format!("/?Action=AssumeRoleWithWebIdentity&RoleSessionName={session}&RoleArn={arn}&WebIdentityToken={jwt}&Version=2011-06-15");
+    let path = format!(
+        "/?Action=AssumeRoleWithWebIdentity&RoleSessionName={session}&RoleArn={arn}&WebIdentityToken={jwt}&Version=2011-06-15"
+    );
     let (host, port, tls) = match &hosts.sts {
         Some((h, p, t)) => (h.clone(), *p, t.clone()),
         None => (sts_endpoint(), 443, crate::tls::TlsOptions::default()),
     };
     let fail = |e: String| auth_err(format!("failed to contact {host}: {e}"));
     check_path(&path).map_err(fail)?;
-    let url = Url { host: host.clone(), port, path };
+    let url = Url {
+        host: host.clone(),
+        port,
+        path,
+    };
     let msg = http::request_head("POST", &url, "Accept: application/json\r\n", 0);
     let mut buf = Vec::new();
     let mut too_big = false;
-    let res = crate::kms_tls::exchange_timeout(&format!("{host}:{port}"), &tls, msg.as_bytes(), &mut |b: &[u8]| {
-        if b.is_empty() {
-            return true;
-        }
-        if buf.len() + b.len() > 8 * 1024 * 1024 {
-            too_big = true;
-            return true;
-        }
-        buf.extend_from_slice(b);
-        false
-    }, Duration::from_secs(10));
+    let res = crate::kms_tls::exchange_timeout(
+        &format!("{host}:{port}"),
+        &tls,
+        msg.as_bytes(),
+        &mut |b: &[u8]| {
+            if b.is_empty() {
+                return true;
+            }
+            if buf.len() + b.len() > 8 * 1024 * 1024 {
+                too_big = true;
+                return true;
+            }
+            buf.extend_from_slice(b);
+            false
+        },
+        Duration::from_secs(10),
+    );
     res.map_err(|(_, e)| fail(e.message))?;
     if too_big {
         return Err(fail("HTTP response message is too large".into()));
     }
     let r = http::parse_response(&buf).map_err(fail)?;
-    let doc = crate::bson::json_parse::from_json(&r.body)
-        .map_err(|_| auth_err(format!("invalid JSON in response from {host}. Response headers: {}", r.headers)))?;
-    if let Some(mut it) = Iter::new(&doc) {
-        if it.find(b"Error") {
-            let json = match it.value() {
-                Value::Document(d) => crate::bson::json::to_json(d, crate::bson::json::Mode::Relaxed, false).map(|j| String::from_utf8_lossy(&j).into_owned()).unwrap_or_default(),
-                _ => String::new(),
-            };
-            return Err(auth_err(format!("Response to AssumeRoleWithWebIdentity contains 'Error': {json}")));
-        }
+    let doc = crate::bson::json_parse::from_json(&r.body).map_err(|_| {
+        auth_err(format!(
+            "invalid JSON in response from {host}. Response headers: {}",
+            r.headers
+        ))
+    })?;
+    if let Some(mut it) = Iter::new(&doc)
+        && it.find(b"Error")
+    {
+        let json = match it.value() {
+            Value::Document(d) => {
+                crate::bson::json::to_json(d, crate::bson::json::Mode::Relaxed, false)
+                    .map(|j| String::from_utf8_lossy(&j).into_owned())
+                    .unwrap_or_default()
+            }
+            _ => String::new(),
+        };
+        return Err(auth_err(format!(
+            "Response to AssumeRoleWithWebIdentity contains 'Error': {json}"
+        )));
     }
     let path = "AssumeRoleWithWebIdentityResponse.AssumeRoleWithWebIdentityResult.Credentials";
     let mut creds: &[u8] = &doc;
     for k in path.split('.') {
-        let mut it = Iter::new(creds).ok_or_else(|| auth_err(format!("did not find {path} in response from {host}.")))?;
+        let mut it = Iter::new(creds)
+            .ok_or_else(|| auth_err(format!("did not find {path} in response from {host}.")))?;
         match it.find(k.as_bytes()).then(|| it.value()) {
             Some(Value::Document(d)) => creds = d,
-            _ => return Err(auth_err(format!("did not find {path} in response from {host}."))),
+            _ => {
+                return Err(auth_err(format!(
+                    "did not find {path} in response from {host}."
+                )));
+            }
         }
     }
     let field = |k: &str| -> Result<String, Error> {
-        let mut it = Iter::new(creds).ok_or_else(|| auth_err(format!("did not find {k} in response from {host}")))?;
+        let mut it = Iter::new(creds)
+            .ok_or_else(|| auth_err(format!("did not find {k} in response from {host}")))?;
         match it.find(k.as_bytes()).then(|| it.value()) {
             Some(Value::Utf8(v)) => Ok(String::from_utf8_lossy(v).into_owned()),
-            _ => Err(auth_err(format!("did not find {k} in response from {host}"))),
+            _ => Err(auth_err(format!(
+                "did not find {k} in response from {host}"
+            ))),
         }
     };
     let akid = field("AccessKeyId")?;
     let secret = field("SecretAccessKey")?;
     let token = field("SessionToken")?;
     let expires = {
-        let mut it = Iter::new(creds).ok_or_else(|| auth_err(format!("did not find Expiration in response from {host}")))?;
+        let mut it = Iter::new(creds)
+            .ok_or_else(|| auth_err(format!("did not find Expiration in response from {host}")))?;
         match it.find(b"Expiration").then(|| it.value()) {
             Some(Value::Double(d)) => expires_at((1000.0 * d) as i64),
-            _ => return Err(auth_err(format!("did not find Expiration in response from {host}"))),
+            _ => {
+                return Err(auth_err(format!(
+                    "did not find Expiration in response from {host}"
+                )));
+            }
         }
     };
-    Ok(validate(Some(&akid), Some(&secret), Some(&token))?.map(|c| AwsCredentials { expires: Some(expires), ..c }))
+    Ok(
+        validate(Some(&akid), Some(&secret), Some(&token))?.map(|c| AwsCredentials {
+            expires: Some(expires),
+            ..c
+        }),
+    )
 }
 
 fn getrandom_fill(b: &mut [u8]) -> Result<(), ()> {
@@ -268,7 +395,9 @@ static AWS_CACHE: Mutex<Option<AwsCredentials>> = Mutex::new(None);
 
 fn cached() -> Option<AwsCredentials> {
     let c = AWS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    c.as_ref().filter(|c| c.expires.is_some_and(|e| Instant::now() < e)).cloned()
+    c.as_ref()
+        .filter(|c| c.expires.is_some_and(|e| Instant::now() < e))
+        .cloned()
 }
 
 /// `_mongoc_aws_credentials_obtain` without a URI: the cache, the environment, web identity,
@@ -277,13 +406,20 @@ pub fn aws_credentials(hosts: &Hosts) -> Result<AwsCredentials, Error> {
     if let Some(c) = cached() {
         return Ok(c);
     }
-    let (akid, secret, token) = (env("AWS_ACCESS_KEY_ID"), env("AWS_SECRET_ACCESS_KEY"), env("AWS_SESSION_TOKEN"));
+    let (akid, secret, token) = (
+        env("AWS_ACCESS_KEY_ID"),
+        env("AWS_SECRET_ACCESS_KEY"),
+        env("AWS_SESSION_TOKEN"),
+    );
     if let Some(c) = validate(akid.as_deref(), secret.as_deref(), token.as_deref())? {
         return Ok(c);
     }
     // the remote sources run under the cache lock, as libmongoc's
     let mut cache = AWS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(c) = cache.as_ref().filter(|c| c.expires.is_some_and(|e| Instant::now() < e)) {
+    if let Some(c) = cache
+        .as_ref()
+        .filter(|c| c.expires.is_some_and(|e| Instant::now() < e))
+    {
         return Ok(c.clone());
     }
     for source in [from_web_identity, from_ecs, from_ec2] {
@@ -327,18 +463,50 @@ fn utf8(doc: &[u8], key: &str) -> Option<String> {
 /// `mcd_azure_access_token_from_imds` for `https://vault.azure.net`: the token and its lifetime
 pub fn azure_imds_token(hosts: &Hosts) -> Result<(String, Duration), Error> {
     let e = |c: u32, m: String| Error::new(domain::AZURE, c, m);
-    let path = format!("/metadata/identity/oauth2/token?api-version=2018-02-01&resource={}", percent_encode("https://vault.azure.net"));
-    let url = Url { host: hosts.azure.0.clone(), port: hosts.azure.1, path };
-    let r = http::send("GET", &url, "Metadata: true\r\nAccept: application/json\r\n", &[], Duration::from_secs(3)).map_err(stream_socket)?;
+    let path = format!(
+        "/metadata/identity/oauth2/token?api-version=2018-02-01&resource={}",
+        percent_encode("https://vault.azure.net")
+    );
+    let url = Url {
+        host: hosts.azure.0.clone(),
+        port: hosts.azure.1,
+        path,
+    };
+    let r = http::send(
+        "GET",
+        &url,
+        "Metadata: true\r\nAccept: application/json\r\n",
+        &[],
+        Duration::from_secs(3),
+    )
+    .map_err(stream_socket)?;
     let body = String::from_utf8_lossy(&r.body).into_owned();
     if r.status != 200 {
-        return Err(e(KMS_SERVER_HTTP, format!("Error from Azure IMDS server while looking for Managed Identity access token: {body}")));
+        return Err(e(
+            KMS_SERVER_HTTP,
+            format!(
+                "Error from Azure IMDS server while looking for Managed Identity access token: {body}"
+            ),
+        ));
     }
     let doc = crate::bson::json_parse::from_json(&r.body).map_err(|m| Error::new(1, 1, m))?;
-    let (Some(token), Some(_), Some(_), Some(expires)) = (utf8(&doc, "access_token"), utf8(&doc, "resource"), utf8(&doc, "token_type"), utf8(&doc, "expires_in")) else {
-        return Err(e(KMS_SERVER_BAD_JSON, format!("One or more required JSON properties are missing/invalid: data: {body}")));
+    let (Some(token), Some(_), Some(_), Some(expires)) = (
+        utf8(&doc, "access_token"),
+        utf8(&doc, "resource"),
+        utf8(&doc, "token_type"),
+        utf8(&doc, "expires_in"),
+    ) else {
+        return Err(e(
+            KMS_SERVER_BAD_JSON,
+            format!("One or more required JSON properties are missing/invalid: data: {body}"),
+        ));
     };
-    let secs = parse_strtoll(&expires).ok_or_else(|| e(KMS_SERVER_BAD_JSON, format!("Invalid 'expires_in' string \"{expires}\" from IMDS server")))?;
+    let secs = parse_strtoll(&expires).ok_or_else(|| {
+        e(
+            KMS_SERVER_BAD_JSON,
+            format!("Invalid 'expires_in' string \"{expires}\" from IMDS server"),
+        )
+    })?;
     Ok((token, Duration::from_secs(secs.max(0) as u64)))
 }
 
@@ -362,16 +530,33 @@ fn parse_strtoll(s: &str) -> Option<i64> {
 /// `gcp_access_token_from_gcp_server`: the default service account's token
 pub fn gcp_metadata_token(hosts: &Hosts) -> Result<String, Error> {
     let e = |c: u32, m: String| Error::new(domain::GCP, c, m);
-    let url = Url { host: hosts.gcp.0.clone(), port: hosts.gcp.1, path: "/computeMetadata/v1/instance/service-accounts/default/token".into() };
-    let r = http::send("GET", &url, "Metadata-Flavor: Google\r\n", &[], Duration::from_secs(3)).map_err(stream_socket)?;
+    let url = Url {
+        host: hosts.gcp.0.clone(),
+        port: hosts.gcp.1,
+        path: "/computeMetadata/v1/instance/service-accounts/default/token".into(),
+    };
+    let r = http::send(
+        "GET",
+        &url,
+        "Metadata-Flavor: Google\r\n",
+        &[],
+        Duration::from_secs(3),
+    )
+    .map_err(stream_socket)?;
     let body = String::from_utf8_lossy(&r.body).into_owned();
     if r.status != 200 {
-        return Err(e(KMS_SERVER_HTTP, format!("Error from the GCP metadata server while looking for access token: {body}")));
+        return Err(e(
+            KMS_SERVER_HTTP,
+            format!("Error from the GCP metadata server while looking for access token: {body}"),
+        ));
     }
     let doc = crate::bson::json_parse::from_json(&r.body).map_err(|m| Error::new(1, 1, m))?;
     match (utf8(&doc, "access_token"), utf8(&doc, "token_type")) {
         (Some(t), Some(_)) => Ok(t),
-        _ => Err(e(KMS_SERVER_BAD_JSON, format!("One or more required JSON properties are missing/invalid: data: {body}"))),
+        _ => Err(e(
+            KMS_SERVER_BAD_JSON,
+            format!("One or more required JSON properties are missing/invalid: data: {body}"),
+        )),
     }
 }
 
@@ -382,9 +567,18 @@ mod tests {
     #[test]
     fn validation_and_parsing() {
         assert_eq!(validate(None, None, None).unwrap(), None);
-        assert_eq!(validate(Some("a"), None, None).unwrap_err().message, "ACCESS_KEY_ID is set, but SECRET_ACCESS_KEY is missing");
-        assert_eq!(validate(Some(""), Some(""), Some("t")).unwrap_err().message, "AWS_SESSION_TOKEN is set, but ACCESS_KEY_ID and SECRET_ACCESS_KEY are missing");
-        assert_eq!(percent_encode("https://vault.azure.net"), "https%3A%2F%2Fvault.azure.net");
+        assert_eq!(
+            validate(Some("a"), None, None).unwrap_err().message,
+            "ACCESS_KEY_ID is set, but SECRET_ACCESS_KEY is missing"
+        );
+        assert_eq!(
+            validate(Some(""), Some(""), Some("t")).unwrap_err().message,
+            "AWS_SESSION_TOKEN is set, but ACCESS_KEY_ID and SECRET_ACCESS_KEY are missing"
+        );
+        assert_eq!(
+            percent_encode("https://vault.azure.net"),
+            "https%3A%2F%2Fvault.azure.net"
+        );
         assert_eq!(parse_strtoll("3599"), Some(3599));
         assert_eq!(parse_strtoll("0x10"), Some(16));
         assert_eq!(parse_strtoll("12a"), None);
@@ -404,8 +598,15 @@ mod tests {
                 let n = c.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]).into_owned();
                 let line = req.lines().next().unwrap_or_default().to_owned();
-                let body = answers.iter().find(|(p, _)| line.contains(p)).map_or("", |(_, b)| b);
-                let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                let body = answers
+                    .iter()
+                    .find(|(p, _)| line.contains(p))
+                    .map_or("", |(_, b)| b);
+                let _ = write!(
+                    c,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
             }
         });
         port
@@ -422,11 +623,27 @@ mod tests {
             ("/computeMetadata/v1/instance/service-accounts/default/token", "{\"access_token\":\"g\",\"token_type\":\"Bearer\"}"),
         ]);
         let local = ("127.0.0.1".to_string(), ec2);
-        let hosts = Hosts { ecs: local.clone(), ec2: local.clone(), sts: None, azure: local.clone(), gcp: local };
+        let hosts = Hosts {
+            ecs: local.clone(),
+            ec2: local.clone(),
+            sts: None,
+            azure: local.clone(),
+            gcp: local,
+        };
         let c = from_ec2(&hosts).unwrap().unwrap();
-        assert_eq!((c.access_key_id.as_str(), c.secret_access_key.as_str(), c.session_token.as_deref()), ("AK", "SK", Some("T")));
+        assert_eq!(
+            (
+                c.access_key_id.as_str(),
+                c.secret_access_key.as_str(),
+                c.session_token.as_deref()
+            ),
+            ("AK", "SK", Some("T"))
+        );
         assert!(c.expires.is_some_and(|e| e > Instant::now()));
-        assert_eq!(azure_imds_token(&hosts).unwrap(), ("az".to_string(), Duration::from_secs(3599)));
+        assert_eq!(
+            azure_imds_token(&hosts).unwrap(),
+            ("az".to_string(), Duration::from_secs(3599))
+        );
         assert_eq!(gcp_metadata_token(&hosts).unwrap(), "g");
     }
 }

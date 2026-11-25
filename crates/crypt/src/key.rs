@@ -23,7 +23,9 @@ pub struct KeyDoc {
 
 /// `_mongocrypt_key_alt_name_from_iter`
 fn alt_names(v: &Value) -> Result<Vec<AltName>> {
-    let Value::Array(a) = v else { return Err("malformed keyAltNames, expected array".into()) };
+    let Value::Array(a) = v else {
+        return Err("malformed keyAltNames, expected array".into());
+    };
     let mut it = Iter::new(a).ok_or("malformed keyAltNames, could not recurse into array")?;
     let mut out: Vec<AltName> = Vec::new();
     while it.next() {
@@ -47,7 +49,8 @@ impl KeyDoc {
             return Err("invalid BSON".into());
         }
         let mut it = Iter::new(doc).ok_or("invalid BSON")?;
-        let (mut id, mut km, mut kek, mut status, mut cd, mut ud) = (None, None, None, false, None, None);
+        let (mut id, mut km, mut kek, mut status, mut cd, mut ud) =
+            (None, None, None, false, None, None);
         let mut names = Vec::new();
         while it.next() {
             let v = it.value();
@@ -56,14 +59,18 @@ impl KeyDoc {
                 b"keyAltNames" => names = alt_names(&v)?,
                 b"keyMaterial" => match v {
                     Value::Binary(0, d) => km = Some(d.to_vec()),
-                    Value::Binary(..) => return Err("invalid 'keyMaterial', expected subtype 0".into()),
+                    Value::Binary(..) => {
+                        return Err("invalid 'keyMaterial', expected subtype 0".into());
+                    }
                     _ => return Err("invalid 'keyMaterial', expected binary".into()),
                 },
                 b"masterKey" => {
                     if kek.is_some() {
                         return Err("duplicate field 'masterKey' in key document".into());
                     }
-                    let Value::Document(d) = v else { return Err("invalid 'masterKey', expected document".into()) };
+                    let Value::Document(d) = v else {
+                        return Err("invalid 'masterKey', expected document".into());
+                    };
                     kek = Some(Kek::parse(d)?);
                 }
                 b"version" => {
@@ -73,7 +80,9 @@ impl KeyDoc {
                         _ => return Err("invalid 'version', expect int".into()),
                     };
                     if n != 0 {
-                        return Err("unsupported key document version, only supports version=0".into());
+                        return Err(
+                            "unsupported key document version, only supports version=0".into()
+                        );
                     }
                 }
                 b"status" => status = true,
@@ -85,7 +94,12 @@ impl KeyDoc {
                     Value::DateTime(d) => ud = Some(d),
                     _ => return Err("invalid 'updateDate', expect datetime".into()),
                 },
-                k => return Err(format!("unrecognized field '{}'", String::from_utf8_lossy(k))),
+                k => {
+                    return Err(format!(
+                        "unrecognized field '{}'",
+                        String::from_utf8_lossy(k)
+                    ));
+                }
             }
         }
         let id = id.ok_or("invalid key, no '_id'")?;
@@ -96,7 +110,15 @@ impl KeyDoc {
         }
         let creation_date = cd.ok_or("invalid key, no 'creationDate'")?;
         let update_date = ud.ok_or("invalid key, no 'updateDate'")?;
-        Ok(KeyDoc { id, alt_names: names, key_material, kek, creation_date, update_date, bson: doc.to_vec() })
+        Ok(KeyDoc {
+            id,
+            alt_names: names,
+            key_material,
+            kek,
+            creation_date,
+            update_date,
+            bson: doc.to_vec(),
+        })
     }
 }
 
@@ -131,7 +153,9 @@ impl<'a> Ciphertext<'a> {
 
     /// `_mongocrypt_ciphertext_serialize_associated_data`
     pub fn associated_data(&self) -> Option<[u8; 18]> {
-        if self.original_bson_type == 0 || (self.blob_subtype != FLE1_DETERMINISTIC && self.blob_subtype != FLE1_RANDOM) {
+        if self.original_bson_type == 0
+            || (self.blob_subtype != FLE1_DETERMINISTIC && self.blob_subtype != FLE1_RANDOM)
+        {
             return None;
         }
         let mut a = [0u8; 18];

@@ -1,9 +1,9 @@
 //! MongoDB\BSON\Document, PackedArray and Iterator (Document.c, PackedArray.c, Iterator.c).
 #![allow(non_snake_case)]
 
-use super::decode::{self, State, TypeMap, TM};
-use super::types::{cls, new, setup, this, Cls, Props};
-use super::{ce, ce_mut, encode, throw, E};
+use super::decode::{self, State, TM, TypeMap};
+use super::types::{Cls, Props, cls, new, setup, this};
+use super::{E, ce, encode, throw};
 use crate::zend::call::{self, Ex};
 use crate::zend::{hash, obj, sys, zstr, zval};
 use mongo_core::bson::iter::{self, Iter};
@@ -28,7 +28,11 @@ cls!(PackedArray, H_PACKEDARRAY);
 
 unsafe fn fill_data(b: &Bson, ht: *mut sys::HashTable) {
     if !b.bson.is_empty() {
-        hash::str_update(ht, b"data", zval::string(fmt::base64_encode(&b.bson).as_bytes()));
+        hash::str_update(
+            ht,
+            b"data",
+            zval::string(fmt::base64_encode(&b.bson).as_bytes()),
+        );
     }
 }
 
@@ -37,8 +41,15 @@ unsafe fn debug_value(b: &Bson, ht: *mut sys::HashTable, is_array: bool) -> bool
     if b.bson.is_empty() {
         return true;
     }
-    let map = TypeMap { array: TM::Bson, document: TM::Bson, ..Default::default() };
-    let st = State { is_visiting_array: is_array, ..State::new(&map) };
+    let map = TypeMap {
+        array: TM::Bson,
+        document: TM::Bson,
+        ..Default::default()
+    };
+    let st = State {
+        is_visiting_array: is_array,
+        ..State::new(&map)
+    };
     match decode::to_zval(&b.bson, &st) {
         Some(z) => {
             hash::str_update(ht, b"value", z);
@@ -81,11 +92,25 @@ impl Cls for PackedArray {
 }
 
 pub unsafe fn new_document(d: &[u8]) -> sys::zval {
-    new(ce().document, Bson { bson: d.to_vec(), props: Props::default(), retired: Default::default() })
+    new(
+        ce().document.get(),
+        Bson {
+            bson: d.to_vec(),
+            props: Props::default(),
+            retired: Default::default(),
+        },
+    )
 }
 
 pub unsafe fn new_packedarray(d: &[u8]) -> sys::zval {
-    new(ce().packedarray, PackedArray(Bson { bson: d.to_vec(), props: Props::default(), retired: Default::default() }))
+    new(
+        ce().packedarray.get(),
+        PackedArray(Bson {
+            bson: d.to_vec(),
+            props: Props::default(),
+            retired: Default::default(),
+        }),
+    )
 }
 
 /// bson_compare
@@ -114,7 +139,13 @@ unsafe fn from_hash(b: &mut Bson, ht: *mut sys::HashTable, c: *mut sys::zend_cla
     if let Some(d) = hash::find(ht, b"data").filter(|&z| zval::is(z, sys::IS_STRING)) {
         let raw = php_base64_decode(zval::str_bytes(d));
         if !iter::is_valid_static(&raw) {
-            throw(E::InvalidArgument, format!("{} initialization requires valid BSON", crate::zend::class::name(c)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "{} initialization requires valid BSON",
+                    crate::zend::class::name(c)
+                ),
+            );
             return false;
         }
         // an Iterator or a re-entered decode may still borrow the old bytes
@@ -122,7 +153,13 @@ unsafe fn from_hash(b: &mut Bson, ht: *mut sys::HashTable, c: *mut sys::zend_cla
         retired.replace(bson, raw);
         return true;
     }
-    throw(E::InvalidArgument, format!("{} initialization requires \"data\" string field", crate::zend::class::name(c)));
+    throw(
+        E::InvalidArgument,
+        format!(
+            "{} initialization requires \"data\" string field",
+            crate::zend::class::name(c)
+        ),
+    );
     false
 }
 
@@ -157,7 +194,13 @@ fn php_base64_decode(s: &[u8]) -> Vec<u8> {
 }
 
 /// bson_iter_find_w_len, then phongo_bson_value_to_zval.
-unsafe fn get(bson: &[u8], key: &[u8], rv: *mut sys::zval, null_if_missing: bool, array: bool) -> bool {
+unsafe fn get(
+    bson: &[u8],
+    key: &[u8],
+    rv: *mut sys::zval,
+    null_if_missing: bool,
+    array: bool,
+) -> bool {
     let Some(mut it) = Iter::new(bson) else {
         throw(E::Runtime, "Could not initialize BSON iterator");
         return false;
@@ -168,9 +211,21 @@ unsafe fn get(bson: &[u8], key: &[u8], rv: *mut sys::zval, null_if_missing: bool
             return true;
         }
         if array {
-            throw(E::Runtime, format!("Could not find index \"{}\" in BSON array", String::from_utf8_lossy(key)));
+            throw(
+                E::Runtime,
+                format!(
+                    "Could not find index \"{}\" in BSON array",
+                    String::from_utf8_lossy(key)
+                ),
+            );
         } else {
-            throw(E::Runtime, format!("Could not find key \"{}\" in BSON document", super::cstr_lossy(key)));
+            throw(
+                E::Runtime,
+                format!(
+                    "Could not find key \"{}\" in BSON document",
+                    super::cstr_lossy(key)
+                ),
+            );
         }
         return false;
     }
@@ -196,14 +251,25 @@ unsafe fn key_of(z: *mut sys::zval) -> Vec<u8> {
     }
 }
 
-unsafe fn get_by_zval(bson: &[u8], key: *mut sys::zval, rv: *mut sys::zval, null_if_missing: bool) -> bool {
+unsafe fn get_by_zval(
+    bson: &[u8],
+    key: *mut sys::zval,
+    rv: *mut sys::zval,
+    null_if_missing: bool,
+) -> bool {
     let key = zval::deref(key);
     if !zval::is(key, sys::IS_STRING) && !zval::is(key, sys::IS_LONG) {
         if null_if_missing {
             zval::write(rv, zval::null());
             return true;
         }
-        throw(E::Runtime, format!("Could not find key of type \"{}\" in BSON document", zval::type_name(key)));
+        throw(
+            E::Runtime,
+            format!(
+                "Could not find key of type \"{}\" in BSON document",
+                zval::type_name(key)
+            ),
+        );
         return false;
     }
     get(bson, &key_of(key), rv, null_if_missing, false)
@@ -219,26 +285,75 @@ unsafe fn has_by_zval(bson: &[u8], key: *mut sys::zval) -> bool {
 
 const BP_VAR_IS: i32 = 3;
 
-unsafe extern "C" fn read_property(o: *mut sys::zend_object, m: *mut sys::zend_string, t: i32, _c: *mut *mut std::ffi::c_void, rv: *mut sys::zval) -> *mut sys::zval {
-    if !get(&obj::data::<Bson>(o).bson, zstr::bytes(m), rv, t == BP_VAR_IS, false) {
+unsafe extern "C" fn read_property(
+    o: *mut sys::zend_object,
+    m: *mut sys::zend_string,
+    t: i32,
+    _c: *mut *mut std::ffi::c_void,
+    rv: *mut sys::zval,
+) -> *mut sys::zval {
+    if !get(
+        &obj::data::<Bson>(o).bson,
+        zstr::bytes(m),
+        rv,
+        t == BP_VAR_IS,
+        false,
+    ) {
         return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     rv
 }
-unsafe extern "C" fn write_property(_o: *mut sys::zend_object, _m: *mut sys::zend_string, v: *mut sys::zval, _c: *mut *mut std::ffi::c_void) -> *mut sys::zval {
-    throw(E::Logic, format!("Cannot write to {} property", crate::zend::class::name(ce().document)));
+unsafe extern "C" fn write_property(
+    _o: *mut sys::zend_object,
+    _m: *mut sys::zend_string,
+    v: *mut sys::zval,
+    _c: *mut *mut std::ffi::c_void,
+) -> *mut sys::zval {
+    throw(
+        E::Logic,
+        format!(
+            "Cannot write to {} property",
+            crate::zend::class::name(ce().document.get())
+        ),
+    );
     v
 }
-unsafe extern "C" fn has_property(o: *mut sys::zend_object, m: *mut sys::zend_string, _h: i32, _c: *mut *mut std::ffi::c_void) -> i32 {
+unsafe extern "C" fn has_property(
+    o: *mut sys::zend_object,
+    m: *mut sys::zend_string,
+    _h: i32,
+    _c: *mut *mut std::ffi::c_void,
+) -> i32 {
     has(&obj::data::<Bson>(o).bson, zstr::bytes(m)) as i32
 }
-unsafe extern "C" fn unset_property(_o: *mut sys::zend_object, _m: *mut sys::zend_string, _c: *mut *mut std::ffi::c_void) {
-    throw(E::Logic, format!("Cannot unset {} property", crate::zend::class::name(ce().document)));
+unsafe extern "C" fn unset_property(
+    _o: *mut sys::zend_object,
+    _m: *mut sys::zend_string,
+    _c: *mut *mut std::ffi::c_void,
+) {
+    throw(
+        E::Logic,
+        format!(
+            "Cannot unset {} property",
+            crate::zend::class::name(ce().document.get())
+        ),
+    );
 }
-unsafe extern "C" fn read_dimension(o: *mut sys::zend_object, off: *mut sys::zval, t: i32, rv: *mut sys::zval) -> *mut sys::zval {
+unsafe extern "C" fn read_dimension(
+    o: *mut sys::zend_object,
+    off: *mut sys::zval,
+    t: i32,
+    rv: *mut sys::zval,
+) -> *mut sys::zval {
     // `$doc[]` (append, NULL offset): phongo dereferences NULL; we throw its write error
     if off.is_null() {
-        throw(E::Logic, format!("Cannot write to {} property", crate::zend::class::name(ce().document)));
+        throw(
+            E::Logic,
+            format!(
+                "Cannot write to {} property",
+                crate::zend::class::name(ce().document.get())
+            ),
+        );
         return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     if !get_by_zval(&obj::data::<Bson>(o).bson, off, rv, t == BP_VAR_IS) {
@@ -246,18 +361,34 @@ unsafe extern "C" fn read_dimension(o: *mut sys::zend_object, off: *mut sys::zva
     }
     rv
 }
-unsafe extern "C" fn write_dimension(_o: *mut sys::zend_object, _off: *mut sys::zval, _v: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot write to {} property", crate::zend::class::name(ce().document)));
+unsafe extern "C" fn write_dimension(
+    _o: *mut sys::zend_object,
+    _off: *mut sys::zval,
+    _v: *mut sys::zval,
+) {
+    throw(
+        E::Logic,
+        format!(
+            "Cannot write to {} property",
+            crate::zend::class::name(ce().document.get())
+        ),
+    );
 }
 unsafe extern "C" fn has_dimension(o: *mut sys::zend_object, m: *mut sys::zval, _e: i32) -> i32 {
     has_by_zval(&obj::data::<Bson>(o).bson, m) as i32
 }
 unsafe extern "C" fn unset_dimension(_o: *mut sys::zend_object, _off: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot unset {} property", crate::zend::class::name(ce().document)));
+    throw(
+        E::Logic,
+        format!(
+            "Cannot unset {} property",
+            crate::zend::class::name(ce().document.get())
+        ),
+    );
 }
 
 pub unsafe fn init_MongoDB_BSON_Document(c: *mut sys::zend_class_entry) {
-    ce_mut().document = c;
+    ce().document.set(c);
     let h = setup::<Bson>(c);
     h.compare = Some(compare);
     h.read_property = Some(read_property);
@@ -284,8 +415,14 @@ unsafe fn to_json(ex: Ex, rv: *mut sys::zval, b: &[u8], mode: Mode, array: bool)
     }
     match json::to_json(b, mode, array) {
         Some(j) => zval::write(rv, zval::string(&j)),
-        None if array => throw(E::UnexpectedValue, "Could not convert BSON array to a JSON string"),
-        None => throw(E::UnexpectedValue, "Could not convert BSON document to a JSON string"),
+        None if array => throw(
+            E::UnexpectedValue,
+            "Could not convert BSON array to a JSON string",
+        ),
+        None => throw(
+            E::UnexpectedValue,
+            "Could not convert BSON document to a JSON string",
+        ),
     }
 }
 
@@ -300,7 +437,10 @@ unsafe fn to_php(ex: Ex, rv: *mut sys::zval, b: &[u8], array: bool) {
         return;
     }
     map.int64_as_object = true;
-    let st = State { is_visiting_array: array, ..State::new(&map) };
+    let st = State {
+        is_visiting_array: array,
+        ..State::new(&map)
+    };
     match decode::to_zval(b, &st) {
         Some(z) => zval::write(rv, z),
         None => zval::write(rv, zval::null()),
@@ -312,8 +452,14 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Document___construct(_ex: Ex, _rv: *mu
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document_fromBSON(ex: Ex, rv: *mut sys::zval) {
     let Some(s) = arg_zstr(ex) else { return };
     match iter::read_first(s) {
-        None => throw(E::UnexpectedValue, "Could not read document from BSON reader"),
-        Some((_, false)) => throw(E::UnexpectedValue, "Reading document did not exhaust input buffer"),
+        None => throw(
+            E::UnexpectedValue,
+            "Could not read document from BSON reader",
+        ),
+        Some((_, false)) => throw(
+            E::UnexpectedValue,
+            "Reading document did not exhaust input buffer",
+        ),
         Some((d, true)) => zval::write(rv, new_document(d)),
     }
 }
@@ -330,7 +476,17 @@ unsafe fn arg_zstr<'a>(ex: Ex) -> Option<&'a [u8]> {
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document_fromJSON(ex: Ex, rv: *mut sys::zval) {
     let Some(j) = arg_zstr(ex) else { return };
     match json_parse::from_json(j) {
-        Ok(b) => zval::write(rv, new(ce().document, Bson { bson: b, props: Props::default(), retired: Default::default() })),
+        Ok(b) => zval::write(
+            rv,
+            new(
+                ce().document.get(),
+                Bson {
+                    bson: b,
+                    props: Props::default(),
+                    retired: Default::default(),
+                },
+            ),
+        ),
         Err(e) => throw(E::UnexpectedValue, e),
     }
 }
@@ -339,7 +495,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Document_fromPHP(ex: Ex, rv: *mut sys:
     if sys::zend_parse_parameters(call::num_args(ex), c"A".as_ptr(), &mut z) != 0 {
         return;
     }
-    let o = new(ce().document, Bson::default());
+    let o = new(ce().document.get(), Bson::default());
     match encode::to_bson(z, encode::ALLOW_ROOT_ARRAY) {
         Some(b) => {
             obj::data::<Bson>(o.value.obj).bson = b;
@@ -361,10 +517,16 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Document_has(ex: Ex, rv: *mut sys::zva
     let Some(k) = arg_str(ex, c"s") else { return };
     zval::write(rv, zval::bool(has(&this::<Bson>(ex).bson, k)));
 }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toCanonicalExtendedJSON(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toCanonicalExtendedJSON(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     to_json(ex, rv, &this::<Bson>(ex).bson, Mode::Canonical, false)
 }
-pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toRelaxedExtendedJSON(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toRelaxedExtendedJSON(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     to_json(ex, rv, &this::<Bson>(ex).bson, Mode::Relaxed, false)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document_toPHP(ex: Ex, rv: *mut sys::zval) {
@@ -386,10 +548,22 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetGet(ex: Ex, rv: *mut sy
     get_by_zval(&this::<Bson>(ex).bson, k, rv, false);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetSet(_ex: Ex, _rv: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot write to {} property", crate::zend::class::name(ce().document)));
+    throw(
+        E::Logic,
+        format!(
+            "Cannot write to {} property",
+            crate::zend::class::name(ce().document.get())
+        ),
+    );
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document_offsetUnset(_ex: Ex, _rv: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot unset {} property", crate::zend::class::name(ce().document)));
+    throw(
+        E::Logic,
+        format!(
+            "Cannot unset {} property",
+            crate::zend::class::name(ce().document.get())
+        ),
+    );
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -405,8 +579,8 @@ unsafe fn arg_array(ex: Ex) -> Option<*mut sys::HashTable> {
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document___set_state(ex: Ex, rv: *mut sys::zval) {
     let Some(ht) = arg_array(ex) else { return };
-    zval::write(rv, new(ce().document, Bson::default()));
-    from_hash(obj::data::<Bson>((*rv).value.obj), ht, ce().document);
+    zval::write(rv, new(ce().document.get(), Bson::default()));
+    from_hash(obj::data::<Bson>((*rv).value.obj), ht, ce().document.get());
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document___serialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -417,7 +591,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Document___serialize(ex: Ex, rv: *mut 
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Document___unserialize(ex: Ex, _rv: *mut sys::zval) {
     let Some(ht) = arg_array(ex) else { return };
-    from_hash(this::<Bson>(ex), ht, ce().document);
+    from_hash(this::<Bson>(ex), ht, ce().document.get());
 }
 
 // ---------------------------------------------------------------- PackedArray
@@ -443,7 +617,10 @@ unsafe fn pa_get(b: &[u8], index: i64, rv: *mut sys::zval, null_if_missing: bool
                 None => false,
             },
             Err(t) => {
-                throw(E::UnexpectedValue, format!("Detected unsupported BSON type {}", t));
+                throw(
+                    E::UnexpectedValue,
+                    format!("Detected unsupported BSON type {}", t),
+                );
                 false
             }
         };
@@ -454,7 +631,10 @@ unsafe fn pa_get(b: &[u8], index: i64, rv: *mut sys::zval, null_if_missing: bool
             return true;
         }
         // "%d" of a zend_long: phongo's printf reads an int
-        throw(E::Runtime, format!("Could not find index \"{}\" in BSON array", index as i32));
+        throw(
+            E::Runtime,
+            format!("Could not find index \"{}\" in BSON array", index as i32),
+        );
         return false;
     }
     match decode::value_to_zval(it.value()) {
@@ -483,14 +663,25 @@ fn pa_has(b: &[u8], index: i64) -> bool {
     Iter::new(b).is_some_and(|mut it| seek_index(&mut it, index))
 }
 
-unsafe fn pa_get_by_zval(b: &[u8], key: *mut sys::zval, rv: *mut sys::zval, null_if_missing: bool) -> bool {
+unsafe fn pa_get_by_zval(
+    b: &[u8],
+    key: *mut sys::zval,
+    rv: *mut sys::zval,
+    null_if_missing: bool,
+) -> bool {
     let key = zval::deref(key);
     if !zval::is(key, sys::IS_LONG) {
         if null_if_missing {
             zval::write(rv, zval::null());
             return true;
         }
-        throw(E::Runtime, format!("Could not find index of type \"{}\" in BSON array", zval::type_name(key)));
+        throw(
+            E::Runtime,
+            format!(
+                "Could not find index of type \"{}\" in BSON array",
+                zval::type_name(key)
+            ),
+        );
         return false;
     }
     pa_get(b, (*key).value.lval, rv, null_if_missing)
@@ -501,10 +692,21 @@ unsafe fn pa_has_by_zval(b: &[u8], key: *mut sys::zval) -> bool {
     zval::is(key, sys::IS_LONG) && pa_has(b, (*key).value.lval)
 }
 
-unsafe extern "C" fn pa_read_dimension(o: *mut sys::zend_object, off: *mut sys::zval, t: i32, rv: *mut sys::zval) -> *mut sys::zval {
+unsafe extern "C" fn pa_read_dimension(
+    o: *mut sys::zend_object,
+    off: *mut sys::zval,
+    t: i32,
+    rv: *mut sys::zval,
+) -> *mut sys::zval {
     // `$arr[]` (NULL offset): phongo dereferences NULL; we throw its write error
     if off.is_null() {
-        throw(E::Logic, format!("Cannot write to {} offset", crate::zend::class::name(ce().packedarray)));
+        throw(
+            E::Logic,
+            format!(
+                "Cannot write to {} offset",
+                crate::zend::class::name(ce().packedarray.get())
+            ),
+        );
         return addr_of_mut!((*crate::zend::eg()).uninitialized_zval);
     }
     if !pa_get_by_zval(&obj::data::<PackedArray>(o).0.bson, off, rv, t == BP_VAR_IS) {
@@ -512,24 +714,43 @@ unsafe extern "C" fn pa_read_dimension(o: *mut sys::zend_object, off: *mut sys::
     }
     rv
 }
-unsafe extern "C" fn pa_write_dimension(_o: *mut sys::zend_object, _off: *mut sys::zval, _v: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot write to {} offset", crate::zend::class::name(ce().packedarray)));
+unsafe extern "C" fn pa_write_dimension(
+    _o: *mut sys::zend_object,
+    _off: *mut sys::zval,
+    _v: *mut sys::zval,
+) {
+    throw(
+        E::Logic,
+        format!(
+            "Cannot write to {} offset",
+            crate::zend::class::name(ce().packedarray.get())
+        ),
+    );
 }
 unsafe extern "C" fn pa_has_dimension(o: *mut sys::zend_object, m: *mut sys::zval, _e: i32) -> i32 {
     pa_has_by_zval(&obj::data::<PackedArray>(o).0.bson, m) as i32
 }
 unsafe extern "C" fn pa_unset_dimension(_o: *mut sys::zend_object, _off: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot unset {} offset", crate::zend::class::name(ce().packedarray)));
+    throw(
+        E::Logic,
+        format!(
+            "Cannot unset {} offset",
+            crate::zend::class::name(ce().packedarray.get())
+        ),
+    );
 }
 unsafe extern "C" fn pa_compare(a: *mut sys::zval, b: *mut sys::zval) -> i32 {
     if let Some(r) = super::types::cmp_fallback(a, b) {
         return r;
     }
-    bson_compare(&obj::data::<PackedArray>((*a).value.obj).0.bson, &obj::data::<PackedArray>((*b).value.obj).0.bson)
+    bson_compare(
+        &obj::data::<PackedArray>((*a).value.obj).0.bson,
+        &obj::data::<PackedArray>((*b).value.obj).0.bson,
+    )
 }
 
 pub unsafe fn init_MongoDB_BSON_PackedArray(c: *mut sys::zend_class_entry) {
-    ce_mut().packedarray = c;
+    ce().packedarray.set(c);
     let h = setup::<PackedArray>(c);
     h.compare = Some(pa_compare);
     h.read_dimension = Some(pa_read_dimension);
@@ -557,12 +778,29 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_fromJSON(ex: Ex, rv: *mut 
     while it.next() {
         let k = it.key();
         if k != kb.format(expected as usize) {
-            throw(E::UnexpectedValue, format!("Received invalid JSON array: expected key {}, but found \"{}\"", expected, super::cstr_lossy(k)));
+            throw(
+                E::UnexpectedValue,
+                format!(
+                    "Received invalid JSON array: expected key {}, but found \"{}\"",
+                    expected,
+                    super::cstr_lossy(k)
+                ),
+            );
             return;
         }
         expected += 1;
     }
-    zval::write(rv, new(ce().packedarray, PackedArray(Bson { bson: b, props: Props::default(), retired: Default::default() })));
+    zval::write(
+        rv,
+        new(
+            ce().packedarray.get(),
+            PackedArray(Bson {
+                bson: b,
+                props: Props::default(),
+                retired: Default::default(),
+            }),
+        ),
+    );
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_fromPHP(ex: Ex, rv: *mut sys::zval) {
     let mut z: *mut sys::zval = null_mut();
@@ -570,10 +808,13 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_fromPHP(ex: Ex, rv: *mut s
         return;
     }
     if !hash::is_list((*z).value.arr) {
-        throw(E::InvalidArgument, "Expected value to be a list, but given array is not");
+        throw(
+            E::InvalidArgument,
+            "Expected value to be a list, but given array is not",
+        );
         return;
     }
-    let o = new(ce().packedarray, PackedArray::default());
+    let o = new(ce().packedarray.get(), PackedArray::default());
     match encode::to_bson(z, encode::NONE) {
         Some(b) => {
             obj::data::<PackedArray>(o.value.obj).0.bson = b;
@@ -602,10 +843,16 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_has(ex: Ex, rv: *mut sys::
     let Some(i) = arg_long(ex) else { return };
     zval::write(rv, zval::bool(pa_has(&pa(ex).bson, i)));
 }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toCanonicalExtendedJSON(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     to_json(ex, rv, &pa(ex).bson, Mode::Canonical, true)
 }
-pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toRelaxedExtendedJSON(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     to_json(ex, rv, &pa(ex).bson, Mode::Relaxed, true)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_toPHP(ex: Ex, rv: *mut sys::zval) {
@@ -620,10 +867,22 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetGet(ex: Ex, rv: *mut
     pa_get_by_zval(&pa(ex).bson, k, rv, false);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetSet(_ex: Ex, _rv: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot write to {} offset", crate::zend::class::name(ce().packedarray)));
+    throw(
+        E::Logic,
+        format!(
+            "Cannot write to {} offset",
+            crate::zend::class::name(ce().packedarray.get())
+        ),
+    );
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray_offsetUnset(_ex: Ex, _rv: *mut sys::zval) {
-    throw(E::Logic, format!("Cannot unset {} offset", crate::zend::class::name(ce().packedarray)));
+    throw(
+        E::Logic,
+        format!(
+            "Cannot unset {} offset",
+            crate::zend::class::name(ce().packedarray.get())
+        ),
+    );
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -632,8 +891,12 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___toString(ex: Ex, rv: *mu
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___set_state(ex: Ex, rv: *mut sys::zval) {
     let Some(ht) = arg_array(ex) else { return };
-    zval::write(rv, new(ce().packedarray, PackedArray::default()));
-    from_hash(&mut obj::data::<PackedArray>((*rv).value.obj).0, ht, ce().packedarray);
+    zval::write(rv, new(ce().packedarray.get(), PackedArray::default()));
+    from_hash(
+        &mut obj::data::<PackedArray>((*rv).value.obj).0,
+        ht,
+        ce().packedarray.get(),
+    );
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___serialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -644,7 +907,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___serialize(ex: Ex, rv: *m
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_PackedArray___unserialize(ex: Ex, _rv: *mut sys::zval) {
     let Some(ht) = arg_array(ex) else { return };
-    from_hash(pa(ex), ht, ce().packedarray);
+    from_hash(pa(ex), ht, ce().packedarray.get());
 }
 
 // ---------------------------------------------------------------- Iterator
@@ -662,7 +925,15 @@ pub struct Iterator {
 
 impl Default for Iterator {
     fn default() -> Self {
-        Iterator { bson: zval::undef(), current: zval::undef(), it: None, is_array: false, valid: false, key: 0, props: Props::default() }
+        Iterator {
+            bson: zval::undef(),
+            current: zval::undef(),
+            it: None,
+            is_array: false,
+            valid: false,
+            key: 0,
+            props: Props::default(),
+        }
     }
 }
 
@@ -704,7 +975,11 @@ impl Cls for Iterator {
 impl Iterator {
     unsafe fn data(&self) -> &'static [u8] {
         let o = self.bson.value.obj;
-        let b: &[u8] = if self.is_array { &obj::data::<PackedArray>(o).0.bson } else { &obj::data::<Bson>(o).bson };
+        let b: &[u8] = if self.is_array {
+            &obj::data::<PackedArray>(o).0.bson
+        } else {
+            &obj::data::<Bson>(o).bson
+        };
         std::slice::from_raw_parts(b.as_ptr(), b.len())
     }
     fn free_current(&mut self) {
@@ -714,7 +989,7 @@ impl Iterator {
 }
 
 pub unsafe fn init_MongoDB_BSON_Iterator(c: *mut sys::zend_class_entry) {
-    ce_mut().iterator = c;
+    ce().iterator.set(c);
     setup::<Iterator>(c);
     (*c).get_iterator = Some(get_iterator);
 }
@@ -723,17 +998,29 @@ pub unsafe fn init_MongoDB_BSON_Iterator(c: *mut sys::zend_class_entry) {
 unsafe fn iterator_init(rv: *mut sys::zval, zbson: *mut sys::zval) {
     let c = ce();
     let oce = zval::obj_ce(zbson);
-    let is_array = obj::instanceof(oce, c.packedarray);
-    if !is_array && !obj::instanceof(oce, c.document) {
-        throw(E::Logic, format!("Could not create iterator for {} instance", zval::type_name(zbson)));
+    let is_array = obj::instanceof(oce, c.packedarray.get());
+    if !is_array && !obj::instanceof(oce, c.document.get()) {
+        throw(
+            E::Logic,
+            format!(
+                "Could not create iterator for {} instance",
+                zval::type_name(zbson)
+            ),
+        );
         return;
     }
-    let o = new(c.iterator, Iterator::default());
+    let o = new(c.iterator.get(), Iterator::default());
     let me = obj::data::<Iterator>(o.value.obj);
     me.bson = zval::copy(zbson);
     me.is_array = is_array;
     let Some(mut it) = Iter::new(me.data()) else {
-        throw(E::UnexpectedValue, format!("Could not create iterator for {} instance", zval::type_name(zbson)));
+        throw(
+            E::UnexpectedValue,
+            format!(
+                "Could not create iterator for {} instance",
+                zval::type_name(zbson)
+            ),
+        );
         return;
     };
     me.valid = it.next();
@@ -770,7 +1057,10 @@ impl Iterator {
         let it = self.it.as_ref().unwrap();
         let k = it.key();
         if !mongo_core::bson::utf8::validate(k, false) {
-            throw(E::UnexpectedValue, format!("Detected corrupt BSON data at offset {}", it.off));
+            throw(
+                E::UnexpectedValue,
+                format!("Detected corrupt BSON data at offset {}", it.off),
+            );
             return false;
         }
         zval::write(rv, zval::string(k));
@@ -832,11 +1122,7 @@ unsafe extern "C" fn it_dtor(iter: *mut sys::zend_object_iterator) {
     zval::release(&mut (*iter).data);
 }
 unsafe extern "C" fn it_valid(iter: *mut sys::zend_object_iterator) -> sys::zend_result {
-    if it_intern(iter).valid {
-        0
-    } else {
-        -1
-    }
+    if it_intern(iter).valid { 0 } else { -1 }
 }
 unsafe extern "C" fn it_get_current_data(iter: *mut sys::zend_object_iterator) -> *mut sys::zval {
     it_intern(iter).get_current()
@@ -850,7 +1136,11 @@ unsafe extern "C" fn it_move_forward(iter: *mut sys::zend_object_iterator) {
 unsafe extern "C" fn it_rewind(iter: *mut sys::zend_object_iterator) {
     it_intern(iter).rewind();
 }
-unsafe extern "C" fn it_get_gc(iter: *mut sys::zend_object_iterator, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn it_get_gc(
+    iter: *mut sys::zend_object_iterator,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+) -> *mut sys::HashTable {
     *n = 1;
     *table = &mut (*iter).data;
     null_mut()
@@ -866,12 +1156,20 @@ static IT_FUNCS: sys::zend_object_iterator_funcs = sys::zend_object_iterator_fun
     get_gc: Some(it_get_gc),
 };
 /// phongo_iterator_get_iterator
-unsafe extern "C" fn get_iterator(_ce: *mut sys::zend_class_entry, object: *mut sys::zval, by_ref: i32) -> *mut sys::zend_object_iterator {
+unsafe extern "C" fn get_iterator(
+    _ce: *mut sys::zend_class_entry,
+    object: *mut sys::zval,
+    by_ref: i32,
+) -> *mut sys::zend_object_iterator {
     if by_ref != 0 {
-        throw(E::Logic, "An iterator cannot be used with foreach by reference");
+        throw(
+            E::Logic,
+            "An iterator cannot be used with foreach by reference",
+        );
         return null_mut();
     }
-    let iter = sys::_emalloc(std::mem::size_of::<sys::zend_object_iterator>()) as *mut sys::zend_object_iterator;
+    let iter = sys::_emalloc(std::mem::size_of::<sys::zend_object_iterator>())
+        as *mut sys::zend_object_iterator;
     sys::zend_iterator_init(iter);
     // zend_iterator_init leaves `data` uninitialised
     zval::write(&mut (*iter).data, zval::copy(object));

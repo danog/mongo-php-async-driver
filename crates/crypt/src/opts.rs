@@ -86,7 +86,10 @@ pub fn check_allowed_fields(doc: &[u8], allowed: &[&str]) -> Result<()> {
     let mut it = Iter::new(doc).ok_or("invalid BSON")?;
     while it.next() {
         if !allowed.iter().any(|a| a.as_bytes() == it.key()) {
-            return Err(format!("Unexpected field: '{}'", String::from_utf8_lossy(it.key())));
+            return Err(format!(
+                "Unexpected field: '{}'",
+                String::from_utf8_lossy(it.key())
+            ));
         }
     }
     Ok(())
@@ -136,15 +139,24 @@ impl Endpoint {
                 for k in 1..=2 {
                     let d = b.get(i + k).copied().unwrap_or(0);
                     if !d.is_ascii_hexdigit() {
-                        return Err(format!("Invalid percent-encoding in endpoint at offset {}: 0x{:02x}", i + k, d));
+                        return Err(format!(
+                            "Invalid percent-encoding in endpoint at offset {}: 0x{:02x}",
+                            i + k,
+                            d
+                        ));
                     }
                 }
                 i += 3;
                 continue;
             }
-            return Err(format!("Invalid character in endpoint at offset {i}: 0x{c:02x}"));
+            return Err(format!(
+                "Invalid character in endpoint at offset {i}: 0x{c:02x}"
+            ));
         }
-        let mut e = Endpoint { original: raw.to_string(), ..Default::default() };
+        let mut e = Endpoint {
+            original: raw.to_string(),
+            ..Default::default()
+        };
         let mut pos = 0;
         if let Some(p) = raw.find("://") {
             e.protocol = Some(raw[..p].to_string());
@@ -157,22 +169,26 @@ impl Endpoint {
                 pos += d + 1;
             }
             None if allow_empty_subdomain => {}
-            None => return Err(format!("Invalid endpoint, expected dot separator in host, but got: {raw}")),
+            None => {
+                return Err(format!(
+                    "Invalid endpoint, expected dot separator in host, but got: {raw}"
+                ));
+            }
         }
         let rest = &raw[pos..];
         let colon = rest.find(':').map(|x| x + pos);
         let qmark = rest.find('?').map(|x| x + pos);
         let slash = rest.find('/').map(|x| x + pos);
         let mut host_end = colon;
-        if let Some(s) = slash {
-            if host_end.is_none_or(|h| s < h) {
-                host_end = Some(s);
-            }
+        if let Some(s) = slash
+            && host_end.is_none_or(|h| s < h)
+        {
+            host_end = Some(s);
         }
-        if let Some(q) = qmark {
-            if host_end.is_none_or(|h| q < h) {
-                host_end = Some(q);
-            }
+        if let Some(q) = qmark
+            && host_end.is_none_or(|h| q < h)
+        {
+            host_end = Some(q);
         }
         match host_end {
             Some(h) => {
@@ -196,24 +212,24 @@ impl Endpoint {
                 return Err(format!("Invalid character in endpoint host: 0x{c:02x}"));
             }
         }
-        if let (Some(c), Some(h)) = (colon, host_end) {
-            if c == h {
-                let after = &raw[c + 1..];
-                let q = after.find('?');
-                let s = after.find('/');
-                let port = match (s, q) {
-                    (Some(s), q) if q.is_none_or(|q| s < q) => &after[..s],
-                    (_, Some(q)) => &after[..q],
-                    _ => after,
-                };
-                if port.is_empty() {
-                    return Err("Invalid endpoint, expected a port after the colon".into());
-                }
-                if let Some(bad) = port.bytes().find(|c| !c.is_ascii_digit()) {
-                    return Err(format!("Invalid character in endpoint port: 0x{bad:02x}"));
-                }
-                e.port = Some(port.to_string());
+        if let (Some(c), Some(h)) = (colon, host_end)
+            && c == h
+        {
+            let after = &raw[c + 1..];
+            let q = after.find('?');
+            let s = after.find('/');
+            let port = match (s, q) {
+                (Some(s), q) if q.is_none_or(|q| s < q) => &after[..s],
+                (_, Some(q)) => &after[..q],
+                _ => after,
+            };
+            if port.is_empty() {
+                return Err("Invalid endpoint, expected a port after the colon".into());
             }
+            if let Some(bad) = port.bytes().find(|c| !c.is_ascii_digit()) {
+                return Err(format!("Invalid character in endpoint port: 0x{bad:02x}"));
+            }
+            e.port = Some(port.to_string());
         }
         if let Some(s) = slash {
             let after = &raw[s + 1..];
@@ -237,7 +253,11 @@ impl Endpoint {
     }
 }
 
-fn optional_endpoint(doc: &[u8], dotkey: &str, allow_empty_subdomain: bool) -> Result<Option<Endpoint>> {
+fn optional_endpoint(
+    doc: &[u8],
+    dotkey: &str,
+    allow_empty_subdomain: bool,
+) -> Result<Option<Endpoint>> {
     match optional_utf8(doc, dotkey)? {
         None => Ok(None),
         Some(s) => Endpoint::parse(&s, allow_empty_subdomain).map(Some),
@@ -245,7 +265,8 @@ fn optional_endpoint(doc: &[u8], dotkey: &str, allow_empty_subdomain: bool) -> R
 }
 
 fn required_endpoint(doc: &[u8], dotkey: &str, allow_empty_subdomain: bool) -> Result<Endpoint> {
-    optional_endpoint(doc, dotkey, allow_empty_subdomain)?.ok_or_else(|| format!("expected endpoint {dotkey}"))
+    optional_endpoint(doc, dotkey, allow_empty_subdomain)?
+        .ok_or_else(|| format!("expected endpoint {dotkey}"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -293,13 +314,20 @@ pub fn parse_kmsid(kmsid: &str) -> Result<(KmsType, Option<&str>)> {
     } else if prefix_of("local") {
         KmsType::Local
     } else {
-        return Err(format!("unrecognized KMS provider `{kmsid}`: unrecognized type. {KEY_HELP}"));
+        return Err(format!(
+            "unrecognized KMS provider `{kmsid}`: unrecognized type. {KEY_HELP}"
+        ));
     };
     if let Some(n) = name {
         if n.is_empty() {
-            return Err(format!("unrecognized KMS provider `{kmsid}`: empty name. {KEY_HELP}"));
+            return Err(format!(
+                "unrecognized KMS provider `{kmsid}`: empty name. {KEY_HELP}"
+            ));
         }
-        if let Some(c) = n.chars().find(|c| !(c.is_ascii_alphanumeric() || *c == '_')) {
+        if let Some(c) = n
+            .chars()
+            .find(|c| !(c.is_ascii_alphanumeric() || *c == '_'))
+        {
             return Err(format!(
                 "unrecognized KMS provider `{kmsid}`: unsupported character `{c}`. Must be of the form `<provider type>:<name>` where `<name>` only contain characters [a-zA-Z0-9_]"
             ));
@@ -313,23 +341,48 @@ pub fn parse_kmsid(kmsid: &str) -> Result<(KmsType, Option<&str>)> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Creds {
-    Aws { access_key_id: String, secret_access_key: String, session_token: Option<String> },
+    Aws {
+        access_key_id: String,
+        secret_access_key: String,
+        session_token: Option<String>,
+    },
     Azure(AzureCreds),
     Gcp(GcpCreds),
-    Kmip { endpoint: Endpoint },
-    Local { key: Vec<u8> },
+    Kmip {
+        endpoint: Endpoint,
+    },
+    Local {
+        key: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "parsed once per KMS provider; held by value in Creds"
+)]
 pub enum AzureCreds {
     AccessToken(String),
-    Client { tenant_id: String, client_id: String, client_secret: String, identity_platform_endpoint: Option<Endpoint> },
+    Client {
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+        identity_platform_endpoint: Option<Endpoint>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "parsed once per KMS provider; held by value in Creds"
+)]
 pub enum GcpCreds {
     AccessToken(String),
-    ServiceAccount { email: String, private_key: Vec<u8>, endpoint: Option<Endpoint> },
+    ServiceAccount {
+        email: String,
+        private_key: Vec<u8>,
+        endpoint: Option<Endpoint>,
+    },
 }
 
 fn parse_creds(t: KmsType, kmsid: &str, def: &[u8]) -> Result<Creds> {
@@ -338,7 +391,10 @@ fn parse_creds(t: KmsType, kmsid: &str, def: &[u8]) -> Result<Creds> {
             KmsType::Local => {
                 let key = required_binary(def, "key")?;
                 if key.len() != crate::crypto::KEY_LEN {
-                    return Err(format!("local key must be {} bytes", crate::crypto::KEY_LEN));
+                    return Err(format!(
+                        "local key must be {} bytes",
+                        crate::crypto::KEY_LEN
+                    ));
                 }
                 check_allowed_fields(def, &["key"])?;
                 Ok(Creds::Local { key })
@@ -351,9 +407,23 @@ fn parse_creds(t: KmsType, kmsid: &str, def: &[u8]) -> Result<Creds> {
                 let tenant_id = required_utf8(def, "tenantId")?;
                 let client_id = required_utf8(def, "clientId")?;
                 let client_secret = required_utf8(def, "clientSecret")?;
-                let identity_platform_endpoint = optional_endpoint(def, "identityPlatformEndpoint", false)?;
-                check_allowed_fields(def, &["tenantId", "clientId", "clientSecret", "identityPlatformEndpoint"])?;
-                Ok(Creds::Azure(AzureCreds::Client { tenant_id, client_id, client_secret, identity_platform_endpoint }))
+                let identity_platform_endpoint =
+                    optional_endpoint(def, "identityPlatformEndpoint", false)?;
+                check_allowed_fields(
+                    def,
+                    &[
+                        "tenantId",
+                        "clientId",
+                        "clientSecret",
+                        "identityPlatformEndpoint",
+                    ],
+                )?;
+                Ok(Creds::Azure(AzureCreds::Client {
+                    tenant_id,
+                    client_id,
+                    client_secret,
+                    identity_platform_endpoint,
+                }))
             }
             KmsType::Gcp => {
                 if let Some(tok) = optional_utf8(def, "accessToken")? {
@@ -364,14 +434,22 @@ fn parse_creds(t: KmsType, kmsid: &str, def: &[u8]) -> Result<Creds> {
                 let private_key = required_binary(def, "privateKey")?;
                 let endpoint = optional_endpoint(def, "endpoint", false)?;
                 check_allowed_fields(def, &["email", "privateKey", "endpoint"])?;
-                Ok(Creds::Gcp(GcpCreds::ServiceAccount { email, private_key, endpoint }))
+                Ok(Creds::Gcp(GcpCreds::ServiceAccount {
+                    email,
+                    private_key,
+                    endpoint,
+                }))
             }
             KmsType::Aws => {
                 let access_key_id = required_utf8(def, "accessKeyId")?;
                 let secret_access_key = required_utf8(def, "secretAccessKey")?;
                 let session_token = optional_utf8(def, "sessionToken")?;
                 check_allowed_fields(def, &["accessKeyId", "secretAccessKey", "sessionToken"])?;
-                Ok(Creds::Aws { access_key_id, secret_access_key, session_token })
+                Ok(Creds::Aws {
+                    access_key_id,
+                    secret_access_key,
+                    session_token,
+                })
             }
             KmsType::Kmip => {
                 let endpoint = required_endpoint(def, "endpoint", true)?;
@@ -408,7 +486,9 @@ impl KmsProviders {
             let (t, name) = parse_kmsid(&field)?;
             if name.is_some() {
                 if out.named.iter().any(|(k, _)| *k == field) {
-                    return Err(format!("Got unexpected duplicate entry for KMS provider: `{field}`"));
+                    return Err(format!(
+                        "Got unexpected duplicate entry for KMS provider: `{field}`"
+                    ));
                 }
                 if is_empty_doc(def) {
                     return Err(format!(
@@ -449,7 +529,10 @@ impl KmsProviders {
             self.named.iter().find(|(k, _)| k == kmsid).map(|(_, c)| c)
         } else {
             let (t, _) = parse_kmsid(kmsid).ok()?;
-            self.configured.iter().find(|(k, _)| *k == t).map(|(_, c)| c)
+            self.configured
+                .iter()
+                .find(|(k, _)| *k == t)
+                .map(|(_, c)| c)
         }
     }
 }
@@ -459,8 +542,16 @@ impl KmsProviders {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KekProvider {
-    Aws { cmk: String, region: String, endpoint: Option<Endpoint> },
-    Azure { key_vault_endpoint: Endpoint, key_name: String, key_version: Option<String> },
+    Aws {
+        cmk: String,
+        region: String,
+        endpoint: Option<Endpoint>,
+    },
+    Azure {
+        key_vault_endpoint: Endpoint,
+        key_name: String,
+        key_version: Option<String>,
+    },
     Gcp {
         endpoint: Option<Endpoint>,
         project_id: String,
@@ -469,7 +560,11 @@ pub enum KekProvider {
         key_name: String,
         key_version: Option<String>,
     },
-    Kmip { endpoint: Option<Endpoint>, key_id: Option<String>, delegated: bool },
+    Kmip {
+        endpoint: Option<Endpoint>,
+        key_id: Option<String>,
+        delegated: bool,
+    },
     Local,
 }
 
@@ -500,7 +595,11 @@ impl Kek {
                 let region = required_utf8(doc, "region")?;
                 let endpoint = optional_endpoint(doc, "endpoint", false)?;
                 check_allowed_fields(doc, &["provider", "key", "region", "endpoint"])?;
-                KekProvider::Aws { cmk, region, endpoint }
+                KekProvider::Aws {
+                    cmk,
+                    region,
+                    endpoint,
+                }
             }
             KmsType::Local => {
                 check_allowed_fields(doc, &["provider"])?;
@@ -510,8 +609,15 @@ impl Kek {
                 let key_vault_endpoint = required_endpoint(doc, "keyVaultEndpoint", false)?;
                 let key_name = required_utf8(doc, "keyName")?;
                 let key_version = optional_utf8(doc, "keyVersion")?;
-                check_allowed_fields(doc, &["provider", "keyVaultEndpoint", "keyName", "keyVersion"])?;
-                KekProvider::Azure { key_vault_endpoint, key_name, key_version }
+                check_allowed_fields(
+                    doc,
+                    &["provider", "keyVaultEndpoint", "keyName", "keyVersion"],
+                )?;
+                KekProvider::Azure {
+                    key_vault_endpoint,
+                    key_name,
+                    key_version,
+                }
             }
             KmsType::Gcp => {
                 let endpoint = optional_endpoint(doc, "endpoint", false)?;
@@ -522,16 +628,35 @@ impl Kek {
                 let key_version = optional_utf8(doc, "keyVersion")?;
                 check_allowed_fields(
                     doc,
-                    &["provider", "endpoint", "projectId", "location", "keyRing", "keyName", "keyVersion"],
+                    &[
+                        "provider",
+                        "endpoint",
+                        "projectId",
+                        "location",
+                        "keyRing",
+                        "keyName",
+                        "keyVersion",
+                    ],
                 )?;
-                KekProvider::Gcp { endpoint, project_id, location, key_ring, key_name, key_version }
+                KekProvider::Gcp {
+                    endpoint,
+                    project_id,
+                    location,
+                    key_ring,
+                    key_name,
+                    key_version,
+                }
             }
             KmsType::Kmip => {
                 let endpoint = optional_endpoint(doc, "endpoint", true)?;
                 let key_id = optional_utf8(doc, "keyId")?;
                 let delegated = optional_bool(doc, "delegated")?;
                 check_allowed_fields(doc, &["provider", "endpoint", "keyId", "delegated"])?;
-                KekProvider::Kmip { endpoint, key_id, delegated }
+                KekProvider::Kmip {
+                    endpoint,
+                    key_id,
+                    delegated,
+                }
             }
         };
         Ok(Kek { kmsid, provider })
@@ -541,7 +666,11 @@ impl Kek {
     pub fn append(&self, w: &mut Writer) -> Result<()> {
         w.utf8(b"provider", self.kmsid.as_bytes());
         match &self.provider {
-            KekProvider::Aws { cmk, region, endpoint } => {
+            KekProvider::Aws {
+                cmk,
+                region,
+                endpoint,
+            } => {
                 w.utf8(b"region", region.as_bytes());
                 w.utf8(b"key", cmk.as_bytes());
                 if let Some(e) = endpoint {
@@ -549,14 +678,28 @@ impl Kek {
                 }
             }
             KekProvider::Local => {}
-            KekProvider::Azure { key_vault_endpoint, key_name, key_version } => {
-                w.utf8(b"keyVaultEndpoint", key_vault_endpoint.host_and_port.as_bytes());
+            KekProvider::Azure {
+                key_vault_endpoint,
+                key_name,
+                key_version,
+            } => {
+                w.utf8(
+                    b"keyVaultEndpoint",
+                    key_vault_endpoint.host_and_port.as_bytes(),
+                );
                 w.utf8(b"keyName", key_name.as_bytes());
                 if let Some(v) = key_version {
                     w.utf8(b"keyVersion", v.as_bytes());
                 }
             }
-            KekProvider::Gcp { endpoint, project_id, location, key_ring, key_name, key_version } => {
+            KekProvider::Gcp {
+                endpoint,
+                project_id,
+                location,
+                key_ring,
+                key_name,
+                key_version,
+            } => {
                 w.utf8(b"projectId", project_id.as_bytes());
                 w.utf8(b"location", location.as_bytes());
                 w.utf8(b"keyRing", key_ring.as_bytes());
@@ -568,7 +711,11 @@ impl Kek {
                     w.utf8(b"endpoint", e.host_and_port.as_bytes());
                 }
             }
-            KekProvider::Kmip { endpoint, key_id, delegated } => {
+            KekProvider::Kmip {
+                endpoint,
+                key_id,
+                delegated,
+            } => {
                 if let Some(e) = endpoint {
                     w.utf8(b"endpoint", e.host_and_port.as_bytes());
                 }
@@ -591,7 +738,8 @@ mod tests {
 
     #[test]
     fn endpoints() {
-        let e = Endpoint::parse("https://kms.us-east-1.amazonaws.com:443/path/?q=1", false).unwrap();
+        let e =
+            Endpoint::parse("https://kms.us-east-1.amazonaws.com:443/path/?q=1", false).unwrap();
         assert_eq!(e.protocol.as_deref(), Some("https"));
         assert_eq!(e.host, "kms.us-east-1.amazonaws.com");
         assert_eq!(e.subdomain.as_deref(), Some("kms"));
@@ -600,20 +748,46 @@ mod tests {
         assert_eq!(e.path.as_deref(), Some("path"));
         assert_eq!(e.query.as_deref(), Some("q=1"));
         assert_eq!(e.host_and_port, "kms.us-east-1.amazonaws.com:443");
-        assert!(Endpoint::parse("localhost", false).unwrap_err().contains("expected dot separator"));
-        assert_eq!(Endpoint::parse("localhost:5698", true).unwrap().host_and_port, "localhost:5698");
-        assert_eq!(Endpoint::parse("a.b:", false).unwrap_err(), "Invalid endpoint, expected a port after the colon");
-        assert_eq!(Endpoint::parse("a.b c", false).unwrap_err(), "Invalid character in endpoint at offset 3: 0x20");
+        assert!(
+            Endpoint::parse("localhost", false)
+                .unwrap_err()
+                .contains("expected dot separator")
+        );
+        assert_eq!(
+            Endpoint::parse("localhost:5698", true)
+                .unwrap()
+                .host_and_port,
+            "localhost:5698"
+        );
+        assert_eq!(
+            Endpoint::parse("a.b:", false).unwrap_err(),
+            "Invalid endpoint, expected a port after the colon"
+        );
+        assert_eq!(
+            Endpoint::parse("a.b c", false).unwrap_err(),
+            "Invalid character in endpoint at offset 3: 0x20"
+        );
         assert_eq!(Endpoint::parse("a.b/c:8080", false).unwrap().port, None);
     }
 
     #[test]
     fn kmsids() {
         assert_eq!(parse_kmsid("local").unwrap(), (KmsType::Local, None));
-        assert_eq!(parse_kmsid("local:a_1").unwrap(), (KmsType::Local, Some("a_1")));
+        assert_eq!(
+            parse_kmsid("local:a_1").unwrap(),
+            (KmsType::Local, Some("a_1"))
+        );
         assert!(parse_kmsid("local:").unwrap_err().contains("empty name"));
-        assert!(parse_kmsid("local:a-b").unwrap_err().contains("unsupported character `-`"));
-        assert!(parse_kmsid("foo").unwrap_err().contains("unrecognized type"));
+        assert!(
+            parse_kmsid("local:a-b")
+                .unwrap_err()
+                .contains("unsupported character `-`")
+        );
+        assert!(
+            parse_kmsid("foo")
+                .unwrap_err()
+                .contains("unrecognized type")
+        );
         // strncmp quirk kept: a prefix selects the type
         assert_eq!(parse_kmsid("a").unwrap().0, KmsType::Aws);
     }

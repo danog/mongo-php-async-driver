@@ -7,7 +7,8 @@ use std::ptr::null_mut;
 
 pub type Ex = *mut sys::zend_execute_data;
 
-const FRAME_SLOT: usize = std::mem::size_of::<sys::zend_execute_data>().div_ceil(std::mem::size_of::<sys::zval>());
+const FRAME_SLOT: usize =
+    std::mem::size_of::<sys::zend_execute_data>().div_ceil(std::mem::size_of::<sys::zval>());
 
 #[inline]
 pub unsafe fn num_args(ex: Ex) -> u32 {
@@ -62,7 +63,17 @@ pub unsafe fn method(o: *mut sys::zend_object, name: &CStr, args: &mut [sys::zva
         1 => (&mut args[0] as *mut _, null_mut()),
         _ => (&mut args[0] as *mut _, &mut args[1] as *mut _),
     };
-    sys::zend_call_method(o, null_mut(), null_mut(), name.as_ptr(), name.to_bytes().len(), &mut rv, args.len() as u32, a1, a2);
+    sys::zend_call_method(
+        o,
+        null_mut(),
+        null_mut(),
+        name.as_ptr(),
+        name.to_bytes().len(),
+        &mut rv,
+        args.len() as u32,
+        a1,
+        a2,
+    );
     rv
 }
 
@@ -78,6 +89,13 @@ pub unsafe fn method_n(o: *mut sys::zend_object, name: &[u8], args: &mut [sys::z
     // borrowed: the caller holds a reference to `o`
     let mut obj = zval::borrowed_obj(o);
     let mut func = zval::string(name);
-    sys::_call_user_function_impl(&mut *obj, &mut func, &mut rv, args.len() as u32, args.as_mut_ptr(), null_mut());
+    sys::_call_user_function_impl(
+        &mut *obj,
+        &mut func,
+        &mut rv,
+        args.len() as u32,
+        args.as_mut_ptr(),
+        null_mut(),
+    );
     rv
 }

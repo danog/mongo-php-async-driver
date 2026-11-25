@@ -30,14 +30,18 @@ use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore,
 use sha1::{Digest, Sha1};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use x509_cert::Certificate;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::ext::pkix::{AuthorityInfoAccessSyntax, CrlReason, ExtendedKeyUsage};
 use x509_cert::spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
-use x509_cert::Certificate;
-use x509_ocsp::{BasicOcspResponse, CertId, CertStatus, OcspRequest, OcspResponse, OcspResponseStatus, Request, ResponderId, TbsRequest, Version};
+use x509_ocsp::{
+    BasicOcspResponse, CertId, CertStatus, OcspRequest, OcspResponse, OcspResponseStatus, Request,
+    ResponderId, TbsRequest, Version,
+};
 
 const ID_SHA1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.14.3.2.26");
-const ID_PE_AUTHORITY_INFO_ACCESS: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.1.1");
+const ID_PE_AUTHORITY_INFO_ACCESS: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.1.1");
 const ID_PE_TLSFEATURE: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.1.24");
 const ID_AD_OCSP: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.48.1");
 const ID_PKIX_OCSP_BASIC: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.48.1.1");
@@ -94,19 +98,40 @@ pub struct OcspVerifier {
 }
 
 impl ServerCertVerifier for OcspVerifier {
-    fn verify_server_cert(&self, end_entity: &CertificateDer<'_>, intermediates: &[CertificateDer<'_>], server_name: &ServerName<'_>, ocsp: &[u8], now: UnixTime) -> Result<ServerCertVerified, rustls::Error> {
-        let verified = self.inner.verify_server_cert(end_entity, intermediates, server_name, ocsp, now)?;
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        let verified =
+            self.inner
+                .verify_server_cert(end_entity, intermediates, server_name, ocsp, now)?;
         let stapled = !ocsp.is_empty();
         match self.status(end_entity, intermediates, ocsp, now.as_secs()) {
             Outcome::Success => Ok(verified),
             Outcome::Error if !stapled => Ok(verified),
-            _ => Err(rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(Arc::new(OcspFailed))))),
+            _ => Err(rustls::Error::InvalidCertificate(CertificateError::Other(
+                OtherError(Arc::new(OcspFailed)),
+            ))),
         }
     }
-    fn verify_tls12_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls12_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         self.inner.verify_tls12_signature(m, c, d)
     }
-    fn verify_tls13_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls13_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         self.inner.verify_tls13_signature(m, c, d)
     }
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -150,13 +175,22 @@ fn sha1(b: &[u8]) -> Vec<u8> {
 }
 
 fn extension<'a>(c: &'a Certificate, oid: &ObjectIdentifier) -> Option<&'a [u8]> {
-    c.tbs_certificate.extensions.as_ref()?.iter().find(|e| e.extn_id == *oid).map(|e| e.extn_value.as_bytes())
+    c.tbs_certificate
+        .extensions
+        .as_ref()?
+        .iter()
+        .find(|e| e.extn_id == *oid)
+        .map(|e| e.extn_value.as_bytes())
 }
 
 /// X509_get1_ocsp: the OCSP URIs of the Authority Information Access extension.
 fn ocsp_urls(c: &Certificate) -> Vec<String> {
-    let Some(v) = extension(c, &ID_PE_AUTHORITY_INFO_ACCESS) else { return Vec::new() };
-    let Ok(aia) = AuthorityInfoAccessSyntax::from_der(v) else { return Vec::new() };
+    let Some(v) = extension(c, &ID_PE_AUTHORITY_INFO_ACCESS) else {
+        return Vec::new();
+    };
+    let Ok(aia) = AuthorityInfoAccessSyntax::from_der(v) else {
+        return Vec::new();
+    };
     aia.0
         .iter()
         .filter(|d| d.access_method == ID_AD_OCSP)
@@ -170,7 +204,9 @@ fn ocsp_urls(c: &Certificate) -> Vec<String> {
 
 /// _get_must_staple: a TLS feature extension listing status_request (5).
 fn must_staple(c: &Certificate) -> bool {
-    extension(c, &ID_PE_TLSFEATURE).and_then(|v| Vec::<u32>::from_der(v).ok()).is_some_and(|f| f.contains(&5))
+    extension(c, &ID_PE_TLSFEATURE)
+        .and_then(|v| Vec::<u32>::from_der(v).ok())
+        .is_some_and(|f| f.contains(&5))
 }
 
 fn time_ok(not_before: u64, not_after: u64, now: u64) -> bool {
@@ -221,20 +257,35 @@ fn response_status_str(s: OcspResponseStatus) -> (i32, &'static str) {
 
 impl OcspVerifier {
     /// A signature by `key` (an algorithm of the crypto provider, as for the handshake).
-    fn verify(&self, key: &SubjectPublicKeyInfoOwned, alg: &AlgorithmIdentifierOwned, msg: &[u8], sig: &[u8]) -> bool {
-        let (Some(pk), Some(sa)) = (alg_contents(&key.algorithm), alg_contents(alg)) else { return false };
-        let Some(raw) = key.subject_public_key.as_bytes() else { return false };
+    fn verify(
+        &self,
+        key: &SubjectPublicKeyInfoOwned,
+        alg: &AlgorithmIdentifierOwned,
+        msg: &[u8],
+        sig: &[u8],
+    ) -> bool {
+        let (Some(pk), Some(sa)) = (alg_contents(&key.algorithm), alg_contents(alg)) else {
+            return false;
+        };
+        let Some(raw) = key.subject_public_key.as_bytes() else {
+            return false;
+        };
         self.provider
             .signature_verification_algorithms
             .all
             .iter()
-            .find(|a| a.public_key_alg_id().as_ref() == pk.as_slice() && a.signature_alg_id().as_ref() == sa.as_slice())
+            .find(|a| {
+                a.public_key_alg_id().as_ref() == pk.as_slice()
+                    && a.signature_alg_id().as_ref() == sa.as_slice()
+            })
             .is_some_and(|a| a.verify_signature(raw, msg, sig).is_ok())
     }
 
     /// Whether `issuer` signed `c`.
     fn signed_by(&self, c: &Certificate, issuer: &SubjectPublicKeyInfoOwned) -> bool {
-        let (Ok(tbs), Some(sig)) = (c.tbs_certificate.to_der(), c.signature.as_bytes()) else { return false };
+        let (Ok(tbs), Some(sig)) = (c.tbs_certificate.to_der(), c.signature.as_bytes()) else {
+            return false;
+        };
         self.verify(issuer, &c.signature_algorithm, &tbs, sig)
     }
 
@@ -243,16 +294,27 @@ impl OcspVerifier {
     fn issuer(&self, leaf: &Certificate, intermediates: &[CertificateDer<'_>]) -> Option<Issuer> {
         let want = leaf.tbs_certificate.issuer.to_der().ok()?;
         for c in intermediates.iter().take(MAX_CERTS) {
-            let Ok(c) = Certificate::from_der(c) else { continue };
-            if c.tbs_certificate.subject.to_der().ok().as_deref() == Some(want.as_slice()) && self.signed_by(leaf, &c.tbs_certificate.subject_public_key_info) {
-                return Some(Issuer { name: want, spki: c.tbs_certificate.subject_public_key_info });
+            let Ok(c) = Certificate::from_der(c) else {
+                continue;
+            };
+            if c.tbs_certificate.subject.to_der().ok().as_deref() == Some(want.as_slice())
+                && self.signed_by(leaf, &c.tbs_certificate.subject_public_key_info)
+            {
+                return Some(Issuer {
+                    name: want,
+                    spki: c.tbs_certificate.subject_public_key_info,
+                });
             }
         }
         for a in &self.roots.roots {
             if sequence(a.subject.as_ref()) != want {
                 continue;
             }
-            let Ok(spki) = SubjectPublicKeyInfoOwned::from_der(&sequence(a.subject_public_key_info.as_ref())) else { continue };
+            let Ok(spki) =
+                SubjectPublicKeyInfoOwned::from_der(&sequence(a.subject_public_key_info.as_ref()))
+            else {
+                continue;
+            };
             if self.signed_by(leaf, &spki) {
                 return Some(Issuer { name: want, spki });
             }
@@ -264,8 +326,13 @@ impl OcspVerifier {
     /// issuer, or by a certificate (included in the response) that the issuer issued with the
     /// OCSPSigning extended key usage and that is valid now.
     fn verify_basic(&self, basic: &BasicOcspResponse, issuer: &Issuer, now: u64) -> bool {
-        let (Ok(tbs), Some(sig)) = (basic.tbs_response_data.to_der(), basic.signature.as_bytes()) else { return false };
-        let Some(issuer_key) = issuer.spki.subject_public_key.as_bytes() else { return false };
+        let (Ok(tbs), Some(sig)) = (basic.tbs_response_data.to_der(), basic.signature.as_bytes())
+        else {
+            return false;
+        };
+        let Some(issuer_key) = issuer.spki.subject_public_key.as_bytes() else {
+            return false;
+        };
         let names = |rid: &ResponderId, name: &[u8], key: &[u8]| match rid {
             ResponderId::ByName(n) => n.to_der().ok().as_deref() == Some(name),
             ResponderId::ByKey(k) => k.as_bytes() == sha1(key).as_slice(),
@@ -276,21 +343,44 @@ impl OcspVerifier {
         }
         for c in basic.certs.iter().flatten().take(MAX_CERTS) {
             let t = &c.tbs_certificate;
-            let (Ok(subject), Some(key)) = (t.subject.to_der(), t.subject_public_key_info.subject_public_key.as_bytes()) else { continue };
+            let (Ok(subject), Some(key)) = (
+                t.subject.to_der(),
+                t.subject_public_key_info.subject_public_key.as_bytes(),
+            ) else {
+                continue;
+            };
             if !names(rid, &subject, key) {
                 continue;
             }
             let delegated = t.issuer.to_der().ok().as_deref() == Some(issuer.name.as_slice())
                 && self.signed_by(c, &issuer.spki)
-                && extension(c, &ID_CE_EXT_KEY_USAGE).and_then(|v| ExtendedKeyUsage::from_der(v).ok()).is_some_and(|e| e.0.contains(&ID_KP_OCSP_SIGNING))
-                && time_ok(t.validity.not_before.to_unix_duration().as_secs(), t.validity.not_after.to_unix_duration().as_secs(), now);
-            return delegated && self.verify(&t.subject_public_key_info, &basic.signature_algorithm, &tbs, sig);
+                && extension(c, &ID_CE_EXT_KEY_USAGE)
+                    .and_then(|v| ExtendedKeyUsage::from_der(v).ok())
+                    .is_some_and(|e| e.0.contains(&ID_KP_OCSP_SIGNING))
+                && time_ok(
+                    t.validity.not_before.to_unix_duration().as_secs(),
+                    t.validity.not_after.to_unix_duration().as_secs(),
+                    now,
+                );
+            return delegated
+                && self.verify(
+                    &t.subject_public_key_info,
+                    &basic.signature_algorithm,
+                    &tbs,
+                    sig,
+                );
         }
         false
     }
 
     /// _mongoc_ocsp_tlsext_status
-    fn status(&self, ee: &CertificateDer<'_>, intermediates: &[CertificateDer<'_>], staple: &[u8], now: u64) -> Outcome {
+    fn status(
+        &self,
+        ee: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        staple: &[u8],
+        now: u64,
+    ) -> Outcome {
         let stapled = !staple.is_empty();
         let soft = |m: &str| {
             if stapled {
@@ -300,22 +390,35 @@ impl OcspVerifier {
             }
         };
         let Ok(leaf) = Certificate::from_der(ee) else {
-            log::error(log::MONGOC, || "Could not get issuer from peer cert".to_owned());
+            log::error(log::MONGOC, || {
+                "Could not get issuer from peer cert".to_owned()
+            });
             return Outcome::Error;
         };
-        let urls = if stapled || !self.endpoint_check { Vec::new() } else { ocsp_urls(&leaf) };
+        let urls = if stapled || !self.endpoint_check {
+            Vec::new()
+        } else {
+            ocsp_urls(&leaf)
+        };
         let must = !stapled && must_staple(&leaf);
         // nothing to look at and nothing cached: the outcome cannot be other than success
         if !stapled && !must && urls.is_empty() && cache::is_empty() {
             return Outcome::Success;
         }
         let Some(issuer) = self.issuer(&leaf, intermediates) else {
-            log::error(log::MONGOC, || "Could not get issuer from peer cert".to_owned());
+            log::error(log::MONGOC, || {
+                "Could not get issuer from peer cert".to_owned()
+            });
             return Outcome::Error;
         };
-        let Some(issuer_key) = issuer.spki.subject_public_key.as_bytes() else { return Outcome::Error };
+        let Some(issuer_key) = issuer.spki.subject_public_key.as_bytes() else {
+            return Outcome::Error;
+        };
         let id = CertId {
-            hash_algorithm: AlgorithmIdentifierOwned { oid: ID_SHA1, parameters: Some(Any::null()) },
+            hash_algorithm: AlgorithmIdentifierOwned {
+                oid: ID_SHA1,
+                parameters: Some(Any::null()),
+            },
             issuer_name_hash: OctetString::new(sha1(&issuer.name)).expect("20 bytes"),
             issuer_key_hash: OctetString::new(sha1(issuer_key)).expect("20 bytes"),
             serial_number: leaf.tbs_certificate.serial_number.clone(),
@@ -334,14 +437,18 @@ impl OcspVerifier {
             }
         } else {
             if must {
-                log::error(log::MONGOC, || "Server must contain a stapled response".to_owned());
+                log::error(log::MONGOC, || {
+                    "Server must contain a stapled response".to_owned()
+                });
                 return Outcome::Revoked;
             }
             match contact(&id, &urls) {
                 Some(r) => r,
                 None => {
                     if !urls.is_empty() {
-                        log::debug(log::MONGOC, || "Soft-fail: No OCSP responder could be reached".to_owned());
+                        log::debug(log::MONGOC, || {
+                            "Soft-fail: No OCSP responder could be reached".to_owned()
+                        });
                     }
                     return Outcome::Success;
                 }
@@ -352,7 +459,11 @@ impl OcspVerifier {
             soft(&format!("OCSP response error {n} {s}"));
             return Outcome::Error;
         }
-        let basic = resp.response_bytes.as_ref().filter(|b| b.response_type == ID_PKIX_OCSP_BASIC).and_then(|b| BasicOcspResponse::from_der(b.response.as_bytes()).ok());
+        let basic = resp
+            .response_bytes
+            .as_ref()
+            .filter(|b| b.response_type == ID_PKIX_OCSP_BASIC)
+            .and_then(|b| BasicOcspResponse::from_der(b.response.as_bytes()).ok());
         let Some(basic) = basic else {
             soft("Could not find BasicOCSPResponse");
             return Outcome::Error;
@@ -362,7 +473,10 @@ impl OcspVerifier {
             return Outcome::Error;
         }
         let single = basic.tbs_response_data.responses.iter().find(|r| {
-            r.cert_id.hash_algorithm.oid == ID_SHA1 && r.cert_id.issuer_name_hash == id.issuer_name_hash && r.cert_id.issuer_key_hash == id.issuer_key_hash && r.cert_id.serial_number == id.serial_number
+            r.cert_id.hash_algorithm.oid == ID_SHA1
+                && r.cert_id.issuer_name_hash == id.issuer_name_hash
+                && r.cert_id.issuer_key_hash == id.issuer_key_hash
+                && r.cert_id.serial_number == id.serial_number
         });
         let Some(single) = single else {
             soft("No OCSP response found for the peer certificate");
@@ -376,7 +490,9 @@ impl OcspVerifier {
         }
         let st = match &single.cert_status {
             CertStatus::Good(_) => Status::Good,
-            CertStatus::Revoked(info) => Status::Revoked(info.revocation_reason.map_or(-1, |r: CrlReason| r as i32)),
+            CertStatus::Revoked(info) => {
+                Status::Revoked(info.revocation_reason.map_or(-1, |r: CrlReason| r as i32))
+            }
             CertStatus::Unknown(_) => Status::Unknown,
         };
         validate(st, &key, Some((this, next)))
@@ -393,14 +509,21 @@ fn validate(st: Status, key: &cache::Key, times: Option<(u64, Option<u64>)>) -> 
             Outcome::Success
         }
         Status::Revoked(r) => {
-            log::error(log::MONGOC, || format!("OCSP Certificate Status: Revoked. Reason: {}", reason_str(r)));
+            log::error(log::MONGOC, || {
+                format!(
+                    "OCSP Certificate Status: Revoked. Reason: {}",
+                    reason_str(r)
+                )
+            });
             if let Some((this, next)) = times {
                 cache::set(key, st, this, next);
             }
             Outcome::Revoked
         }
         Status::Unknown => {
-            log::debug(log::MONGOC, || "OCSP Certificate Status: Unknown".to_owned());
+            log::debug(log::MONGOC, || {
+                "OCSP Certificate Status: Unknown".to_owned()
+            });
             Outcome::Success
         }
     }
@@ -410,9 +533,21 @@ fn validate(st: Status, key: &cache::Key, times: Option<(u64, Option<u64>)>) -> 
 fn request_der(id: &CertId) -> Option<Vec<u8>> {
     let mut nonce = [0u8; 16];
     getrandom::fill(&mut nonce).ok()?;
-    let ext = x509_cert::ext::Extension { extn_id: ID_PKIX_OCSP_NONCE, critical: false, extn_value: OctetString::new(OctetString::new(nonce.to_vec()).ok()?.to_der().ok()?).ok()? };
+    let ext = x509_cert::ext::Extension {
+        extn_id: ID_PKIX_OCSP_NONCE,
+        critical: false,
+        extn_value: OctetString::new(OctetString::new(nonce.to_vec()).ok()?.to_der().ok()?).ok()?,
+    };
     let req = OcspRequest {
-        tbs_request: TbsRequest { version: Version::V1, requestor_name: None, request_list: vec![Request { req_cert: id.clone(), single_request_extensions: None }], request_extensions: Some(vec![ext]) },
+        tbs_request: TbsRequest {
+            version: Version::V1,
+            requestor_name: None,
+            request_list: vec![Request {
+                req_cert: id.clone(),
+                single_request_extensions: None,
+            }],
+            request_extensions: Some(vec![ext]),
+        },
         optional_signature: None,
     };
     req.to_der().ok()
@@ -432,11 +567,19 @@ fn contact(id: &CertId, urls: &[String]) -> Option<OcspResponse> {
             log::debug(log::MONGOC, || "Could not encode OCSP request".to_owned());
             continue;
         };
-        match crate::http::send("POST", &u, "Content-Type: application/ocsp-request\r\n", &req, REQUEST_TIMEOUT) {
+        match crate::http::send(
+            "POST",
+            &u,
+            "Content-Type: application/ocsp-request\r\n",
+            &req,
+            REQUEST_TIMEOUT,
+        ) {
             Err(e) => log::debug(log::MONGOC, || format!("Could not send HTTP request: {e}")),
             Ok(r) => match OcspResponse::from_der(&r.body) {
                 Ok(resp) if !r.body.is_empty() => return Some(resp),
-                _ => log::debug(log::MONGOC, || "Could not parse OCSP response from HTTP response".to_owned()),
+                _ => log::debug(log::MONGOC, || {
+                    "Could not parse OCSP response from HTTP response".to_owned()
+                }),
             },
         }
     }
@@ -452,7 +595,11 @@ mod cache {
 
     impl Key {
         pub fn of(id: &CertId) -> Key {
-            Key(id.issuer_name_hash.as_bytes().to_vec(), id.issuer_key_hash.as_bytes().to_vec(), id.serial_number.as_bytes().to_vec())
+            Key(
+                id.issuer_name_hash.as_bytes().to_vec(),
+                id.issuer_key_hash.as_bytes().to_vec(),
+                id.serial_number.as_bytes().to_vec(),
+            )
         }
     }
 
@@ -491,18 +638,30 @@ mod cache {
         let mut c = lock();
         if let Some(e) = c.iter_mut().find(|e| e.key == *k) {
             if next > e.next {
-                *e = Entry { key: k.clone(), status, this, next };
+                *e = Entry {
+                    key: k.clone(),
+                    status,
+                    this,
+                    next,
+                };
             }
             return;
         }
         if c.len() >= MAX_CACHE {
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
             c.retain(|e| validity_error(e.this, Some(e.next), now).is_none());
             if c.len() >= MAX_CACHE {
                 c.remove(0);
             }
         }
-        c.push(Entry { key: k.clone(), status, this, next });
+        c.push(Entry {
+            key: k.clone(),
+            status,
+            this,
+            next,
+        });
     }
 
     pub fn clear() {
@@ -527,8 +686,18 @@ pub fn cache_len() -> usize {
 }
 
 /// Wraps `inner` with the OCSP checks.
-pub fn verifier(inner: Arc<dyn ServerCertVerifier>, roots: Arc<RootCertStore>, provider: Arc<CryptoProvider>, endpoint_check: bool) -> Arc<dyn ServerCertVerifier> {
-    Arc::new(OcspVerifier { inner, roots, provider, endpoint_check })
+pub fn verifier(
+    inner: Arc<dyn ServerCertVerifier>,
+    roots: Arc<RootCertStore>,
+    provider: Arc<CryptoProvider>,
+    endpoint_check: bool,
+) -> Arc<dyn ServerCertVerifier> {
+    Arc::new(OcspVerifier {
+        inner,
+        roots,
+        provider,
+        endpoint_check,
+    })
 }
 
 #[cfg(test)]
@@ -546,7 +715,10 @@ mod tests {
     fn validity() {
         assert_eq!(validity_error(10, Some(20), 15), None);
         assert_eq!(validity_error(10, None, 1000), None);
-        assert_eq!(validity_error(16, Some(20), 15), Some("status not yet valid"));
+        assert_eq!(
+            validity_error(16, Some(20), 15),
+            Some("status not yet valid")
+        );
         assert_eq!(validity_error(10, Some(14), 15), Some("status expired"));
     }
 
@@ -558,13 +730,22 @@ mod tests {
         assert!(cache::get(&k, 15).is_none(), "no nextUpdate: not cached");
         cache::set(&k, Status::Good, 10, Some(20));
         cache::set(&k, Status::Revoked(1), 10, Some(19));
-        assert_eq!(cache::get(&k, 15), Some(Status::Good), "an older nextUpdate does not replace");
+        assert_eq!(
+            cache::get(&k, 15),
+            Some(Status::Good),
+            "an older nextUpdate does not replace"
+        );
         cache::set(&k, Status::Revoked(1), 12, Some(30));
         assert_eq!(cache::get(&k, 15), Some(Status::Revoked(1)));
         assert_eq!(cache::get(&k, 31), None, "expired entries are dropped");
         assert_eq!(cache_len(), 0);
         for i in 0..MAX_CACHE + 10 {
-            cache::set(&cache::Key(vec![], vec![], i.to_be_bytes().to_vec()), Status::Good, 0, Some(u64::MAX));
+            cache::set(
+                &cache::Key(vec![], vec![], i.to_be_bytes().to_vec()),
+                Status::Good,
+                0,
+                Some(u64::MAX),
+            );
         }
         assert_eq!(cache_len(), MAX_CACHE);
         clear_cache();

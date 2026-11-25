@@ -1,7 +1,7 @@
 //! PHP values -> BSON (phongo_bson_encode.c), writing straight from zvals into the buffer.
 
 use super::decode::FieldPath;
-use super::{ce, document, throw, types, E};
+use super::{E, ce, document, throw, types};
 use crate::zend::{call, hash, obj, sys, zstr, zval};
 use mongo_core::bson::iter::{self, Iter, T_ARRAY, T_DOCUMENT};
 use mongo_core::bson::writer::Writer;
@@ -17,14 +17,26 @@ fn length_ok(len: usize, fp: &FieldPath, what: &str) -> bool {
     if len <= MAX_LENGTH {
         return true;
     }
-    unsafe { throw(E::UnexpectedValue, format!("Expected {} for field path \"{}\" to be <= {} bytes, {} given", what, fp.as_string(), MAX_LENGTH, len)) };
+    unsafe {
+        throw(
+            E::UnexpectedValue,
+            format!(
+                "Expected {} for field path \"{}\" to be <= {} bytes, {} given",
+                what,
+                fp.as_string(),
+                MAX_LENGTH,
+                len
+            ),
+        )
+    };
     false
 }
 
 /// phongo_is_array_or_document: true for "array"
 unsafe fn is_array(z: *mut sys::zval) -> bool {
     if !zval::is(z, sys::IS_ARRAY) {
-        return zval::is(z, sys::IS_OBJECT) && obj::instanceof(zval::obj_ce(z), ce().packedarray);
+        return zval::is(z, sys::IS_OBJECT)
+            && obj::instanceof(zval::obj_ce(z), ce().packedarray.get());
     }
     hash::is_list((*z).value.arr)
 }
@@ -57,23 +69,32 @@ pub struct Enc {
 impl Enc {
     /// phongo_bson_append_object. `props`: the object's property table, already fetched by the
     /// caller (passed on so that get_properties is not called again while the table is held).
-    unsafe fn append_object(&mut self, w: &mut Writer, flags: u32, key: &[u8], z: *mut sys::zval, props: *mut sys::HashTable) {
+    unsafe fn append_object(
+        &mut self,
+        w: &mut Writer,
+        flags: u32,
+        key: &[u8],
+        z: *mut sys::zval,
+        props: *mut sys::HashTable,
+    ) {
         let c = ce();
         if zval::is(z, sys::IS_OBJECT) {
             let oce = zval::obj_ce(z);
-            if obj::instanceof(oce, c.type_) {
+            if obj::instanceof(oce, c.type_.get()) {
                 let o = (*z).value.obj;
-                if obj::instanceof(oce, c.document) {
+                if obj::instanceof(oce, c.document.get()) {
                     w.document(key, &obj::data::<document::Bson>(o).bson);
                     return;
                 }
-                if obj::instanceof(oce, c.packedarray) {
+                if obj::instanceof(oce, c.packedarray.get()) {
                     w.array(key, &obj::data::<document::PackedArray>(o).0.bson);
                     return;
                 }
-                if obj::instanceof(oce, c.serializable) {
-                    let Some(mut data) = bson_serialize(z) else { return };
-                    let persist = obj::instanceof(oce, c.persistable);
+                if obj::instanceof(oce, c.serializable.get()) {
+                    let Some(mut data) = bson_serialize(z) else {
+                        return;
+                    };
+                    let persist = obj::instanceof(oce, c.persistable.get());
                     if persist || !is_array(&mut data) {
                         if persist && !length_ok(class_name(oce).len(), &self.fp, "class name") {
                             return;
@@ -91,53 +112,71 @@ impl Enc {
                     }
                     return;
                 }
-                if obj::instanceof(oce, c.objectid) {
+                if obj::instanceof(oce, c.objectid.get()) {
                     w.oid(key, &obj::data::<types::ObjectId>(o).oid);
-                } else if obj::instanceof(oce, c.utcdatetime) {
+                } else if obj::instanceof(oce, c.utcdatetime.get()) {
                     w.date_time(key, obj::data::<types::UTCDateTime>(o).ms);
-                } else if obj::instanceof(oce, c.binary) {
+                } else if obj::instanceof(oce, c.binary.get()) {
                     let b = obj::data::<types::Binary>(o);
                     if length_ok(b.data.len(), &self.fp, "binary data") {
                         w.binary(key, b.ty, &b.data);
                     }
-                } else if obj::instanceof(oce, c.decimal128) {
+                } else if obj::instanceof(oce, c.decimal128.get()) {
                     w.decimal128(key, &obj::data::<types::Decimal128>(o).dec);
-                } else if obj::instanceof(oce, c.int64) {
+                } else if obj::instanceof(oce, c.int64.get()) {
                     w.int64(key, obj::data::<types::Int64>(o).v);
-                } else if obj::instanceof(oce, c.regex) {
+                } else if obj::instanceof(oce, c.regex.get()) {
                     let r = obj::data::<types::Regex>(o);
                     w.regex(key, &r.pattern, &r.flags);
-                } else if obj::instanceof(oce, c.javascript) {
+                } else if obj::instanceof(oce, c.javascript.get()) {
                     let j = obj::data::<types::Javascript>(o);
                     match &j.scope {
                         Some(s) => w.code_with_scope(key, &j.code, s),
                         None => w.code(key, &j.code),
                     }
-                } else if obj::instanceof(oce, c.timestamp) {
+                } else if obj::instanceof(oce, c.timestamp.get()) {
                     let t = obj::data::<types::Timestamp>(o);
                     w.timestamp(key, t.timestamp, t.increment);
-                } else if obj::instanceof(oce, c.maxkey) {
+                } else if obj::instanceof(oce, c.maxkey.get()) {
                     w.maxkey(key);
-                } else if obj::instanceof(oce, c.minkey) {
+                } else if obj::instanceof(oce, c.minkey.get()) {
                     w.minkey(key);
-                } else if obj::instanceof(oce, c.dbpointer) {
+                } else if obj::instanceof(oce, c.dbpointer.get()) {
                     let d = obj::data::<types::DBPointer>(o);
                     w.dbpointer(key, &d.ref_, &d.id);
-                } else if obj::instanceof(oce, c.symbol) {
+                } else if obj::instanceof(oce, c.symbol.get()) {
                     let s = obj::data::<types::Symbol>(o);
                     if length_ok(s.symbol.len(), &self.fp, "symbol") {
                         w.symbol(key, &s.symbol);
                     }
-                } else if obj::instanceof(oce, c.undefined) {
+                } else if obj::instanceof(oce, c.undefined.get()) {
                     w.undefined(key);
                 } else {
-                    throw(E::UnexpectedValue, format!("Unexpected {} instance: {}", crate::zend::class::name(c.type_), crate::zend::class::name(oce)));
+                    throw(
+                        E::UnexpectedValue,
+                        format!(
+                            "Unexpected {} instance: {}",
+                            crate::zend::class::name(c.type_.get()),
+                            crate::zend::class::name(oce)
+                        ),
+                    );
                 }
                 return;
             }
             if (*oce).ce_flags & sys::ZEND_ACC_ENUM != 0 {
+                #[allow(
+                    clippy::unnecessary_cast,
+                    reason = "the field's type differs between PHP versions"
+                )]
                 if (*oce).enum_backing_type as u32 == sys::IS_UNDEF {
-                    throw(E::UnexpectedValue, format!("Non-backed enum {} cannot be serialized for field path \"{}\"", crate::zend::class::name(oce), self.fp.as_string()));
+                    throw(
+                        E::UnexpectedValue,
+                        format!(
+                            "Non-backed enum {} cannot be serialized for field path \"{}\"",
+                            crate::zend::class::name(oce),
+                            self.fp.as_string()
+                        ),
+                    );
                     return;
                 }
                 // zend_enum_fetch_case_value: OBJ_PROP_NUM(obj, 1)
@@ -155,7 +194,14 @@ impl Enc {
     /// phongo_bson_append
     pub unsafe fn append(&mut self, w: &mut Writer, flags: u32, key: &[u8], mut z: *mut sys::zval) {
         if key.len() > MAX_LENGTH {
-            throw(E::UnexpectedValue, format!("Expected key length to be <= {} bytes, {} given", MAX_LENGTH, key.len()));
+            throw(
+                E::UnexpectedValue,
+                format!(
+                    "Expected key length to be <= {} bytes, {} given",
+                    MAX_LENGTH,
+                    key.len()
+                ),
+            );
             return;
         }
         self.fp.write(key);
@@ -174,13 +220,26 @@ impl Enc {
                     if utf8::validate(s, true) {
                         w.utf8(key, s);
                     } else {
-                        throw(E::UnexpectedValue, format!("Detected invalid UTF-8 for field path \"{}\": {}", self.fp.as_string(), String::from_utf8_lossy(zstr::c_part(s))));
+                        throw(
+                            E::UnexpectedValue,
+                            format!(
+                                "Detected invalid UTF-8 for field path \"{}\": {}",
+                                self.fp.as_string(),
+                                String::from_utf8_lossy(zstr::c_part(s))
+                            ),
+                        );
                     }
                 }
                 sys::IS_ARRAY if is_array(z) => {
                     let ht = (*z).value.arr;
                     if !hash::protect_begin(ht) {
-                        throw(E::UnexpectedValue, format!("Detected recursion for field path \"{}\"", self.fp.as_string()));
+                        throw(
+                            E::UnexpectedValue,
+                            format!(
+                                "Detected recursion for field path \"{}\"",
+                                self.fp.as_string()
+                            ),
+                        );
                         return;
                     }
                     if !self.fp.push(None) {
@@ -204,7 +263,13 @@ impl Enc {
                     let mut view = std::mem::ManuallyDrop::new(std::ptr::read(z));
                     let ht = hash_of(&mut *view);
                     if !hash::protect_begin(ht) {
-                        throw(E::UnexpectedValue, format!("Detected recursion for field path \"{}\"", self.fp.as_string()));
+                        throw(
+                            E::UnexpectedValue,
+                            format!(
+                                "Detected recursion for field path \"{}\"",
+                                self.fp.as_string()
+                            ),
+                        );
                         return;
                     }
                     if !self.fp.push(None) {
@@ -212,7 +277,11 @@ impl Enc {
                         hash::protect_end(ht);
                         return;
                     }
-                    let o = if zval::is(&*view, sys::IS_OBJECT) { view.value.obj } else { std::ptr::null_mut() };
+                    let o = if zval::is(&*view, sys::IS_OBJECT) {
+                        view.value.obj
+                    } else {
+                        std::ptr::null_mut()
+                    };
                     let held_o = if o.is_null() { 0 } else { hash::hold_obj(o) };
                     let held = hash::hold(ht);
                     self.append_object(w, flags, key, &mut *view, ht);
@@ -228,14 +297,30 @@ impl Enc {
                     continue;
                 }
                 t => {
-                    let tn = std::ffi::CStr::from_ptr(sys::zend_get_type_by_const(t as i32)).to_string_lossy().into_owned();
-                    throw(E::UnexpectedValue, format!("Detected unsupported PHP type for field path \"{}\": {} ({})", self.fp.as_string(), t, tn));
+                    let tn = std::ffi::CStr::from_ptr(sys::zend_get_type_by_const(t as i32))
+                        .to_string_lossy()
+                        .into_owned();
+                    throw(
+                        E::UnexpectedValue,
+                        format!(
+                            "Detected unsupported PHP type for field path \"{}\": {} ({})",
+                            self.fp.as_string(),
+                            t,
+                            tn
+                        ),
+                    );
                 }
             }
             // phongo_bson_append_check: libbson refuses an append that makes the document
             // larger than INT32_MAX (its length fields would wrap)
             if w.buf.len() >= i32::MAX as usize && !call::has_exception() {
-                throw(E::UnexpectedValue, format!("Could not append BSON data for field path \"{}\".", self.fp.as_string()));
+                throw(
+                    E::UnexpectedValue,
+                    format!(
+                        "Could not append BSON data for field path \"{}\".",
+                        self.fp.as_string()
+                    ),
+                );
             }
             return;
         }
@@ -244,7 +329,14 @@ impl Enc {
     /// phongo_zval_to_bson_internal. `id_out`: receives the _id element (RETURN_ID). `held`: the
     /// table of `data` (its array, or the property table of an object) if the caller has fetched
     /// it and holds it (hash::hold) while this runs, else null.
-    pub unsafe fn internal(&mut self, data: *mut sys::zval, mut flags: u32, w: &mut Writer, id_out: Option<&mut Option<Vec<u8>>>, held: *mut sys::HashTable) {
+    pub unsafe fn internal(
+        &mut self,
+        data: *mut sys::zval,
+        mut flags: u32,
+        w: &mut Writer,
+        id_out: Option<&mut Option<Vec<u8>>>,
+        held: *mut sys::HashTable,
+    ) {
         let c = ce();
         // bsonSerialize()'s result, when called (released when this returns)
         let mut obj_data: sys::zval;
@@ -257,32 +349,43 @@ impl Enc {
             sys::IS_OBJECT => {
                 let oce = zval::obj_ce(data);
                 let o = (*data).value.obj;
-                if obj::instanceof(oce, c.document) {
+                if obj::instanceof(oce, c.document.get()) {
                     copy_elements(&obj::data::<document::Bson>(o).bson, w);
                     if flags & ADD_ID != 0 && w.with_doc(|d| Iter::new(d).unwrap().find(b"_id")) {
                         flags &= !ADD_ID;
                     }
                     return self.done(flags, w, id_out);
                 }
-                if obj::instanceof(oce, c.packedarray) {
+                if obj::instanceof(oce, c.packedarray.get()) {
                     if self.fp.size == 0 && flags & ALLOW_ROOT_ARRAY == 0 {
-                        throw(E::UnexpectedValue, format!("{} cannot be serialized as a root document", crate::zend::class::name(oce)));
+                        throw(
+                            E::UnexpectedValue,
+                            format!(
+                                "{} cannot be serialized as a root document",
+                                crate::zend::class::name(oce)
+                            ),
+                        );
                         return;
                     }
                     copy_elements(&obj::data::<document::PackedArray>(o).0.bson, w);
                     return self.done(flags, w, id_out);
                 }
-                if obj::instanceof(oce, c.serializable) {
-                    let Some(d) = bson_serialize(data) else { return };
+                if obj::instanceof(oce, c.serializable.get()) {
+                    let Some(d) = bson_serialize(data) else {
+                        return;
+                    };
                     obj_data = d;
-                    if obj::instanceof(oce, c.persistable) {
+                    if obj::instanceof(oce, c.persistable.get()) {
                         if !length_ok(class_name(oce).len(), &self.fp, "class name") {
                             return;
                         }
                         w.binary(b"__pclass", 0x80, class_name(oce));
                         skip_odm = true;
                     }
-                    if zval::is(&obj_data, sys::IS_OBJECT) && (obj::instanceof(zval::obj_ce(&obj_data), c.document) || obj::instanceof(zval::obj_ce(&obj_data), c.packedarray)) {
+                    if zval::is(&obj_data, sys::IS_OBJECT)
+                        && (obj::instanceof(zval::obj_ce(&obj_data), c.document.get())
+                            || obj::instanceof(zval::obj_ce(&obj_data), c.packedarray.get()))
+                    {
                         self.internal(&mut obj_data, flags, w, id_out, std::ptr::null_mut());
                         return;
                     }
@@ -291,13 +394,30 @@ impl Enc {
                         owner = obj_data.value.obj;
                     }
                 } else if (*oce).ce_flags & sys::ZEND_ACC_ENUM != 0 {
-                    throw(E::UnexpectedValue, format!("Enum {} cannot be serialized as a root element", crate::zend::class::name(oce)));
+                    throw(
+                        E::UnexpectedValue,
+                        format!(
+                            "Enum {} cannot be serialized as a root element",
+                            crate::zend::class::name(oce)
+                        ),
+                    );
                     return;
-                } else if obj::instanceof(oce, c.type_) {
-                    throw(E::UnexpectedValue, format!("{} instance {} cannot be serialized as a root element", crate::zend::class::name(c.type_), crate::zend::class::name(oce)));
+                } else if obj::instanceof(oce, c.type_.get()) {
+                    throw(
+                        E::UnexpectedValue,
+                        format!(
+                            "{} instance {} cannot be serialized as a root element",
+                            crate::zend::class::name(c.type_.get()),
+                            crate::zend::class::name(oce)
+                        ),
+                    );
                     return;
                 } else {
-                    ht = if held.is_null() { ((*(*o).handlers).get_properties.unwrap())(o) } else { held };
+                    ht = if held.is_null() {
+                        ((*(*o).handlers).get_properties.unwrap())(o)
+                    } else {
+                        held
+                    };
                     from_props = true;
                     owner = o;
                 }
@@ -313,7 +433,11 @@ impl Enc {
             // encoding started, see DIVERGENCES.md), or over a copy of a custom handler's table
             let copy = !owner.is_null() && hash::custom_properties(owner);
             let walk = if copy { hash::dup(ht) } else { ht };
-            let held_here = if copy || ht == held { 0 } else { hash::hold(ht) };
+            let held_here = if copy || ht == held {
+                0
+            } else {
+                hash::hold(ht)
+            };
             hash::each(walk, true, |k, v| {
                 // the key must outlive user code run by append (bsonSerialize() may change the
                 // array): a string key is held by a reference, an integer one is formatted here
@@ -326,7 +450,13 @@ impl Enc {
                             return true;
                         }
                         if b.contains(&0) {
-                            throw(E::UnexpectedValue, format!("BSON keys cannot contain null bytes. Unexpected null byte after \"{}\".", String::from_utf8_lossy(zstr::c_part(b))));
+                            throw(
+                                E::UnexpectedValue,
+                                format!(
+                                    "BSON keys cannot contain null bytes. Unexpected null byte after \"{}\".",
+                                    String::from_utf8_lossy(zstr::c_part(b))
+                                ),
+                            );
                             stop = true;
                             return false;
                         }
@@ -367,20 +497,23 @@ impl Enc {
         if flags & ADD_ID != 0 {
             w.oid(b"_id", &oid::generate());
         }
-        if flags & RETURN_ID != 0 {
-            if let Some(out) = id_out {
-                let id = w.with_doc(|d| {
-                    let mut it = Iter::new(d).unwrap();
-                    it.find(b"_id").then(|| {
-                        let mut iw = Writer::with_capacity(32);
-                        iw.element_from(None, &it);
-                        iw.finish()
-                    })
-                });
-                match id {
-                    Some(id) => *out = Some(id),
-                    None => throw(E::UnexpectedValue, "Error copying \"_id\" field from encoded document"),
-                }
+        if flags & RETURN_ID != 0
+            && let Some(out) = id_out
+        {
+            let id = w.with_doc(|d| {
+                let mut it = Iter::new(d).unwrap();
+                it.find(b"_id").then(|| {
+                    let mut iw = Writer::with_capacity(32);
+                    iw.element_from(None, &it);
+                    iw.finish()
+                })
+            });
+            match id {
+                Some(id) => *out = Some(id),
+                None => throw(
+                    E::UnexpectedValue,
+                    "Error copying \"_id\" field from encoded document",
+                ),
             }
         }
     }
@@ -417,7 +550,9 @@ fn copy_elements(src: &[u8], w: &mut Writer) {
 /// phongo_zval_to_bson: the encoded document (None if an exception was thrown).
 pub unsafe fn to_bson(data: *mut sys::zval, flags: u32) -> Option<Vec<u8>> {
     let mut w = Writer::new();
-    let mut e = Enc { fp: FieldPath::default() };
+    let mut e = Enc {
+        fp: FieldPath::default(),
+    };
     e.internal(data, flags, &mut w, None, std::ptr::null_mut());
     if call::has_exception() {
         return None;
@@ -426,9 +561,14 @@ pub unsafe fn to_bson(data: *mut sys::zval, flags: u32) -> Option<Vec<u8>> {
 }
 
 /// phongo_zval_to_bson with RETURN_ID: (document, the {_id: ...} document).
-pub unsafe fn to_bson_with_id(data: *mut sys::zval, flags: u32) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+pub unsafe fn to_bson_with_id(
+    data: *mut sys::zval,
+    flags: u32,
+) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
     let mut w = Writer::new();
-    let mut e = Enc { fp: FieldPath::default() };
+    let mut e = Enc {
+        fp: FieldPath::default(),
+    };
     let mut id = None;
     e.internal(data, flags, &mut w, Some(&mut id), std::ptr::null_mut());
     if call::has_exception() {
@@ -463,7 +603,14 @@ pub unsafe fn to_bson_value_doc(data: *mut sys::zval, key: &[u8]) -> Option<Vec<
         sys::IS_STRING => {
             let s = crate::zend::zval::str_bytes(data);
             if s.len() > MAX_LENGTH {
-                throw(E::UnexpectedValue, format!("Expected string to be <= {} bytes, {} given", MAX_LENGTH, s.len()));
+                throw(
+                    E::UnexpectedValue,
+                    format!(
+                        "Expected string to be <= {} bytes, {} given",
+                        MAX_LENGTH,
+                        s.len()
+                    ),
+                );
                 return None;
             }
             if !mongo_core::bson::utf8::validate(s, true) {
@@ -487,7 +634,10 @@ pub unsafe fn to_bson_value_doc(data: *mut sys::zval, key: &[u8]) -> Option<Vec<
             w.element_from(Some(key), &it);
         }
         _ => {
-            throw(E::InvalidArgument, format!("Unsupported type {}", crate::zend::zval::type_name(data)));
+            throw(
+                E::InvalidArgument,
+                format!("Unsupported type {}", crate::zend::zval::type_name(data)),
+            );
             return None;
         }
     }
