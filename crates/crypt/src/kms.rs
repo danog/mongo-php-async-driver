@@ -491,7 +491,7 @@ pub fn azure_done(r: &Response) -> Result<Vec<u8>> {
         b'_' => b'/',
         c => c,
     }).collect();
-    while b64.len() % 4 != 0 {
+    while !b64.len().is_multiple_of(4) {
         b64.push(b'=');
     }
     base64_decode(&b64).ok_or_else(|| format!("Failed to base64 decode response. HTTP status={}. Response body=\n{body}", r.status))

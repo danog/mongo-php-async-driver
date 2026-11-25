@@ -284,13 +284,11 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWriteCommand_insertOne(ex: Ex, r
     }
     // phongo_bwc_extract_id: decode {_id: ...} with an array root
     let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
-    if let Some(z) = super::to_zval(&id, &tm) {
-        if zval::is(&z, sys::IS_ARRAY) {
-            if let Some(v) = hash::find(z.value.arr, b"_id") {
+    if let Some(z) = super::to_zval(&id, &tm)
+        && zval::is(&z, sys::IS_ARRAY)
+            && let Some(v) = hash::find(z.value.arr, b"_id") {
                 zval::write(rv, zval::copy(v));
             }
-        }
-    }
 }
 
 /// replaceOne / updateOne / updateMany: (ns, filter, document, options)
@@ -509,11 +507,10 @@ unsafe fn init_props(o: *mut sys::zend_object, exc: &mongo_core::bulkwrite::Bulk
 fn for_each_doc(doc: &[u8], mut f: impl FnMut(&[u8], &[u8]) -> bool) {
     let Some(mut it) = Iter::new(doc) else { return };
     while it.next() {
-        if let Value::Document(d) = it.value() {
-            if !f(it.key(), d) {
+        if let Value::Document(d) = it.value()
+            && !f(it.key(), d) {
                 return;
             }
-        }
     }
 }
 

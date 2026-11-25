@@ -78,7 +78,7 @@ impl Config {
     pub fn parse(text: &str) -> Config {
         let mut c = Config { nameservers: Vec::new(), ..Config::default() };
         for line in text.lines() {
-            let mut w = line.split(|ch: char| ch == ' ' || ch == '\t').filter(|s| !s.is_empty());
+            let mut w = line.split([' ', '\t']).filter(|s| !s.is_empty());
             match w.next() {
                 Some("nameserver") if c.nameservers.len() < MAXNS => {
                     // a scoped IPv6 address (fe80::1%en0) is skipped: std cannot parse the scope name

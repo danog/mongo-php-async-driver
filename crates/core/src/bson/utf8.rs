@@ -69,11 +69,11 @@ fn validate_bytewise(s: &[u8], allow_null: bool) -> bool {
             return false;
         }
         let mut c = (b & mask) as u32;
-        for j in i + 1..i + len {
-            if s[j] & 0xc0 != 0x80 {
+        for &x in &s[i + 1..i + len] {
+            if x & 0xc0 != 0x80 {
                 return false;
             }
-            c = (c << 6) | (s[j] & 0x3f) as u32;
+            c = (c << 6) | (x & 0x3f) as u32;
         }
         if c > 0x10ffff || (c & 0xffff_f800) == 0xd800 {
             return false;

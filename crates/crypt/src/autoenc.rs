@@ -155,11 +155,10 @@ impl Efc {
             efc.fields.insert(0, field);
         }
         for (i, a) in efc.fields.iter().enumerate() {
-            if let Some(n) = &a.key_alt_name {
-                if efc.fields[i + 1..].iter().any(|b| b.key_alt_name.as_ref() == Some(n)) {
+            if let Some(n) = &a.key_alt_name
+                && efc.fields[i + 1..].iter().any(|b| b.key_alt_name.as_ref() == Some(n)) {
                     return Err(format!("duplicate keyAltName '{}' found in encrypted field config", String::from_utf8_lossy(n)));
                 }
-            }
         }
         efc.str_encode_version = match get(doc, b"strEncodeVersion") {
             None => {
@@ -214,11 +213,10 @@ fn no_nul(s: &[u8], what: &str) -> Result<()> {
 impl SchemaBroker {
     /// `mc_schema_broker_request`
     pub fn request(&mut self, db: &str, coll: &[u8]) -> Result<()> {
-        if let Some(d) = &self.db {
-            if d != db {
+        if let Some(d) = &self.db
+            && d != db {
                 return Err(format!("Cannot request schemas for different databases. Requested schemas for '{d}' and '{db}'."));
             }
-        }
         if self.entries.iter().any(|e| e.coll == coll) {
             return Ok(());
         }
@@ -373,13 +371,12 @@ impl SchemaBroker {
         if e.satisfied {
             return Ok(());
         }
-        if let Some(Value::Document(v)) = get(cmd, b"validator") {
-            if let Some(Value::Document(s)) = get(v, b"$jsonSchema") {
+        if let Some(Value::Document(v)) = get(cmd, b"validator")
+            && let Some(Value::Document(s)) = get(v, b"$jsonSchema") {
                 e.json_schema = Some((s.to_vec(), true));
                 e.satisfied = true;
                 return Ok(());
             }
-        }
         if let Some(v) = get(cmd, b"encryptedFields") {
             let Value::Document(d) = v else {
                 return Err(format!("failed to read encryptedFields from command: {}", String::from_utf8_lossy(&name)));
@@ -644,11 +641,10 @@ pub fn check_bulk_write(cmd: &[u8]) -> Result<(String, Vec<u8>)> {
     };
     no_nul(ns, "namespace in `bulkWrite` command")?;
     let dot = ns.iter().position(|&c| c == b'.').ok_or_else(|| format!("expected namespace to contain dot, got: {}", String::from_utf8_lossy(ns)))?;
-    if let Some(Value::Array(a)) = get(cmd, b"nsInfo") {
-        if get(a, b"1").is_some() {
+    if let Some(Value::Array(a)) = get(cmd, b"nsInfo")
+        && get(a, b"1").is_some() {
             return Err("expected one namespace in `bulkWrite`, but found more than one. Only one namespace is supported.".into());
         }
-    }
     Ok((String::from_utf8_lossy(&ns[..dot]).into_owned(), ns[dot + 1..].to_vec()))
 }
 

@@ -136,8 +136,8 @@ impl Drop for Cursor {
                 if let Some(s) = self.implicit.as_mut() {
                     s.server_session = None;
                 }
-            } else if self.id != 0 {
-                if let Some(mut cl) = c.try_checkout() {
+            } else if self.id != 0
+                && let Some(mut cl) = c.try_checkout() {
                     let mut w = Writer::with_capacity(64);
                     w.utf8(b"killCursors", self.coll.as_bytes());
                     let a = w.begin(4, b"cursors");
@@ -160,7 +160,6 @@ impl Drop for Cursor {
                         }
                     }
                 }
-            }
             if let Some(mut s) = self.implicit.take() {
                 c.end_session_idle(&mut s);
             }
@@ -268,8 +267,8 @@ impl Cursor {
         let mut in_batch = false;
         let mut ns: Option<Vec<u8>> = None;
         let mut ns_invalid = false;
-        if let Some(Value::Document(cur)) = find(reply, b"cursor") {
-            if let Some(mut it) = Iter::new(cur) {
+        if let Some(Value::Document(cur)) = find(reply, b"cursor")
+            && let Some(mut it) = Iter::new(cur) {
                 while it.next() {
                     match (it.key(), it.value()) {
                         (b"id", v) => self.id = mongo_core::sdam::as_i64(&v),
@@ -283,7 +282,6 @@ impl Cursor {
                     }
                 }
             }
-        }
         if let Some(ns) = ns {
             let dot = ns.iter().position(|&b| b == b'.');
             let has_coll = dot.is_some_and(|d| d + 1 < ns.len());
@@ -448,11 +446,10 @@ impl Cursor {
 
     /// The implicit session goes back to the pool once the cursor is exhausted.
     fn release_implicit_if_exhausted(&mut self, c: &ClientRef) {
-        if self.id == 0 {
-            if let Some(mut s) = self.implicit.take() {
+        if self.id == 0
+            && let Some(mut s) = self.implicit.take() {
                 c.end_session(&mut s);
             }
-        }
     }
 
     /// _prime of a find cursor: {find: <coll>, filter: <filter>} + options.
@@ -575,11 +572,10 @@ impl Cursor {
 
     /// phongo_cursor_advance_and_check_for_error for executeQuery: primes the cursor.
     pub unsafe fn advance_first(&mut self) -> bool {
-        if !self.next_doc() {
-            if self.throw_pending() {
+        if !self.next_doc()
+            && self.throw_pending() {
                 return false;
             }
-        }
         self.advanced = true;
         // phongo_cursor_init_for_query: the document is decoded on rewind()/current()
         true

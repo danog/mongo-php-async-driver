@@ -40,7 +40,7 @@ fn connection_string() {
                     }
                     if let Some(hosts) = t["hosts"].as_array() {
                         let got: Vec<(String, Option<u64>)> = u.hosts.iter().map(|h| (h.host.clone(), if h.family == Family::Unix { None } else { Some(h.port as u64) })).collect();
-                        let want: Vec<(String, Option<u64>)> = hosts.iter().map(|h| ({ let x = h["host"].as_str().unwrap(); if h["type"] == "unix" { x.to_owned() } else { x.to_ascii_lowercase() } }, Some(h["port"].as_u64().unwrap_or(27017)).filter(|_| h["type"] != "unix"))).collect();
+                        let want: Vec<(String, Option<u64>)> = hosts.iter().map(|h| ({ let x = h["host"].as_str().unwrap(); if h["type"] == "unix" { x.to_owned() } else { x.to_ascii_lowercase() } }, (h["type"] != "unix").then_some(h["port"].as_u64().unwrap_or(27017)))).collect();
                         if got != want {
                             failures.push(format!("{desc}: hosts {got:?} != {want:?}"));
                         }

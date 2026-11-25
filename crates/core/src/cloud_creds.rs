@@ -221,15 +221,14 @@ fn from_web_identity(hosts: &Hosts) -> Result<Option<AwsCredentials>, Error> {
     let r = http::parse_response(&buf).map_err(fail)?;
     let doc = crate::bson::json_parse::from_json(&r.body)
         .map_err(|_| auth_err(format!("invalid JSON in response from {host}. Response headers: {}", r.headers)))?;
-    if let Some(mut it) = Iter::new(&doc) {
-        if it.find(b"Error") {
+    if let Some(mut it) = Iter::new(&doc)
+        && it.find(b"Error") {
             let json = match it.value() {
                 Value::Document(d) => crate::bson::json::to_json(d, crate::bson::json::Mode::Relaxed, false).map(|j| String::from_utf8_lossy(&j).into_owned()).unwrap_or_default(),
                 _ => String::new(),
             };
             return Err(auth_err(format!("Response to AssumeRoleWithWebIdentity contains 'Error': {json}")));
         }
-    }
     let path = "AssumeRoleWithWebIdentityResponse.AssumeRoleWithWebIdentityResult.Credentials";
     let mut creds: &[u8] = &doc;
     for k in path.split('.') {

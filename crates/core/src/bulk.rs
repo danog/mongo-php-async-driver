@@ -100,19 +100,18 @@ impl WriteResult {
             Some(Value::Int32(v)) => v,
             _ => 0,
         };
-        if let Some(Value::Array(a)) = write_errors {
-            if Iter::new(a).is_some_and(|mut i| i.next()) {
+        if let Some(Value::Array(a)) = write_errors
+            && Iter::new(a).is_some_and(|mut i| i.next()) {
                 self.failed = true;
             }
-        }
         match kind {
             Kind::Insert => self.n_inserted = self.n_inserted.wrapping_add(affected),
             Kind::Delete => self.n_removed = self.n_removed.wrapping_add(affected),
             Kind::Update => {
                 if let Some(v) = upserted {
                     let mut n_upserted = 0;
-                    if let Value::Array(a) = v {
-                        if let Some(mut ar) = Iter::new(a) {
+                    if let Value::Array(a) = v
+                        && let Some(mut ar) = Iter::new(a) {
                             while ar.next() {
                                 let Value::Document(d) = ar.value() else { continue };
                                 let Some(idx) = int32_of(d, b"index") else { continue };
@@ -126,7 +125,6 @@ impl WriteResult {
                                 }
                             }
                         }
-                    }
                     self.n_upserted = self.n_upserted.wrapping_add(n_upserted);
                     self.n_matched = self.n_matched.wrapping_add(0.max(affected.wrapping_sub(n_upserted)));
                 } else {
@@ -137,8 +135,8 @@ impl WriteResult {
                 }
             }
         }
-        if let Some(Value::Array(a)) = write_errors {
-            if let Some(mut ar) = Iter::new(a) {
+        if let Some(Value::Array(a)) = write_errors
+            && let Some(mut ar) = Iter::new(a) {
                 while ar.next() {
                     let Value::Document(d) = ar.value() else { continue };
                     let Some(mut c) = Iter::new(d) else { continue };
@@ -157,24 +155,21 @@ impl WriteResult {
                     self.write_errors.push(w.finish());
                 }
             }
-        }
         if let Some(Value::Document(d)) = wc_error {
             self.write_concern_errors.push(d.to_vec());
         }
         if !reply.is_empty() && crate::cmd::check_ok(reply).is_err() {
             self.error_replies.push(reply.to_vec());
         }
-        if let Some(Value::Array(a)) = error_labels {
-            if let Some(mut it) = Iter::new(a) {
+        if let Some(Value::Array(a)) = error_labels
+            && let Some(mut it) = Iter::new(a) {
                 while it.next() {
-                    if let Value::Utf8(s) = it.value() {
-                        if !self.error_labels.iter().any(|l| l == s) {
+                    if let Value::Utf8(s) = it.value()
+                        && !self.error_labels.iter().any(|l| l == s) {
                             self.error_labels.push(s.to_vec());
                         }
-                    }
                 }
             }
-        }
     }
 
     /// _mongoc_write_result_complete (error API v2, default fields): the reply document and
@@ -347,11 +342,10 @@ impl BulkOperation {
         if let Some(c) = &self.comment {
             w.concat(c);
         }
-        if with_let {
-            if let Some(l) = non_empty(&self.let_) {
+        if with_let
+            && let Some(l) = non_empty(&self.let_) {
                 w.document(b"let", l);
             }
-        }
         w.finish()
     }
 
@@ -440,15 +434,14 @@ impl BulkOperation {
             return Err(invalid_arg("Invalid option 'sort'"));
         }
         validate_empty_keys(update).map_err(|m| invalid_arg(format!("invalid argument for update: {m}")))?;
-        if !is_pipeline(update) {
-            if let Some(mut it) = Iter::new(update) {
+        if !is_pipeline(update)
+            && let Some(mut it) = Iter::new(update) {
                 while it.next() {
                     if it.key().first() != Some(&b'$') {
                         return Err(invalid_arg(format!("Invalid key '{}': update only works with $ operators and pipelines", String::from_utf8_lossy(it.key()))));
                     }
                 }
             }
-        }
         if o.multi != many {
             return Err(invalid_arg(format!("Invalid \"multi\" in opts: {}. The value must be {}, or omitted.", o.multi, many)));
         }
@@ -631,18 +624,18 @@ pub fn execute_command(command: &WriteCommand, client: &mut Client, server_id: u
     while total_offset < data.len() && !result.must_stop {
         let at = total_offset + batch_size;
         let len = i32::from_le_bytes(data[at..at + 4].try_into().unwrap()) as i64;
-        let ship;
-        if len > max_bson + BSON_OBJECT_ALLOWANCE {
+        
+        let ship = if len > max_bson + BSON_OBJECT_ALLOWANCE {
             result.error = Error::new(domain::BSON, code::BSON_INVALID, format!("Document {index_offset} is too large for the cluster. Document is {len} bytes, max is {max_bson}."));
             result.failed = true;
             break;
         } else if batch_size as i64 + overhead + len <= max_msg || doc_count == 0 {
             batch_size += len as usize;
             doc_count += 1;
-            ship = doc_count == max_count || batch_size + total_offset == data.len();
+            doc_count == max_count || batch_size + total_offset == data.len()
         } else {
-            ship = true;
-        }
+            true
+        };
         if ship {
             let payload = &data[total_offset..total_offset + batch_size];
             let (r, retry) = client.run_retryable_write(&mut cmd, &[(command.kind.field(), payload)], session.as_deref_mut());

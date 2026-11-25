@@ -162,11 +162,10 @@ impl Client {
             if cs.as_ref().is_some_and(|s| s.txn.read_primary == Some(false)) && !parts.is_write {
                 return Err(Error::new(domain::TRANSACTION, code::TRANSACTION_INVALID_STATE, "Read preference in a transaction must be primary"));
             }
-        } else if mode != ReadMode::Primary && sd.ty != ServerType::Standalone {
-            if let Some(d) = &rp_doc {
+        } else if mode != ReadMode::Primary && sd.ty != ServerType::Standalone
+            && let Some(d) = &rp_doc {
                 extra.document(b"$readPreference", d);
             }
-        }
         out.append_raw_elements(&extra.finish());
         // an implicit session when acknowledged and none was given
         let mut temp_session = None;
@@ -208,11 +207,10 @@ impl Client {
                 _ => Some(t.clone()),
             };
         }
-        if let Some(t) = &cluster_time {
-            if sd.ty != ServerType::Standalone {
+        if let Some(t) = &cluster_time
+            && sd.ty != ServerType::Standalone {
                 out.document(b"$clusterTime", t);
             }
-        }
         if let Some(v) = &self.settings.hello.api_version {
             out.utf8(b"apiVersion", v.as_bytes());
             if let Some(s) = self.settings.hello.api_strict {
@@ -392,9 +390,9 @@ impl Client {
         let mut result = result;
         // _mongoc_cse_auto_decrypt: a successful reply of a client with automatic encryption, after
         // the succeeded event; a failure skips the handlers below (fail_no_events)
-        if self.auto_crypt_applies() {
-            if let Ok(r) = &result {
-                if !r.is_empty() {
+        if self.auto_crypt_applies()
+            && let Ok(r) = &result
+                && !r.is_empty() {
                     let Some(mut ac) = self.take_auto_crypt().map_err(Failure::from)? else { return result };
                     let d = ac.decrypt(self, &cmd.db, r);
                     self.put_auto_crypt(ac);
@@ -403,13 +401,10 @@ impl Client {
                         Err(error) => return Err(Failure { error, reply: Vec::new() }),
                     }
                 }
-            }
-        }
-        if let Err(f) = &result {
-            if !f.reply.is_empty() && !f.error.is_network() {
+        if let Err(f) = &result
+            && !f.reply.is_empty() && !f.error.is_network() {
                 self.handle_command_error(cmd.server_id, &f.reply);
             }
-        }
         if cmd.is_txn_finish {
             let (max_wire, mongos) = cmd.stream;
             match &mut result {
@@ -417,9 +412,9 @@ impl Client {
                 Err(f) => write_error_handle_labels(Some(&f.error), &mut f.reply, max_wire, mongos),
             }
         }
-        if let (Ok(reply), Some(s)) = (&result, session.as_deref_mut()) {
-            if s.in_txn_or_ending() && matches!(self.td().ty, TopologyType::Sharded | TopologyType::LoadBalanced) {
-                if let Some(v) = find(reply, b"recoveryToken") {
+        if let (Ok(reply), Some(s)) = (&result, session)
+            && s.in_txn_or_ending() && matches!(self.td().ty, TopologyType::Sharded | TopologyType::LoadBalanced)
+                && let Some(v) = find(reply, b"recoveryToken") {
                     s.recovery_token = match v {
                         Value::Document(d) => Some(d.to_vec()),
                         _ => {
@@ -428,8 +423,6 @@ impl Client {
                         }
                     };
                 }
-            }
-        }
         result
     }
 
@@ -649,11 +642,10 @@ impl Client {
             }
             cs => {
                 let r = self.select_server_id(optype, rp, deprioritized)?;
-                if let Some(s) = cs {
-                    if !s.in_txn_or_ending() {
+                if let Some(s) = cs
+                    && !s.in_txn_or_ending() {
                         s.unpin();
                     }
-                }
                 Ok(r)
             }
         }
@@ -847,11 +839,10 @@ fn write_error_handle_labels(err: Option<&Error>, reply: &mut Vec<u8>, max_wire:
         return;
     }
     let r = if mongos { crate::cmd::check_ok(reply) } else { crate::cmd::check_ok_no_wce(reply) };
-    if let Err(e) = r {
-        if write_code_is_retryable(e.code) {
+    if let Err(e) = r
+        && write_code_is_retryable(e.code) {
             append_retryable_label(reply);
         }
-    }
 }
 
 /// _mongoc_write_error_update_if_unsupported_storage_engine
@@ -876,15 +867,14 @@ fn update_if_unsupported_storage_engine(f: &mut Failure) {
 /// The labels of `reply` (strings of its errorLabels array).
 fn labels_of(reply: &[u8]) -> Vec<Vec<u8>> {
     let mut v = Vec::new();
-    if let Some(Value::Array(a)) = find(reply, b"errorLabels") {
-        if let Some(mut it) = Iter::new(a) {
+    if let Some(Value::Array(a)) = find(reply, b"errorLabels")
+        && let Some(mut it) = Iter::new(a) {
             while it.next() {
                 if let Value::Utf8(s) = it.value() {
                     v.push(s.to_vec());
                 }
             }
         }
-    }
     v
 }
 
@@ -1261,14 +1251,13 @@ pub(crate) fn cursor_batch(reply: &[u8], key: &[u8]) -> (i64, Vec<Vec<u8>>) {
         _ => 0,
     };
     let mut docs = Vec::new();
-    if let Some(Value::Array(a)) = find(c, key) {
-        if let Some(mut it) = crate::bson::iter::Iter::new(a) {
+    if let Some(Value::Array(a)) = find(c, key)
+        && let Some(mut it) = crate::bson::iter::Iter::new(a) {
             while it.next() {
                 if let Value::Document(d) = it.value() {
                     docs.push(d.to_vec());
                 }
             }
         }
-    }
     (id, docs)
 }

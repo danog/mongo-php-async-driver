@@ -107,43 +107,38 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHelloResponse(e
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHost(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(sd) = this_sd(ex) {
+    if call::none(ex)
+        && let Some(sd) = this_sd(ex) {
             zval::write(rv, zval::string(super::server::host_port(&sd.addr).0.as_bytes()));
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getLastUpdateTime(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(sd) = this_sd(ex) {
+    if call::none(ex)
+        && let Some(sd) = this_sd(ex) {
             zval::write(rv, zval::long(sd.last_update_time_usec));
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getPort(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(sd) = this_sd(ex) {
+    if call::none(ex)
+        && let Some(sd) = this_sd(ex) {
             zval::write(rv, zval::long(super::server::host_port(&sd.addr).1));
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getRoundTripTime(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(sd) = this_sd(ex) {
+    if call::none(ex)
+        && let Some(sd) = this_sd(ex) {
             zval::write(rv, if sd.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(sd.rtt_ms) });
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getType(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(sd) = this_sd(ex) {
+    if call::none(ex)
+        && let Some(sd) = this_sd(ex) {
             zval::write(rv, zval::string(sd.ty.name().as_bytes()));
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getServerDescription(ex: Ex, rv: *mut sys::zval) {
@@ -218,19 +213,17 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription___construct(_ex:
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getServers(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(td) = this_td(ex) {
+    if call::none(ex)
+        && let Some(td) = this_td(ex) {
             zval::write(rv, servers_zval(td));
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getType(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(td) = this_td(ex) {
+    if call::none(ex)
+        && let Some(td) = this_td(ex) {
             zval::write(rv, zval::string(td.ty.name().as_bytes()));
         }
-    }
 }
 
 /// mongoc_topology_description_has_readable_server / _has_writable_server: a compatible
@@ -254,9 +247,8 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasReadableServe
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasWritableServer(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(td) = this_td(ex) {
+    if call::none(ex)
+        && let Some(td) = this_td(ex) {
             zval::write(rv, zval::bool(selectable(td, OpType::Write, None)));
         }
-    }
 }

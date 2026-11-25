@@ -30,6 +30,16 @@ revolt-rs = { git = "https://github.com/danog/revolt-rs", tag = "v0.2.0" }
 [workspace]
 members = ["crates/core", "crates/crypt"]
 
+# `cargo clippy --workspace --all-targets -- -D warnings` runs in CI (tests.yml, lint job)
+[workspace.lints.clippy]
+# ports of libmongoc / libmongocrypt functions keep the C functions' parameter lists
+too_many_arguments = "allow"
+# callback and tuple types spelled out where they are used (fn(&mut dyn FnMut(u64), ...) etc.)
+type_complexity = "allow"
+
+[lints]
+workspace = true
+
 [profile.release]
 opt-level = 3
 lto = "fat"

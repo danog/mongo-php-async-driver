@@ -156,36 +156,52 @@ mod imp {
         }
     }
 
-    /// The C socket address of `sa`, built as std's `socket_addr_to_c`: the portable fields
-    /// set, the platform's others (sin_len, sin_zero, ...) zero.
+    /// The C socket address of `sa`: every field written (these systems' sockaddr_in and
+    /// sockaddr_in6 have no others).
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
     fn sockaddr(sa: &SocketAddr) -> CAddr {
         match sa {
-            SocketAddr::V4(a) => {
-                let p = libc::sockaddr_in {
-                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
-                    sin_len: std::mem::size_of::<libc::sockaddr_in>() as u8,
-                    sin_family: libc::AF_INET as libc::sa_family_t,
-                    sin_port: a.port().to_be(),
-                    sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) },
-                    // SAFETY: all-zero bytes are a valid sockaddr_in (integers and byte arrays)
-                    ..unsafe { std::mem::zeroed() }
-                };
-                CAddr::V4(p)
-            }
-            SocketAddr::V6(a) => {
-                let p = libc::sockaddr_in6 {
-                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
-                    sin6_len: std::mem::size_of::<libc::sockaddr_in6>() as u8,
-                    sin6_family: libc::AF_INET6 as libc::sa_family_t,
-                    sin6_port: a.port().to_be(),
-                    sin6_addr: libc::in6_addr { s6_addr: a.ip().octets() },
-                    sin6_flowinfo: a.flowinfo(),
-                    sin6_scope_id: a.scope_id(),
-                    // SAFETY: all-zero bytes are a valid sockaddr_in6 (integers and byte arrays)
-                    ..unsafe { std::mem::zeroed() }
-                };
-                CAddr::V6(p)
-            }
+            SocketAddr::V4(a) => CAddr::V4(libc::sockaddr_in {
+                #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+                sin_len: std::mem::size_of::<libc::sockaddr_in>() as u8,
+                sin_family: libc::AF_INET as libc::sa_family_t,
+                sin_port: a.port().to_be(),
+                sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) },
+                sin_zero: [0; 8],
+            }),
+            SocketAddr::V6(a) => CAddr::V6(libc::sockaddr_in6 {
+                #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+                sin6_len: std::mem::size_of::<libc::sockaddr_in6>() as u8,
+                sin6_family: libc::AF_INET6 as libc::sa_family_t,
+                sin6_port: a.port().to_be(),
+                sin6_addr: libc::in6_addr { s6_addr: a.ip().octets() },
+                sin6_flowinfo: a.flowinfo(),
+                sin6_scope_id: a.scope_id(),
+            }),
+        }
+    }
+
+    /// The C socket address of `sa` on other Unix systems, built as std's `socket_addr_to_c`:
+    /// the portable fields set, the system's others (padding, source ids) zero.
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly")))]
+    fn sockaddr(sa: &SocketAddr) -> CAddr {
+        match sa {
+            SocketAddr::V4(a) => CAddr::V4(libc::sockaddr_in {
+                sin_family: libc::AF_INET as libc::sa_family_t,
+                sin_port: a.port().to_be(),
+                sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) },
+                // SAFETY: all-zero bytes are a valid sockaddr_in (integers and byte arrays)
+                ..unsafe { std::mem::zeroed() }
+            }),
+            SocketAddr::V6(a) => CAddr::V6(libc::sockaddr_in6 {
+                sin6_family: libc::AF_INET6 as libc::sa_family_t,
+                sin6_port: a.port().to_be(),
+                sin6_addr: libc::in6_addr { s6_addr: a.ip().octets() },
+                sin6_flowinfo: a.flowinfo(),
+                sin6_scope_id: a.scope_id(),
+                // SAFETY: all-zero bytes are a valid sockaddr_in6 (integers and byte arrays)
+                ..unsafe { std::mem::zeroed() }
+            }),
         }
     }
 }

@@ -156,21 +156,19 @@ fn validate_update(update: &[u8]) -> Result<bool, Error> {
     if crate::bulk::is_pipeline(update) {
         return Ok(true);
     }
-    if let Some(mut it) = Iter::new(update) {
-        if it.next() && it.key().first() != Some(&b'$') {
+    if let Some(mut it) = Iter::new(update)
+        && it.next() && it.key().first() != Some(&b'$') {
             return Err(invalid_arg(format!("Invalid key '{}': update only works with $ operators and pipelines", String::from_utf8_lossy(it.key()))));
         }
-    }
     Ok(false)
 }
 
 /// validate_replace
 fn validate_replace(doc: &[u8]) -> Result<(), Error> {
-    if let Some(mut it) = Iter::new(doc) {
-        if it.next() && it.key().first() == Some(&b'$') {
+    if let Some(mut it) = Iter::new(doc)
+        && it.next() && it.key().first() == Some(&b'$') {
             return Err(invalid_arg(format!("Invalid key '{}': replace prohibits $ operators", String::from_utf8_lossy(it.key()))));
         }
-    }
     Ok(())
 }
 
@@ -216,21 +214,19 @@ impl BulkWrite {
         w.document(b"document", &inserted);
         self.max_insert_len = self.max_insert_len.max(inserted.len() as u32);
         let mut id = Writer::with_capacity(32);
-        if let Some(mut it) = Iter::new(&inserted) {
-            if it.find(b"_id") {
+        if let Some(mut it) = Iter::new(&inserted)
+            && it.find(b"_id") {
                 id.element_from(None, &it);
             }
-        }
         self.push(Op::Insert, ns, w, Some(id.finish()));
         Ok(())
     }
 
     fn append_opts(w: &mut Writer, o: &ModelOpts, with_array_filters: bool, with_sort: bool) {
-        if with_array_filters {
-            if let Some(a) = &o.array_filters {
+        if with_array_filters
+            && let Some(a) = &o.array_filters {
                 w.array(b"arrayFilters", a);
             }
-        }
         if let Some(c) = &o.collation {
             w.document(b"collation", c);
         }
@@ -240,11 +236,10 @@ impl BulkWrite {
         if let Some(u) = o.upsert {
             w.bool(b"upsert", u);
         }
-        if with_sort {
-            if let Some(s) = &o.sort {
+        if with_sort
+            && let Some(s) = &o.sort {
                 w.document(b"sort", s);
             }
-        }
     }
 
     /// mongoc_bulkwrite_append_updateone / _updatemany (`sort` is ignored for many)
@@ -314,13 +309,13 @@ impl BulkWrite {
     }
 
     /// mongoc_bulkwrite_execute
-    pub fn execute(&mut self, client: &mut Client, opts: &ExecOpts, mut session: Option<&mut ClientSession>) -> BulkWriteReturn {
+    pub fn execute(&mut self, client: &mut Client, opts: &ExecOpts, session: Option<&mut ClientSession>) -> BulkWriteReturn {
         self.set_client(client);
         let mut res = BulkWriteResult::default();
         let mut exc = BulkWriteException::default();
         let is_ordered = opts.ordered.unwrap_or(true);
         let mut sid = None;
-        self.run(client, opts, session.as_deref_mut(), is_ordered, &mut res, &mut exc, &mut sid);
+        self.run(client, opts, session, is_ordered, &mut res, &mut exc, &mut sid);
         // whether some writes succeeded
         let mut has_successful_results = false;
         if res.parsed_some_results {
@@ -714,13 +709,12 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
                 let id = match find(result, b"upserted") {
                     Some(Value::Document(u)) => {
                         let mut found = None;
-                        if let Some(mut it) = Iter::new(u) {
-                            if it.find(b"_id") {
+                        if let Some(mut it) = Iter::new(u)
+                            && it.find(b"_id") {
                                 let mut w = Writer::with_capacity(32);
                                 w.element_from(Some(b"upsertedId"), &it);
                                 found = Some(w.finish());
                             }
-                        }
                         found
                     }
                     _ => None,
@@ -750,13 +744,11 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
         Op::Insert => {
             let w = &mut res.insert_results;
             let d = w.begin(3, &key);
-            if let Some(id) = &models[models_idx].id {
-                if let Some(mut it) = Iter::new(id) {
-                    if it.next() {
+            if let Some(id) = &models[models_idx].id
+                && let Some(mut it) = Iter::new(id)
+                    && it.next() {
                         w.element_from(Some(b"insertedId"), &it);
                     }
-                }
-            }
             w.end(d);
         }
     }
@@ -852,14 +844,13 @@ fn cursor_id(c: &[u8]) -> Option<i64> {
 fn run_on_cursor(client: &mut Client, cmd: &Cmd, session: Option<&mut ClientSession>, db: &str, body: Vec<u8>) -> Result<Vec<u8>, Failure> {
     let mut b = body;
     let implicit = session.is_none();
-    if implicit {
-        if let Some(t) = &cmd.temp_session {
+    if implicit
+        && let Some(t) = &cmd.temp_session {
             let mut w = Writer::with_capacity(b.len() + t.lsid.len() + 16);
             w.concat(&b);
             w.document(b"lsid", &t.lsid);
             b = w.finish();
         }
-    }
     let mut parts = Parts::new(db, &b);
     parts.is_read = true;
     if implicit {

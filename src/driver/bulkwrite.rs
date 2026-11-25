@@ -123,11 +123,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWrite___construct(ex: Ex, _rv: *
     let b = me(ex);
     let opts = opt_ht(options);
     let mut ordered = true;
-    if let Some(o) = opts {
-        if hash::sym_find(o, b"ordered").is_some() {
+    if let Some(o) = opts
+        && hash::sym_find(o, b"ordered").is_some() {
             ordered = fetch_bool(o, b"ordered");
         }
-    }
     b.bulk = BulkOperation::new(ordered);
     b.ordered = ordered;
     b.bypass = None;
@@ -175,13 +174,11 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_BulkWrite_insert(ex: Ex, rv: *mut sy
     b.num_ops += 1;
     // phongo_bulkwrite_extract_id: decode {_id: ...} with an array root
     let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
-    if let Some(z) = super::to_zval(&id, &tm) {
-        if zval::is(&z, sys::IS_ARRAY) {
-            if let Some(v) = hash::find(z.value.arr, b"_id") {
+    if let Some(z) = super::to_zval(&id, &tm)
+        && zval::is(&z, sys::IS_ARRAY)
+            && let Some(v) = hash::find(z.value.arr, b"_id") {
                 zval::write(rv, zval::copy(v));
             }
-        }
-    }
 }
 
 /// phongo_bulkwrite_opts_append_document: the option as a document element.

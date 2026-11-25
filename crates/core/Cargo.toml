@@ -6,6 +6,9 @@ publish = false
 license = "Apache-2.0"
 description = "PHP-independent parts of mongo-php-async-driver: BSON, wire protocol, URI, SDAM, auth"
 
+[lints]
+workspace = true
+
 [dependencies]
 # SCRAM (pure Rust: RustCrypto hashes/MACs/KDF, the OS RNG through getrandom's syscalls, NFKC for SASLprep)
 sha1 = { version = "0.11", default-features = false }

@@ -100,16 +100,14 @@ fn run(t: &Value) -> Result<(), String> {
     let obj = |k: &str| t.get(k).and_then(Value::as_object);
     let (auth, mut options, credential) = (obj("auth"), obj("options").cloned(), obj("credential"));
     // BEGIN exceptions (as libmongoc's runner)
-    if let Some(a) = auth {
-        if let Some(db) = a.get("db").or(a.get("source")).and_then(Value::as_str) {
-            if db.contains('.') {
+    if let Some(a) = auth
+        && let Some(db) = a.get("db").or(a.get("source")).and_then(Value::as_str)
+            && db.contains('.') {
                 return if r.is_err() { Ok(()) } else { Err("accepted a dotted auth db".into()) };
             }
-        }
-    }
     let mut warned = false;
-    if valid {
-        if let Err(e) = &r {
+    if valid
+        && let Err(e) = &r {
             let eager = ["=invalid", "heartbeatFrequencyMS=-2", "w=-2", "wTimeoutMS=-2", "zlibCompressionLevel=-2", "zlibCompressionLevel=10", "srvMaxHosts=-1", "srvMaxHosts=foo"];
             if eager.iter().any(|x| uri_s.contains(x)) || (!uri_s.contains("mongodb+srv") && uri_s.contains("srvServiceName=customname")) || uri_s.contains("TOKEN_RESOURCE:mongodb://host1%2Chost2") {
                 let _ = e;
@@ -119,7 +117,6 @@ fn run(t: &Value) -> Result<(), String> {
                 return Ok(()); // CDRIVER-4128
             }
         }
-    }
     if let Ok(u) = &r {
         let neg = |k: &str| u.get_int32(k, 0) < 0;
         if neg("connecttimeoutms") || neg("localthresholdms") || neg("serverselectiontimeoutms") || neg("sockettimeoutms") {
@@ -147,21 +144,18 @@ fn run(t: &Value) -> Result<(), String> {
         }
     }
     if let Some(a) = auth {
-        if let Some(x) = a.get("username").and_then(Value::as_str) {
-            if u.username.as_deref() != Some(x) {
+        if let Some(x) = a.get("username").and_then(Value::as_str)
+            && u.username.as_deref() != Some(x) {
                 return Err(format!("username {:?}", u.username));
             }
-        }
-        if let Some(x) = a.get("password").and_then(Value::as_str) {
-            if u.password.as_deref() != Some(x) {
+        if let Some(x) = a.get("password").and_then(Value::as_str)
+            && u.password.as_deref() != Some(x) {
                 return Err(format!("password {:?}", u.password));
             }
-        }
-        if let Some(x) = a.get("db").or(a.get("source")).and_then(Value::as_str) {
-            if u.auth_source() != x {
+        if let Some(x) = a.get("db").or(a.get("source")).and_then(Value::as_str)
+            && u.auth_source() != x {
                 return Err(format!("auth source {:?}", u.auth_source()));
             }
-        }
     }
     let mut actual = Map::new();
     for (k, v) in u.options.0.iter().chain(u.credentials.0.iter()) {

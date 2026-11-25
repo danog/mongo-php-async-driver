@@ -139,8 +139,8 @@ fn concat_handshake(default: &str, custom: Option<&[u8]>) -> String {
 /// phongo_set_handshake_data: the "driver" driver option (name, version, platform strings).
 unsafe fn handshake_data(driver_options: *mut sys::zval) -> Option<(String, String, String)> {
     let mut parts: [Option<Vec<u8>>; 3] = [None, None, None];
-    if !driver_options.is_null() {
-        if let Some(d) = hash::find((*driver_options).value.arr, b"driver") {
+    if !driver_options.is_null()
+        && let Some(d) = hash::find((*driver_options).value.arr, b"driver") {
             let d = zval::deref(d);
             if !zval::is(d, sys::IS_ARRAY) {
                 throw(E::InvalidArgument, format!("Expected \"driver\" driver option to be an array, {} given", zval::type_name(d)));
@@ -157,7 +157,6 @@ unsafe fn handshake_data(driver_options: *mut sys::zval) -> Option<(String, Stri
                 }
             }
         }
-    }
     let [n, v, p] = parts;
     Some((concat_handshake("ext-mongodb:PHP", n.as_deref()), concat_handshake(mongo_core::EXT_VERSION, v.as_deref()), concat_handshake(&php_platform(), p.as_deref())))
 }
@@ -317,14 +316,13 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     // safety: the reference shows the URI as given, password included
     me.uri_string = mongo_core::uri::redact(&uri_string);
     let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| zval::is_true(zval::deref(z)));
-    if !disable_persistence {
-        if let Some(c) = super::find_persistent_client(&key) {
+    if !disable_persistence
+        && let Some(c) = super::find_persistent_client(&key) {
             log::debug(PHONGO, || "Found persistent client".to_owned());
             super::apm::register_manager(call::this(ex), c.clone());
             me.client = Some(c);
             return;
         }
-    }
     let doc = if options.is_null() {
         None
     } else {
@@ -434,14 +432,13 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
         Ok(_) => make().map(|c| std::rc::Rc::new(mongo_core::client::ClientPool::new(c))),
     };
     // phongo_manager_set_auto_encryption_opts (after the client exists; a failure drops it)
-    if auto_encryption {
-        if let Ok(c) = &r {
+    if auto_encryption
+        && let Ok(c) = &r {
             match super::clientencryption::auto_encryption(me, driver_options, !disable_persistence) {
                 Some(ac) => *c.shared().auto_crypt.borrow_mut() = Some(ac),
                 None => return,
             }
         }
-    }
     match r {
         Ok(c) => {
             log::debug(PHONGO, || if disable_persistence { "Created non-persistent client" } else { "Created persistent client" }.to_owned());
@@ -724,7 +721,7 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
                         cl.run_retryable_write(&mut c, &[], sess.as_deref_mut()).0
                     } else {
                         let el = cl.read_eligibility(&c, ty == CmdType::Raw, mode_read);
-                        cl.run_retryable_read(&mut c, sess.as_deref_mut(), el)
+                        cl.run_retryable_read(&mut c, sess, el)
                     };
                     cl.release_temp_session(&mut c);
                     r
@@ -743,15 +740,14 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
             return;
         }
     };
-    if mode_write {
-        if let Some(e) = write_concern_error(&reply) {
+    if mode_write
+        && let Some(e) = write_concern_error(&reply) {
             if let Some(mut s) = implicit.take() {
                 client.end_session(&mut s);
             }
             super::throw_error(&e, Some(&reply));
             return;
         }
-    }
     let has_cursor = matches!(mongo_core::cmdparts::find(&reply, b"cursor"), Some(mongo_core::bson::iter::Value::Document(_)));
     let mut c = if has_cursor {
         Cursor::from_reply(reply, client.clone(), sid, &db)
@@ -776,13 +772,12 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
         if batch_size > 0 {
             c.opts.batch_size = batch_size as i64;
         }
-        if let Some(mut it) = mongo_core::bson::iter::Iter::new(&bson) {
-            if it.find(b"comment") {
+        if let Some(mut it) = mongo_core::bson::iter::Iter::new(&bson)
+            && it.find(b"comment") {
                 let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
                 w.element_from(Some(b"comment"), &it);
                 c.opts.comment = Some(w.finish());
             }
-        }
     }
     if let Some(z) = zsession {
         c.session = zval::copy(z);

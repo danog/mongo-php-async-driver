@@ -10,6 +10,7 @@ use crate::zend::{class, hash, obj, sys, zval};
 use mongo_core::bson::iter::{Iter, Value};
 use std::ptr::{addr_of_mut, null_mut};
 
+#[derive(Default)]
 pub struct WriteResult {
     pub reply: Vec<u8>,
     pub server_id: u32,
@@ -19,11 +20,6 @@ pub struct WriteResult {
     pub manager: super::ManagerRef,
 }
 
-impl Default for WriteResult {
-    fn default() -> Self {
-        WriteResult { reply: Vec::new(), server_id: 0, write_concern: None, client: None, manager: super::ManagerRef::default() }
-    }
-}
 
 /// Its properties and the Manager it holds, for the GC.
 unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
@@ -83,9 +79,9 @@ pub unsafe fn error_object(ce: *mut sys::zend_class_entry, doc: &[u8], with_inde
         _ => None,
     };
     match info {
-        Some(d) => match super::to_zval(&d, &Default::default()) {
-            Some(i) => set_prop(ce, o, "info", i),
-            None => return None,
+        Some(d) => {
+            let i = super::to_zval(&d, &Default::default())?;
+            set_prop(ce, o, "info", i)
         },
         None => set_prop(ce, o, "info", zval::null()),
     }
@@ -109,15 +105,14 @@ unsafe fn writeconcernerror_ce() -> *mut sys::zend_class_entry {
 /// The documents of an array field of the reply.
 fn docs(field: Option<Value<'_>>) -> Vec<&[u8]> {
     let mut v = Vec::new();
-    if let Some(Value::Array(a)) = field {
-        if let Some(mut it) = Iter::new(a) {
+    if let Some(Value::Array(a)) = field
+        && let Some(mut it) = Iter::new(a) {
             while it.next() {
                 if let Value::Document(d) = it.value() {
                     v.push(d);
                 }
             }
         }
-    }
     v
 }
 
@@ -134,9 +129,9 @@ unsafe fn write_errors(field: Option<Value>) -> Option<sys::zval> {
     let ht = hash::new(0);
     let z = zval::arr(ht);
     for d in docs(field) {
-        match error_object(writeerror_ce(), d, true, 0) {
-            Some(e) => hash::push(ht, e),
-            None => return None,
+        {
+            let e = error_object(writeerror_ce(), d, true, 0)?;
+            hash::push(ht, e)
         }
     }
     Some(z)
@@ -160,15 +155,14 @@ unsafe fn upserted_ids(field: Option<Value>) -> sys::zval {
         let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
         let mut st = crate::bson::decode::State::new(&tm);
         st.skip_odm = true;
-        if let Some(z) = crate::bson::decode::to_zval(d, &st) {
-            if zval::is(&z, sys::IS_ARRAY) {
+        if let Some(z) = crate::bson::decode::to_zval(d, &st)
+            && zval::is(&z, sys::IS_ARRAY) {
                 let id = hash::find(z.value.arr, b"_id");
                 let idx = hash::find(z.value.arr, b"index").map_or(0, |i| sys::zval_get_long_func(i, false));
                 if let Some(id) = id {
                     hash::index_update(ht, idx as u64, zval::copy(id));
                 }
             }
-        }
     }
     zval::arr(ht)
 }
@@ -264,11 +258,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteConcernError(ex:
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getWriteErrors(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(z) = write_errors(find(&me(ex).reply, b"writeErrors")) {
+    if call::none(ex)
+        && let Some(z) = write_errors(find(&me(ex).reply, b"writeErrors")) {
             zval::write(rv, z);
         }
-    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_WriteResult_getErrorReplies(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {

@@ -25,9 +25,9 @@ pub struct SaslMechs {
 pub fn parse_sasl_mechs(hello: &[u8]) -> SaslMechs {
     let mut m = SaslMechs::default();
     let Some(mut it) = Iter::new(hello) else { return m };
-    if it.find(b"saslSupportedMechs") {
-        if let Value::Array(a) = it.value() {
-            if let Some(mut i) = Iter::new(a) {
+    if it.find(b"saslSupportedMechs")
+        && let Value::Array(a) = it.value()
+            && let Some(mut i) = Iter::new(a) {
                 while i.next() {
                     match i.value() {
                         Value::Utf8(b"SCRAM-SHA-256") => m.scram_sha_256 = true,
@@ -36,8 +36,6 @@ pub fn parse_sasl_mechs(hello: &[u8]) -> SaslMechs {
                     }
                 }
             }
-        }
-    }
     m
 }
 
@@ -127,11 +125,10 @@ pub fn speculative_start(uri: &Uri) -> Option<(Vec<u8>, Option<Scram>)> {
 /// The handshake reply's speculativeAuthenticate document (empty: none).
 pub fn speculative_reply(hello: &[u8]) -> Vec<u8> {
     let Some(mut it) = Iter::new(hello) else { return Vec::new() };
-    if it.find(b"speculativeAuthenticate") {
-        if let Value::Document(d) = it.value() {
+    if it.find(b"speculativeAuthenticate")
+        && let Value::Document(d) = it.value() {
             return d.to_vec();
         }
-    }
     Vec::new()
 }
 

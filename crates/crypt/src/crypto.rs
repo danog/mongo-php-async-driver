@@ -167,7 +167,7 @@ impl Algorithm {
         let s = &ciphertext[IV_LEN..ciphertext.len() - hmac_len];
         match mode {
             Mode::Cbc => {
-                if s.len() % BLOCK_SIZE != 0 {
+                if !s.len().is_multiple_of(BLOCK_SIZE) {
                     return Err("error, ciphertext length is not a multiple of block size".into());
                 }
                 let mut p = s.to_vec();
@@ -239,14 +239,14 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 
 fn aes256_cbc_encrypt(key: &[u8], iv: &[u8], buf: &mut [u8]) {
     let mut c = cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
-    for block in buf.chunks_exact_mut(BLOCK_SIZE) {
+    for block in buf.as_chunks_mut::<BLOCK_SIZE>().0 {
         c.encrypt_block_mut(block.into());
     }
 }
 
 fn aes256_cbc_decrypt(key: &[u8], iv: &[u8], buf: &mut [u8]) {
     let mut c = cbc::Decryptor::<aes::Aes256>::new_from_slices(key, iv).expect("32-byte key, 16-byte IV");
-    for block in buf.chunks_exact_mut(BLOCK_SIZE) {
+    for block in buf.as_chunks_mut::<BLOCK_SIZE>().0 {
         c.decrypt_block_mut(block.into());
     }
 }

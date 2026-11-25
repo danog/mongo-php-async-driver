@@ -23,11 +23,10 @@ fn validate_depth(doc: &[u8], depth: u32) -> bool {
                     return false;
                 }
             }
-            Value::CodeWScope(_, s) => {
-                if !validate_depth(s, depth + 1) {
+            Value::CodeWScope(_, s)
+                if !validate_depth(s, depth + 1) => {
                     return false;
                 }
-            }
             _ => {}
         }
     }

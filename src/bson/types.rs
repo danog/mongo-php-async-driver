@@ -270,7 +270,7 @@ fn vector_type(d: &[u8]) -> VT {
     }
     match (d[0], d[1]) {
         (0x03, 0) => VT::Int8,
-        (0x27, 0) if (d.len() - 2) % 4 == 0 => VT::Float32,
+        (0x27, 0) if (d.len() - 2).is_multiple_of(4) => VT::Float32,
         (0x10, p) if p < 8 => {
             if d.len() == 2 {
                 if p == 0 {
@@ -341,7 +341,7 @@ impl Binary {
         self.init = true;
         true
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let (Some(d), Some(t)) = (find_t(ht, b"data", sys::IS_STRING), find_t(ht, b"type", sys::IS_LONG)) {
             return self.set(zval::str_bytes(d), (*t).value.lval);
         }
@@ -429,7 +429,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___construct(ex: Ex, _rv: *mut s
     this::<Binary>(ex).set(std::slice::from_raw_parts(p, l), t);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Binary>(ex, rv, ce().binary, Binary::from_hash);
+    set_state::<Binary>(ex, rv, ce().binary, Binary::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -458,7 +458,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___serialize(ex: Ex, rv: *mut sy
     serialize::<Binary>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Binary>(ex, Binary::from_hash)
+    unserialize::<Binary>(ex, Binary::init_from_hash)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Binary_fromVector(ex: Ex, rv: *mut sys::zval) {
     zval::write(rv, new(ce().binary, Binary::default()));
@@ -634,7 +634,7 @@ impl DBPointer {
         self.init = true;
         true
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let (Some(r), Some(i)) = (find_t(ht, b"ref", sys::IS_STRING), find_t(ht, b"id", sys::IS_STRING)) {
             return self.set(zval::str_bytes(r), zval::str_bytes(i));
         }
@@ -677,7 +677,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___toString(ex: Ex, rv: *mut 
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<DBPointer>(ex, rv, ce().dbpointer, DBPointer::from_hash);
+    set_state::<DBPointer>(ex, rv, ce().dbpointer, DBPointer::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if !call::none(ex) {
@@ -697,7 +697,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___serialize(ex: Ex, rv: *mut
     serialize::<DBPointer>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_DBPointer___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<DBPointer>(ex, DBPointer::from_hash)
+    unserialize::<DBPointer>(ex, DBPointer::init_from_hash)
 }
 
 // ---------------------------------------------------------------- Decimal128
@@ -747,7 +747,7 @@ impl Decimal128 {
             }
         }
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(d) = find_t(ht, b"dec", sys::IS_STRING) {
             return self.set(zval::str_bytes(d));
         }
@@ -773,7 +773,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___construct(ex: Ex, _rv: *m
     this::<Decimal128>(ex).set(std::slice::from_raw_parts(p, l));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Decimal128>(ex, rv, ce().decimal128, Decimal128::from_hash);
+    set_state::<Decimal128>(ex, rv, ce().decimal128, Decimal128::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -791,7 +791,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___serialize(ex: Ex, rv: *mu
     serialize::<Decimal128>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Decimal128___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Decimal128>(ex, Decimal128::from_hash)
+    unserialize::<Decimal128>(ex, Decimal128::init_from_hash)
 }
 
 // ---------------------------------------------------------------- Int64
@@ -836,7 +836,7 @@ impl Int64 {
             }
         }
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(d) = find_t(ht, b"integer", sys::IS_STRING) {
             return self.set_str(zval::str_bytes(d));
         }
@@ -1056,7 +1056,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___toString(ex: Ex, rv: *mut sys:
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Int64>(ex, rv, ce().int64, Int64::from_hash);
+    set_state::<Int64>(ex, rv, ce().int64, Int64::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1069,7 +1069,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___serialize(ex: Ex, rv: *mut sys
     serialize::<Int64>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Int64___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Int64>(ex, Int64::from_hash)
+    unserialize::<Int64>(ex, Int64::init_from_hash)
 }
 
 // ---------------------------------------------------------------- Javascript
@@ -1143,7 +1143,7 @@ impl Javascript {
         self.init = true;
         true
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(c) = find_t(ht, b"code", sys::IS_STRING) {
             let s = hash::find(ht, b"scope").unwrap_or(null_mut());
             return self.set(zval::str_bytes(c), s);
@@ -1183,7 +1183,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___construct(ex: Ex, _rv: *m
     this::<Javascript>(ex).set(std::slice::from_raw_parts(p, l), s);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Javascript>(ex, rv, ce().javascript, Javascript::from_hash);
+    set_state::<Javascript>(ex, rv, ce().javascript, Javascript::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1214,11 +1214,10 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript_jsonSerialize(ex: Ex, rv: *
     let ht = hash::new(2);
     str_prop(ht, b"$code", &j.code);
     zval::write(rv, zval::arr(ht));
-    if let Some(s) = &j.scope {
-        if let Some(z) = decode_scope(s) {
+    if let Some(s) = &j.scope
+        && let Some(z) = decode_scope(s) {
             hash::sym_update(ht, b"$scope", z);
         }
-    }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___serialize(ex: Ex, rv: *mut sys::zval) {
     if !call::none(ex) {
@@ -1232,7 +1231,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___serialize(ex: Ex, rv: *mu
     zval::write(rv, zval::arr(ht));
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Javascript___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Javascript>(ex, Javascript::from_hash)
+    unserialize::<Javascript>(ex, Javascript::init_from_hash)
 }
 
 // ---------------------------------------------------------------- MaxKey, MinKey, Undefined
@@ -1341,7 +1340,7 @@ impl ObjectId {
             }
         }
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(z) = find_t(ht, b"oid", sys::IS_STRING) {
             return self.set_hex(zval::str_bytes(z));
         }
@@ -1386,7 +1385,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId_getTimestamp(ex: Ex, rv: *mut
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<ObjectId>(ex, rv, ce().objectid, ObjectId::from_hash);
+    set_state::<ObjectId>(ex, rv, ce().objectid, ObjectId::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1404,7 +1403,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___serialize(ex: Ex, rv: *mut 
     serialize::<ObjectId>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_ObjectId___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<ObjectId>(ex, ObjectId::from_hash)
+    unserialize::<ObjectId>(ex, ObjectId::init_from_hash)
 }
 
 // ---------------------------------------------------------------- Regex
@@ -1457,7 +1456,7 @@ impl Regex {
         self.init = true;
         true
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let (Some(p), Some(f)) = (find_t(ht, b"pattern", sys::IS_STRING), find_t(ht, b"flags", sys::IS_STRING)) {
             return self.set(zval::str_bytes(p), zval::str_bytes(f));
         }
@@ -1509,7 +1508,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Regex_getFlags(ex: Ex, rv: *mut sys::z
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Regex>(ex, rv, ce().regex, Regex::from_hash);
+    set_state::<Regex>(ex, rv, ce().regex, Regex::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1534,7 +1533,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___serialize(ex: Ex, rv: *mut sys
     serialize::<Regex>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Regex___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Regex>(ex, Regex::from_hash)
+    unserialize::<Regex>(ex, Regex::init_from_hash)
 }
 
 // ---------------------------------------------------------------- Symbol
@@ -1566,7 +1565,7 @@ impl Cls for Symbol {
 }
 
 impl Symbol {
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(s) = find_t(ht, b"symbol", sys::IS_STRING) {
             let b = zval::str_bytes(s);
             if !len_ok("symbol", b.len()) {
@@ -1608,7 +1607,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___toString(ex: Ex, rv: *mut sys
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Symbol>(ex, rv, ce().symbol, Symbol::from_hash);
+    set_state::<Symbol>(ex, rv, ce().symbol, Symbol::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol_jsonSerialize(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1621,7 +1620,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___serialize(ex: Ex, rv: *mut sy
     serialize::<Symbol>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Symbol___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Symbol>(ex, Symbol::from_hash)
+    unserialize::<Symbol>(ex, Symbol::init_from_hash)
 }
 
 // ---------------------------------------------------------------- Timestamp
@@ -1680,7 +1679,7 @@ impl Timestamp {
         };
         self.set(i, t)
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let (Some(i), Some(t)) = (find_t(ht, b"increment", sys::IS_LONG), find_t(ht, b"timestamp", sys::IS_LONG)) {
             return self.set((*i).value.lval, (*t).value.lval);
         }
@@ -1749,7 +1748,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp_getTimestamp(ex: Ex, rv: *mu
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<Timestamp>(ex, rv, ce().timestamp, Timestamp::from_hash);
+    set_state::<Timestamp>(ex, rv, ce().timestamp, Timestamp::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1772,7 +1771,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___serialize(ex: Ex, rv: *mut
     serialize::<Timestamp>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_Timestamp___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<Timestamp>(ex, Timestamp::from_hash)
+    unserialize::<Timestamp>(ex, Timestamp::init_from_hash)
 }
 
 // ---------------------------------------------------------------- UTCDateTime
@@ -1809,7 +1808,7 @@ impl UTCDateTime {
         self.init = true;
         true
     }
-    unsafe fn from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
+    unsafe fn init_from_hash(&mut self, ht: *mut sys::HashTable) -> bool {
         if let Some(m) = find_t(ht, b"milliseconds", sys::IS_LONG) {
             return self.set((*m).value.lval);
         }
@@ -1883,7 +1882,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___construct(ex: Ex, _rv: *
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___set_state(ex: Ex, rv: *mut sys::zval) {
-    set_state::<UTCDateTime>(ex, rv, ce().utcdatetime, UTCDateTime::from_hash);
+    set_state::<UTCDateTime>(ex, rv, ce().utcdatetime, UTCDateTime::init_from_hash);
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___toString(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -1930,7 +1929,7 @@ pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___serialize(ex: Ex, rv: *m
     serialize::<UTCDateTime>(ex, rv)
 }
 pub unsafe extern "C" fn zim_MongoDB_BSON_UTCDateTime___unserialize(ex: Ex, _rv: *mut sys::zval) {
-    unserialize::<UTCDateTime>(ex, UTCDateTime::from_hash)
+    unserialize::<UTCDateTime>(ex, UTCDateTime::init_from_hash)
 }
 
 #[allow(dead_code)]

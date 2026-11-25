@@ -368,7 +368,7 @@ mod tests {
     };
 
     fn forgotten(fd: crate::os::RawSock) -> bool {
-        FORGOTTEN.with_borrow_mut(|f| std::mem::take(f)).contains(&fd)
+        FORGOTTEN.with_borrow_mut(std::mem::take).contains(&fd)
     }
 
     /// Every socket owner of the driver tells the backend before it closes its socket: a socket

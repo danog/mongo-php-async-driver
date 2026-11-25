@@ -136,7 +136,7 @@ impl Enc {
                 return;
             }
             if (*oce).ce_flags & sys::ZEND_ACC_ENUM != 0 {
-                if (*oce).enum_backing_type as u32 == sys::IS_UNDEF {
+                if (*oce).enum_backing_type == sys::IS_UNDEF {
                     throw(E::UnexpectedValue, format!("Non-backed enum {} cannot be serialized for field path \"{}\"", crate::zend::class::name(oce), self.fp.as_string()));
                     return;
                 }
@@ -367,8 +367,8 @@ impl Enc {
         if flags & ADD_ID != 0 {
             w.oid(b"_id", &oid::generate());
         }
-        if flags & RETURN_ID != 0 {
-            if let Some(out) = id_out {
+        if flags & RETURN_ID != 0
+            && let Some(out) = id_out {
                 let id = w.with_doc(|d| {
                     let mut it = Iter::new(d).unwrap();
                     it.find(b"_id").then(|| {
@@ -382,7 +382,6 @@ impl Enc {
                     None => throw(E::UnexpectedValue, "Error copying \"_id\" field from encoded document"),
                 }
             }
-        }
     }
 }
 

@@ -66,25 +66,20 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Command___construct(ex: Ex, _rv: *mu
     let me = obj::data::<Command>(call::this(ex));
     let Some(b) = crate::bson::encode::to_bson(doc, crate::bson::encode::NONE) else { return };
     // cursor.batchSize of the command
-    if let Some(mut it) = Iter::new(&b) {
-        if it.find(b"cursor") {
-            if let Value::Document(d) = it.value() {
-                if let Some(mut c) = Iter::new(d) {
-                    if c.find(b"batchSize") {
-                        if let v @ (Value::Int32(_) | Value::Int64(_)) = c.value() {
+    if let Some(mut it) = Iter::new(&b)
+        && it.find(b"cursor")
+            && let Value::Document(d) = it.value()
+                && let Some(mut c) = Iter::new(d)
+                    && c.find(b"batchSize")
+                        && let v @ (Value::Int32(_) | Value::Int64(_)) = c.value() {
                             let n = mongo_core::sdam::as_i64(&v);
                             if (0..=u32::MAX as i64).contains(&n) {
                                 me.batch_size = n as u32;
                             }
                         }
-                    }
-                }
-            }
-        }
-    }
     me.bson = Some(b);
-    if !opts.is_null() {
-        if let Some(z) = hash::find((*opts).value.arr, b"maxAwaitTimeMS") {
+    if !opts.is_null()
+        && let Some(z) = hash::find((*opts).value.arr, b"maxAwaitTimeMS") {
             let v = sys::zval_get_long_func(z, false);
             if v < 0 {
                 throw(E::InvalidArgument, format!("Expected \"maxAwaitTimeMS\" option to be >= 0, {v} given"));
@@ -96,7 +91,6 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Command___construct(ex: Ex, _rv: *mu
             }
             me.max_await_time_ms = v as u32;
         }
-    }
 }
 
 #[allow(dead_code)]

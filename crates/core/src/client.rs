@@ -566,15 +566,14 @@ impl Client {
                     }
                 }
                 let p = &run.probes[i];
-                if !p.done {
-                    if let Some(fd) = p.fd() {
+                if !p.done
+                    && let Some(fd) = p.fd() {
                         fds.push(crate::os::pollfd(fd, p.events));
                         polled.push(i);
                         if let Some(d) = p.deadline() {
                             soonest(&mut timer, d);
                         }
                     }
-                }
                 i += 1;
             }
             if run.probes.iter().all(|p| p.done) {
@@ -588,14 +587,13 @@ impl Client {
             } else {
                 crate::aio::poll(&mut fds, timer)
             };
-            if let Err(e) = &waited {
-                if crate::aio::is_interrupted(e) {
+            if let Err(e) = &waited
+                && crate::aio::is_interrupted(e) {
                     // the scan is abandoned: its connections close, nothing more is learnt
                     run.probes.clear();
                     self.interrupted = true;
                     return;
                 }
-            }
             if let Err(e) = waited {
                 // no readiness can be learnt: every polled check fails
                 for &i in &polled {
@@ -1102,15 +1100,14 @@ impl Client {
             }
         }
         let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
-        if let Some(h) = &n.handshake {
-            if h.ty == ServerType::Unknown {
+        if let Some(h) = &n.handshake
+            && h.ty == ServerType::Unknown {
                 return Err(h.error.clone().unwrap_or_default());
             }
-        }
         // stream open but not authenticated: first use since connecting. A connection that
         // should be authenticated is never used unauthenticated.
-        if crate::auth::requires_auth(&self.shared.uri) && !n.auth.has_auth {
-            if let Err(e) = self.authenticate_node(server_id) {
+        if crate::auth::requires_auth(&self.shared.uri) && !n.auth.has_auth
+            && let Err(e) = self.authenticate_node(server_id) {
                 if pooled {
                     // _cluster_add_node: the new connection is closed
                     if let Some(n) = self.nodes.iter().find(|n| n.id == server_id) {
@@ -1121,7 +1118,6 @@ impl Client {
                 }
                 return Err(e);
             }
-        }
         let lb = self.td().ty == TopologyType::LoadBalanced;
         let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
         // a load-balanced topology needs a server that reports a serviceId: else disconnect
@@ -1333,12 +1329,11 @@ impl Client {
         if out.stale {
             self.stale.set(true);
         }
-        if out.pool_cleared {
-            if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
+        if out.pool_cleared
+            && let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
                 n.conn = None;
                 n.handshake = None;
             }
-        }
     }
 
     /// Drops every connection (mongoc_client_reset / after fork).
@@ -1438,6 +1433,7 @@ pub fn detect_nongenuine_hosts(uri: &Uri) {
 pub struct ClientPool {
     shared: Rc<Shared>,
     /// boxed: a checkout moves a pointer
+    #[allow(clippy::vec_box, reason = "a checkout and a checkin move a pointer, not a Client")]
     idle: RefCell<Vec<Box<Client>>>,
     /// clusters checked out
     leased: Cell<usize>,

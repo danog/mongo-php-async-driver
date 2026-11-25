@@ -32,9 +32,9 @@ unsafe fn class_entry(name: &CStr, functions: *const sys::zend_function_entry) -
 }
 
 pub unsafe fn register_class(name: &CStr, functions: *const sys::zend_function_entry, parent: *mut sys::zend_class_entry, flags: u32) -> *mut sys::zend_class_entry {
-    let mut ce = class_entry(name, functions);
+    let ce = class_entry(name, functions);
     #[cfg(php84)]
-    return sys::zend_register_internal_class_with_flags(&mut ce, parent, flags);
+    return sys::zend_register_internal_class_with_flags(&ce, parent, flags);
     // before 8.4 (zend_register_internal_class_with_flags is new there): register, then flag
     #[cfg(not(php84))]
     {
@@ -69,8 +69,8 @@ pub const fn fe(fname: *const c_char, handler: sys::zif_handler, arg_info: *cons
 }
 
 pub unsafe fn register_interface(name: &CStr, functions: *const sys::zend_function_entry) -> *mut sys::zend_class_entry {
-    let mut ce = class_entry(name, functions);
-    sys::zend_register_internal_interface(&mut ce)
+    let ce = class_entry(name, functions);
+    sys::zend_register_internal_interface(&ce)
 }
 
 /// A pure (not backed) enum.

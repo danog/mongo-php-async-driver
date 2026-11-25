@@ -53,11 +53,10 @@ fn run(path: &std::path::Path) -> Result<(), String> {
             return Err(format!("seeds {seeds:?}, expected {want:?}"));
         }
     }
-    if let Some(n) = t["numSeeds"].as_u64() {
-        if seeds.len() as u64 != n {
+    if let Some(n) = t["numSeeds"].as_u64()
+        && seeds.len() as u64 != n {
             return Err(format!("{} seeds, expected {n}", seeds.len()));
         }
-    }
     if let Some(o) = t["options"].as_object() {
         for (k, v) in o {
             let got: Value = match k.as_str() {

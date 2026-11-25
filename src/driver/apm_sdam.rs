@@ -159,18 +159,16 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getTop
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getNewDescription(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(d) = &sc(ex).new {
+    if call::none(ex)
+        && let Some(d) = &sc(ex).new {
             zval::write(rv, super::sdam::new_serverdescription((**d).clone()));
         }
-    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_ServerChangedEvent_getPreviousDescription(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(d) = &sc(ex).previous {
+    if call::none(ex)
+        && let Some(d) = &sc(ex).previous {
             zval::write(rv, super::sdam::new_serverdescription((**d).clone()));
         }
-    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getTopologyId(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
@@ -178,18 +176,16 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getT
     }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getNewDescription(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(d) = &tc(ex).new {
+    if call::none(ex)
+        && let Some(d) = &tc(ex).new {
             zval::write(rv, super::sdam::new_topologydescription((**d).clone()));
         }
-    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Monitoring_TopologyChangedEvent_getPreviousDescription(ex: Ex, rv: *mut sys::zval) {
-    if call::none(ex) {
-        if let Some(d) = &tc(ex).previous {
+    if call::none(ex)
+        && let Some(d) = &tc(ex).previous {
             zval::write(rv, super::sdam::new_topologydescription((**d).clone()));
         }
-    }
 }
 
 // PHONGO_PROPERTY_GETTER methods of the property-only events

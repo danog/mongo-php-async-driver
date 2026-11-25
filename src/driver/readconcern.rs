@@ -112,11 +112,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_bsonSerialize(ex: Ex, rv
     let props = ((*(*o).handlers).get_properties.unwrap())(o);
     let mut buf = String::new();
     hash::each(props, true, |k, v| {
-        if let hash::Key::Str(_) = k {
-            if !zval::is(v, sys::IS_NULL) {
+        if let hash::Key::Str(_) = k
+            && !zval::is(v, sys::IS_NULL) {
                 hash::str_update(ht, hash::key_bytes(k, &mut buf), zval::copy(v));
             }
-        }
         true
     });
     let mut z = zval::arr(ht);

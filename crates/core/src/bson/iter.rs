@@ -161,6 +161,7 @@ impl<'a> Iter<'a> {
     }
 
     /// `_bson_iter_next_internal`: advances; false at the end or on corruption (err_off != 0).
+    #[allow(clippy::should_implement_trait, reason = "bson_iter_next: a cursor step (the element is read through the iterator), not an Iterator")]
     pub fn next(&mut self) -> bool {
         self.unsupported = false;
         if !self.live {

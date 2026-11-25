@@ -164,16 +164,14 @@ impl Endpoint {
         let qmark = rest.find('?').map(|x| x + pos);
         let slash = rest.find('/').map(|x| x + pos);
         let mut host_end = colon;
-        if let Some(s) = slash {
-            if host_end.is_none_or(|h| s < h) {
+        if let Some(s) = slash
+            && host_end.is_none_or(|h| s < h) {
                 host_end = Some(s);
             }
-        }
-        if let Some(q) = qmark {
-            if host_end.is_none_or(|h| q < h) {
+        if let Some(q) = qmark
+            && host_end.is_none_or(|h| q < h) {
                 host_end = Some(q);
             }
-        }
         match host_end {
             Some(h) => {
                 e.domain = raw[pos..h].to_string();
@@ -196,8 +194,8 @@ impl Endpoint {
                 return Err(format!("Invalid character in endpoint host: 0x{c:02x}"));
             }
         }
-        if let (Some(c), Some(h)) = (colon, host_end) {
-            if c == h {
+        if let (Some(c), Some(h)) = (colon, host_end)
+            && c == h {
                 let after = &raw[c + 1..];
                 let q = after.find('?');
                 let s = after.find('/');
@@ -214,7 +212,6 @@ impl Endpoint {
                 }
                 e.port = Some(port.to_string());
             }
-        }
         if let Some(s) = slash {
             let after = &raw[s + 1..];
             let mut path = match after.find('?') {
@@ -321,12 +318,14 @@ pub enum Creds {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant, reason = "parsed once per KMS provider; held by value in Creds")]
 pub enum AzureCreds {
     AccessToken(String),
     Client { tenant_id: String, client_id: String, client_secret: String, identity_platform_endpoint: Option<Endpoint> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant, reason = "parsed once per KMS provider; held by value in Creds")]
 pub enum GcpCreds {
     AccessToken(String),
     ServiceAccount { email: String, private_key: Vec<u8>, endpoint: Option<Endpoint> },

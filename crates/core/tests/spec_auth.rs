@@ -50,21 +50,18 @@ fn auth_connection_string() {
             continue;
         }
         let s = |v: &Value| v.as_str().map(str::to_owned);
-        if let Some(x) = c["username"].as_str() {
-            if u.username.as_deref() != Some(x) {
+        if let Some(x) = c["username"].as_str()
+            && u.username.as_deref() != Some(x) {
                 failures.push(format!("{desc}: username {:?}", u.username));
             }
-        }
-        if let Some(x) = c["password"].as_str() {
-            if u.password.as_deref() != Some(x) {
+        if let Some(x) = c["password"].as_str()
+            && u.password.as_deref() != Some(x) {
                 failures.push(format!("{desc}: password differs"));
             }
-        }
-        if let Some(x) = c["source"].as_str() {
-            if u.auth_source() != x {
+        if let Some(x) = c["source"].as_str()
+            && u.auth_source() != x {
                 failures.push(format!("{desc}: source {:?}", u.auth_source()));
             }
-        }
         if s(&c["mechanism"]).as_deref() != u.auth_mechanism() {
             failures.push(format!("{desc}: mechanism {:?}", u.auth_mechanism()));
         }

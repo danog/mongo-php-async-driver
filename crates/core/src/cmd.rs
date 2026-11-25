@@ -60,8 +60,8 @@ fn parse_error_reply(doc: &[u8], check_wce: bool) -> Option<(u32, String)> {
         msg = Some(s);
         found = true;
     }
-    if !found && check_wce {
-        if let Some(Value::Document(w)) = wce {
+    if !found && check_wce
+        && let Some(Value::Document(w)) = wce {
             if let Some(v) = find(w, b"code").filter(is_number) {
                 code = as_i64(&v) as u32;
                 found = true;
@@ -71,7 +71,6 @@ fn parse_error_reply(doc: &[u8], check_wce: bool) -> Option<(u32, String)> {
                 found = true;
             }
         }
-    }
     if !found {
         return None;
     }

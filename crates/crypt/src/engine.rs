@@ -701,11 +701,10 @@ impl Crypt {
         if sb.need_more() {
             sb.satisfy_from_create_or_coll_mod(cmd)?;
         }
-        if sb.need_more() {
-            if let Some(m) = &opts.schema_map {
+        if sb.need_more()
+            && let Some(m) = &opts.schema_map {
                 sb.satisfy_from_schema_map(m)?;
             }
-        }
         if sb.need_more() {
             sb.satisfy_from_cache(&self.collinfo)?;
         }
@@ -755,11 +754,10 @@ impl Crypt {
         let target_efc = match target_efc {
             Some(mut efc) => {
                 for f in efc.fields.iter_mut() {
-                    if f.key_id.is_none() {
-                        if let Some(a) = &f.key_alt_name {
+                    if f.key_id.is_none()
+                        && let Some(a) = &f.key_alt_name {
                             f.key_id = Some(by_name(a).map_err(|_| format!("Could not find key by keyAltName: {}", String::from_utf8_lossy(a)))?);
                         }
-                    }
                 }
                 Some(efc)
             }
@@ -1152,11 +1150,10 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
         }),
     };
     // mongocrypt_ctx_setopt_key_id
-    if let Some(id) = &o.key_id {
-        if id.len() != 16 {
+    if let Some(id) = &o.key_id
+        && id.len() != 16 {
             return Err("expected 16 byte UUID".into());
         }
-    }
     // _mongocrypt_ctx_init: the key descriptor is required
     let key = match (&o.key_id, &o.key_alt_name) {
         (None, None) => return Err("either key id or key alt name required".into()),

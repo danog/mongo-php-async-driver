@@ -448,7 +448,7 @@ mod tests {
                 assert_eq!(fmt_g(v, p), reference(v, p), "{:?} p={}", v, p);
             }
         };
-        for v in [0.0, -0.0, 1.0, -1.0, 0.1, 1e-5, 1e-4, 123456.0, 1e20, 1e21, 1e300, 5e-324, f64::MAX, f64::MIN_POSITIVE, f64::NAN, -f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 142.857142857142857, 2.5, 0.5] {
+        for v in [0.0, -0.0, 1.0, -1.0, 0.1, 1e-5, 1e-4, 123456.0, 1e20, 1e21, 1e300, 5e-324, f64::MAX, f64::MIN_POSITIVE, f64::NAN, -f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 142.857_142_857_142_86, 2.5, 0.5] {
             check(v);
         }
         for _ in 0..300_000 {

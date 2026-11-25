@@ -136,11 +136,10 @@ pub fn build_msg(compressor: Option<(u8, i32)>, body: &[u8], payload: crate::wir
         m.sequence_raw(id, docs);
     }
     let msg = m.finish();
-    if let Some((id, level)) = compressor {
-        if crate::compress::is_compressible(crate::compress::command_name(body)) {
+    if let Some((id, level)) = compressor
+        && crate::compress::is_compressible(crate::compress::command_name(body)) {
             return wire::compress_message(&msg, id, level).map_err(|_| NetError::Protocol("could not compress the message"));
         }
-    }
     Ok(msg)
 }
 

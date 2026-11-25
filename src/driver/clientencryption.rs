@@ -231,11 +231,10 @@ fn counts_reply(reply: &[u8], fields: &[(&str, &[u8])]) -> Vec<u8> {
         let n = find(reply, from).map_or(0, |v| mongo_core::sdam::as_i64(&v) as i32);
         w.int32(name.as_bytes(), n);
     }
-    if let Some(Value::Array(a)) = find(reply, b"writeErrors") {
-        if a.len() > 5 {
+    if let Some(Value::Array(a)) = find(reply, b"writeErrors")
+        && a.len() > 5 {
             w.array(b"writeErrors", a);
         }
-    }
     for k in [&b"writeConcernErrors"[..], b"errorReplies", b"errorLabels"] {
         if let Some(Value::Array(a)) = find(reply, k) {
             w.array(k, a);
@@ -530,7 +529,7 @@ unsafe fn me<'a>(ex: Ex) -> &'a mut ClientEncryption {
 }
 
 /// The key vault and the crypt handle (phongo dereferences a NULL client_encryption)
-unsafe fn parts<'a>(c: &'a ClientEncryption) -> Option<(&'a KeyVault, &'a Crypt)> {
+unsafe fn parts(c: &ClientEncryption) -> Option<(&KeyVault, &Crypt)> {
     match (&c.kv, &c.crypt) {
         (Some(k), Some(cr)) => Some((k, cr)),
         _ => {
@@ -1182,7 +1181,7 @@ impl mongo_core::autocrypt::AutoCrypt for AutoDecrypt {
 /// phongo_manager_set_auto_encryption_opts + mongoc_client_enable_auto_encryption: the hook to
 /// install (None: an exception was thrown)
 pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *mut sys::zval, use_persistent: bool) -> Option<Box<dyn mongo_core::autocrypt::AutoCrypt>> {
-    let Some(z) = opt(driver_options, b"autoEncryption") else { return None };
+    let z = opt(driver_options, b"autoEncryption")?;
     if !zval::is(z, sys::IS_ARRAY) {
         throw(E::InvalidArgument, format!("Expected \"autoEncryption\" driver option to be array, {} given", zval::type_name(z)));
         return None;
@@ -1255,12 +1254,11 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
             (b"cryptSharedLibRequired", |v| matches!(v, Value::Bool(_)), "Expected a bool for 'cryptSharedLibRequired'"),
         ];
         for (k, ok, msg) in checks {
-            if let Some(v) = find(x, k) {
-                if !ok(&v) {
+            if let Some(v) = find(x, k)
+                && !ok(&v) {
                     super::throw_error(&invalid_arg(msg), None);
                     return None;
                 }
-            }
         }
     }
     // _mongoc_crypt_new: the KMS providers, then mongocrypt_init's map checks
@@ -1280,8 +1278,8 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
             }
         }
     }
-    if let (Some(sm), Some(ef)) = (&schema_map, &efc) {
-        if let Some(mut it) = Iter::new(sm) {
+    if let (Some(sm), Some(ef)) = (&schema_map, &efc)
+        && let Some(mut it) = Iter::new(sm) {
             while it.next() {
                 if find(ef, it.key()).is_some() {
                     throw_crypt(&format!("{} is present in both schema_map and encrypted_field_config_map", String::from_utf8_lossy(it.key())));
@@ -1289,11 +1287,10 @@ pub unsafe fn auto_encryption(m: &mut super::manager::Manager, driver_options: *
                 }
             }
         }
-    }
     if !bypass_auto && !bypass_qa {
         // query analysis (mongocryptd or crypt_shared, MongoDB Enterprise) is not ported: refuse
         // rather than send in clear
-        throw(E::InvalidArgument, "Cannot enable automatic field-level encryption: automatic encryption (query analysis through mongocryptd or crypt_shared) is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption, or \"bypassQueryAnalysis\" for Queryable Encryption with explicit encryption.".to_string());
+        throw(E::InvalidArgument, "Cannot enable automatic field-level encryption: automatic encryption (query analysis through mongocryptd or crypt_shared) is not supported by this build yet. Set \"bypassAutoEncryption\" for automatic decryption with explicit encryption, or \"bypassQueryAnalysis\" for Queryable Encryption with explicit encryption.");
         return None;
     }
     // bypassAutoEncryption: decryption only; bypassQueryAnalysis: commands get encryptionInformation

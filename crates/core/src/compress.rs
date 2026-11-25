@@ -219,7 +219,7 @@ mod tests {
         m.extend_from_slice(&[0; 8]);
         m.extend_from_slice(&wire::OP_COMPRESSED.to_le_bytes());
         m.extend_from_slice(&wire::OP_MSG.to_le_bytes());
-        m.extend_from_slice(&((8 << 20) as i32).to_le_bytes());
+        m.extend_from_slice(&(8i32 << 20).to_le_bytes());
         m.push(ZLIB);
         m.extend_from_slice(&big);
         assert_eq!(wire::decompress_message(&m, 1 << 20), Err(wire::DECOMPRESS_ERROR));

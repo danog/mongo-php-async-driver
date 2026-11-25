@@ -329,11 +329,10 @@ impl ClientSession {
         }
         let mut w = Writer::with_capacity(64);
         w.concat(rc);
-        if let Some(l) = &txn_level {
-            if !user_level && !self.snapshot {
+        if let Some(l) = &txn_level
+            && !user_level && !self.snapshot {
                 w.utf8(b"level", l);
             }
-        }
         if self.snapshot {
             w.utf8(b"level", b"snapshot");
         }

@@ -519,15 +519,14 @@ fn redact_option_values(s: &str) -> String {
         let at_option = i > 0 && matches!(b[i - 1], b'?' | b'&');
         if at_option {
             let entry_end = s[i..].find('&').map_or(s.len(), |e| i + e);
-            if let Some((k, v)) = s[i..entry_end].split_once('=') {
-                if secret_value(k, v) {
+            if let Some((k, v)) = s[i..entry_end].split_once('=')
+                && secret_value(k, v) {
                     out.push_str(k);
                     out.push('=');
                     out.push_str(REDACTED);
                     i = entry_end;
                     continue;
                 }
-            }
         }
         let c = s[i..].chars().next().expect("in bounds");
         out.push(c);
@@ -1329,13 +1328,11 @@ impl Uri {
                 req_user(user.as_deref(), m)?;
                 self.default_external(source.as_deref(), m)?;
                 check_props(props.as_deref(), &self.mechanism_property_types, &["SERVICE_NAME", "CANONICALIZE_HOST_NAME", "SERVICE_REALM", "SERVICE_HOST"], "GSSAPI")?;
-                if let Some(p) = &props {
-                    if let Some((_, v)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("CANONICALIZE_HOST_NAME")) {
-                        if !v.eq_ignore_ascii_case("true") && !v.eq_ignore_ascii_case("false") {
+                if let Some(p) = &props
+                    && let Some((_, v)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("CANONICALIZE_HOST_NAME"))
+                        && !v.eq_ignore_ascii_case("true") && !v.eq_ignore_ascii_case("false") {
                             return Err("'GSSAPI' authentication mechanism requires CANONICALIZE_HOST_NAME is either \"true\" or \"false\"".into());
                         }
-                    }
-                }
                 if !props.as_ref().is_some_and(|p| p.iter().any(|(k, _)| k.eq_ignore_ascii_case("SERVICE_NAME"))) {
                     let mut p = props.clone().unwrap_or_default();
                     p.push(("SERVICE_NAME".into(), "mongodb".into()));
@@ -1355,8 +1352,8 @@ impl Uri {
                 self.default_external(source.as_deref(), m)?;
                 prohibit_pass(pass.as_deref(), m)?;
                 check_props(props.as_deref(), &self.mechanism_property_types, &["ENVIRONMENT", "TOKEN_RESOURCE"], "MONGODB-OIDC")?;
-                if let Some(p) = &props {
-                    if let Some((_, env)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("ENVIRONMENT")) {
+                if let Some(p) = &props
+                    && let Some((_, env)) = p.iter().find(|(k, _)| k.eq_ignore_ascii_case("ENVIRONMENT")) {
                         let Some(&(_, user_ok, token_req)) = OIDC_ENVS.iter().find(|(n, _, _)| n == env) else {
                             return Err(format!("'{m}' authentication has unrecognized ENVIRONMENT property"));
                         };
@@ -1371,7 +1368,6 @@ impl Uri {
                             return Err(format!("'{m}' authentication environment requires TOKEN_RESOURCE"));
                         }
                     }
-                }
             }
             _ => unreachable!("every mechanism of MECHANISMS is validated"),
         }
@@ -1524,11 +1520,10 @@ fn validate_names(a: &Opts, b: &Opts) -> R<()> {
             continue;
         }
         for other in [a, b] {
-            if let Some((_, OptVal::Str(cval))) = other.0.iter().find(|(k, _)| k == canon) {
-                if cval != value {
+            if let Some((_, OptVal::Str(cval))) = other.0.iter().find(|(k, _)| k == canon)
+                && cval != value {
                     return Err(format!("Deprecated option conflicts with canonical name '{}'", known_name(canon)));
                 }
-            }
         }
     }
     Ok(())

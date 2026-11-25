@@ -488,11 +488,10 @@ fn value(w: &mut Writer, t: &Tree, k: &[u8], v: &J) -> R<()> {
         }
         J::Obj(o) => {
             let o = t.obj(*o);
-            if let Some((k0, _)) = o.first() {
-                if KNOWN.contains(&k0.as_ref()) {
+            if let Some((k0, _)) = o.first()
+                && KNOWN.contains(&k0.as_ref()) {
                     return special(w, t, k, o);
                 }
-            }
             let p = w.begin(iter::T_DOCUMENT, k);
             doc(w, t, o)?;
             w.end(p);

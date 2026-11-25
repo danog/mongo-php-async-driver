@@ -178,17 +178,15 @@ impl RangeOpts {
                 return Err(format!("{P}expected 'precision' to be set with double or decimal128 index, but got: {} max", type_name(max.t)));
             }
         }
-        if let (Some(a), Some(b)) = (&ro.min, &ro.max) {
-            if a.t != b.t {
+        if let (Some(a), Some(b)) = (&ro.min, &ro.max)
+            && a.t != b.t {
                 return Err(format!("{P}expected 'min' and 'max' to be same type, but got: {} min and {} max", type_name(a.t), type_name(b.t)));
             }
-        }
         for (v, name) in [(&ro.min, "min"), (&ro.max, "max")] {
-            if let Some(v) = v {
-                if fp(v.t) && ro.precision.is_none() {
+            if let Some(v) = v
+                && fp(v.t) && ro.precision.is_none() {
                     return Err(format!("{P}expected 'precision' to be set with '{name}' for {}", type_name(v.t)));
                 }
-            }
         }
         Ok(ro)
     }
@@ -614,7 +612,7 @@ fn min_cover128(range_min: u128, range_max: u128, max: u128, sparsity: usize, tf
     let apply_mask = |v: u128, masked: usize| if masked == 0 { v } else { v | (u128::MAX >> (128 - masked)) };
     let stored = |masked: usize| {
         let level = maxlen - masked;
-        masked == 0 || (level >= trim as usize && level % sparsity == 0)
+        masked == 0 || (level >= trim as usize && level.is_multiple_of(sparsity))
     };
     let to_string = |start: u128, masked: usize| -> String {
         if masked == maxlen {
@@ -863,7 +861,7 @@ fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usiz
     let apply_mask = |v: u64, masked: usize| if masked == 0 { v } else { v | (ones >> (bits as usize - masked)) };
     let stored = |masked: usize| {
         let level = maxlen - masked;
-        masked == 0 || (level >= trim as usize && level % sparsity == 0)
+        masked == 0 || (level >= trim as usize && level.is_multiple_of(sparsity))
     };
     let to_string = |start: u64, masked: usize| -> String {
         if masked == maxlen {
@@ -923,12 +921,14 @@ fn check_bounds<T: PartialOrd + Copy>(lo: T, inc_lo: bool, hi: T, inc_hi: bool, 
         if hi < min {
             return Err(format!("Upper bound ({}) must be greater than or equal to the range minimum ({})", REDACTED, f(min)));
         }
+        #[allow(clippy::neg_cmp_op_on_partial_ord, reason = "NaN bounds must fail these checks")]
         if !inc_hi && !(min < hi) {
             return Err(format!("Upper bound ({}) must be greater than the range minimum ({}) if upper bound is excluded from range", REDACTED, f(min)));
         }
         if max < lo {
             return Err(format!("Lower bound ({}) must be less than or equal to the range maximum ({})", REDACTED, f(max)));
         }
+        #[allow(clippy::neg_cmp_op_on_partial_ord, reason = "NaN bounds must fail these checks")]
         if !inc_lo && !(lo < max) {
             return Err(format!("Lower bound ({}) must be less than the range maximum ({}) if lower bound is excluded from range", REDACTED, f(max)));
         }
@@ -1180,11 +1180,10 @@ fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
                 spec.upper = Some((value, op == Op::Lte));
             }
         }
-        if let Some(prev) = &field {
-            if *prev != f {
+        if let Some(prev) = &field
+            && *prev != f {
                 return Err(err(format!("unexpected field mismatch. Expected all fields to be {prev}, but got {f}")));
             }
-        }
         spec.n_ops += 1;
         match spec.n_ops {
             1 => spec.first = op,

@@ -146,29 +146,6 @@ pub fn parse_reply(m: &[u8]) -> Result<Reply<'_>, &'static str> {
     Ok(Reply { request_id: rd_i32(m, 4), response_to: rd_i32(m, 8), flags, body, sequences })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bson::writer::Writer;
-
-    #[test]
-    fn roundtrip() {
-        let mut w = Writer::new();
-        w.int32(b"ping", 1);
-        let body = w.finish();
-        let mut d = Writer::new();
-        d.int32(b"x", 1);
-        let d = d.finish();
-        let mut b = MsgBuilder::new(7, 0);
-        b.body(&body);
-        b.sequence("documents", [&d[..], &d[..]]);
-        let m = b.finish();
-        let r = parse_reply(&m).unwrap();
-        assert_eq!(r.request_id, 7);
-        assert_eq!(r.body, &body[..]);
-        assert_eq!(r.sequences, vec![(&b"documents"[..], &[&d[..], &d[..]].concat()[..])]);
-    }
-}
 
 /// The OP_COMPRESSED form of a complete message (requestID kept, responseTo 0).
 pub fn compress_message(msg: &[u8], id: u8, zlib_level: i32) -> Result<Vec<u8>, String> {
@@ -208,4 +185,28 @@ pub fn decompress_message(m: &[u8], max: usize) -> Result<Vec<u8>, &'static str>
     out.extend_from_slice(&original.to_le_bytes());
     out.extend_from_slice(&body);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bson::writer::Writer;
+
+    #[test]
+    fn roundtrip() {
+        let mut w = Writer::new();
+        w.int32(b"ping", 1);
+        let body = w.finish();
+        let mut d = Writer::new();
+        d.int32(b"x", 1);
+        let d = d.finish();
+        let mut b = MsgBuilder::new(7, 0);
+        b.body(&body);
+        b.sequence("documents", [&d[..], &d[..]]);
+        let m = b.finish();
+        let r = parse_reply(&m).unwrap();
+        assert_eq!(r.request_id, 7);
+        assert_eq!(r.body, &body[..]);
+        assert_eq!(r.sequences, vec![(&b"documents"[..], &[&d[..], &d[..]].concat()[..])]);
+    }
 }

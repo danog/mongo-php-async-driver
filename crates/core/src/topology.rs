@@ -450,12 +450,11 @@ impl TopologyDescription {
             self.remove_server(sd.id);
             return;
         }
-        if !self.has_primary() {
-            if let Some(p) = &sd.primary {
+        if !self.has_primary()
+            && let Some(p) = &sd.primary {
                 self.ty = TopologyType::RsNoPrimary;
                 self.label_unknown_member(p, ServerType::PossiblePrimary);
             }
-        }
     }
 
     fn update_unknown_with_standalone(&mut self, sd: &ServerDescription) {
@@ -551,13 +550,11 @@ impl TopologyDescription {
         let prev_td = (monitoring && self.server(id).is_some()).then(|| Box::new(self.clone()));
         let topology_id = self.topology_id;
         let Some(sd) = self.server_mut(id) else { return };
-        if let Some(r) = reply {
-            if let Some(tv) = crate::bson::iter::Iter::new(r).and_then(|mut it| if it.find(b"topologyVersion") { if let crate::bson::iter::Value::Document(d) = it.value() { Some(d.to_vec()) } else { None } } else { None }) {
-                if topology_version_cmp(&sd.topology_version, &tv) == 1 {
+        if let Some(r) = reply
+            && let Some(tv) = crate::bson::iter::Iter::new(r).and_then(|mut it| if it.find(b"topologyVersion") { if let crate::bson::iter::Value::Document(d) = it.value() { Some(d.to_vec()) } else { None } } else { None })
+                && topology_version_cmp(&sd.topology_version, &tv) == 1 {
                     return;
                 }
-            }
-        }
         let prev_sd = monitoring.then(|| sd.clone());
         sd.handle_hello(reply, rtt_ms, error);
         if let (Some(want), TopologyType::Single) = (&set_name, ty) {
@@ -814,12 +811,11 @@ impl TopologyDescription {
                             true
                         }
                         ReadMode::PrimaryPreferred | ReadMode::Nearest => {
-                            if mode == ReadMode::PrimaryPreferred {
-                                if let Some(p) = primary.filter(|_| !primary_deprioritized) {
+                            if mode == ReadMode::PrimaryPreferred
+                                && let Some(p) = primary.filter(|_| !primary_deprioritized) {
                                     set.push(p);
                                     return true;
                                 }
-                            }
                             if let Some(ds) = ds {
                                 self.filter_deprioritized(&mut cands, ds);
                                 if cands.is_empty() {
@@ -957,13 +953,11 @@ fn match_tag_set(tags: &[u8], set: &[(String, String)]) -> bool {
 /// _find_topology_version: the reply's topologyVersion (empty document when absent).
 fn find_topology_version(reply: &[u8]) -> Vec<u8> {
     use crate::bson::iter::{Iter, Value};
-    if let Some(mut it) = Iter::new(reply) {
-        if it.find(b"topologyVersion") {
-            if let Value::Document(d) = it.value() {
+    if let Some(mut it) = Iter::new(reply)
+        && it.find(b"topologyVersion")
+            && let Value::Document(d) = it.value() {
                 return d.to_vec();
             }
-        }
-    }
     vec![5, 0, 0, 0, 0]
 }
 

@@ -112,7 +112,7 @@ fn evp_bytes_to_key(password: &[u8], salt: &[u8], len: usize) -> Vec<u8> {
 }
 
 fn hex(s: &str) -> Result<Vec<u8>, &'static str> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err("bad hex");
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| "bad hex")).collect()

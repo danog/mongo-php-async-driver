@@ -33,11 +33,10 @@ impl Drop for Session {
     /// pooled: it belongs to the parent (phongo resets the client then).
     fn drop(&mut self) {
         if self.cs.is_some() && !self.created_in.is_current() {
-            if let Some(cs) = self.cs.take() {
-                if let Ok(mut b) = cs.try_borrow_mut() {
+            if let Some(cs) = self.cs.take()
+                && let Ok(mut b) = cs.try_borrow_mut() {
                     b.server_session = None;
                 }
-            }
             return;
         }
         end(self);
@@ -116,6 +115,7 @@ fn state_str(s: TxnState) -> &'static str {
 
 /// php_mongodb_session_parse_transaction_options: (options, read preference); Err when an
 /// exception was thrown.
+#[allow(clippy::result_unit_err, reason = "Err: a PHP exception was thrown, which carries the error")]
 pub unsafe fn parse_txn_options(options: *mut sys::zval) -> Result<(Option<TxnOpts>, Option<ReadPreference>), ()> {
     let ht = (*options).value.arr;
     let mut opts: Option<TxnOpts> = None;
@@ -362,20 +362,18 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Session_endSession(ex: Ex, _rv: *mut
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_isDirty(ex: Ex, rv: *mut sys::zval) {
     let Some(cs) = live(ex, "isDirty") else { return };
-    if call::none(ex) {
-        if let Some(b) = super::aio::lock_ref_or_throw(&cs) {
+    if call::none(ex)
+        && let Some(b) = super::aio::lock_ref_or_throw(&cs) {
             zval::write(rv, zval::bool(b.dirty()));
         }
-    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Session_isInTransaction(ex: Ex, rv: *mut sys::zval) {
     let Some(cs) = live(ex, "isInTransaction") else { return };
-    if call::none(ex) {
-        if let Some(b) = super::aio::lock_ref_or_throw(&cs) {
+    if call::none(ex)
+        && let Some(b) = super::aio::lock_ref_or_throw(&cs) {
             zval::write(rv, zval::bool(b.in_txn()));
         }
-    }
 }
 
 /// phongo_session_get_debug_info

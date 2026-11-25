@@ -233,7 +233,7 @@ fn find(items: &[u8], tag: u32, t: u8) -> Option<&[u8]> {
     None
 }
 
-fn find_struct<'a>(items: &'a [u8], tag: u32) -> Result<&'a [u8]> {
+fn find_struct(items: &[u8], tag: u32) -> Result<&[u8]> {
     find(items, tag, STRUCTURE).ok_or_else(|| format!("unable to find tag: {}", tag_name(tag)))
 }
 

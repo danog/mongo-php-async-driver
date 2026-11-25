@@ -48,8 +48,8 @@ impl ReadPreference {
         if let Some(mut it) = Iter::new(&self.tags) {
             while it.next() {
                 let mut set = Vec::new();
-                if let Value::Document(d) = it.value() {
-                    if let Some(mut t) = Iter::new(d) {
+                if let Value::Document(d) = it.value()
+                    && let Some(mut t) = Iter::new(d) {
                         while t.next() {
                             // bson_iter_utf8: a value of another type reads as "" (it matches
                             // only an empty server tag, as in libmongoc's _match_tag_set)
@@ -60,7 +60,6 @@ impl ReadPreference {
                             set.push((String::from_utf8_lossy(t.key()).into_owned(), v));
                         }
                     }
-                }
                 tags.push(set);
             }
         }
@@ -143,10 +142,7 @@ unsafe fn update_properties(o: *mut sys::zend_object) {
         sys::zend_update_property_null(CE, o, c"tags".as_ptr(), 4);
     }
     match rp.hedge.filter(|h| h.len() > 5) {
-        Some(h) => match super::to_zval(&h, &Default::default()) {
-            Some(mut z) => sys::zend_update_property(CE, o, c"hedge".as_ptr(), 5, &mut z),
-            None => (),
-        },
+        Some(h) => if let Some(mut z) = super::to_zval(&h, &Default::default()) { sys::zend_update_property(CE, o, c"hedge".as_ptr(), 5, &mut z) },
         None => sys::zend_update_property_null(CE, o, c"hedge".as_ptr(), 5),
     }
 }

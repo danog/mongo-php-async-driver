@@ -209,22 +209,19 @@ unsafe fn add_error_labels(ex: *mut sys::zend_object, reply: &[u8]) {
     if let Some(a) = find(reply, b"errorLabels") {
         add(&a);
     }
-    if let Some(w) = find(reply, b"writeConcernError") {
-        if let Some(a) = find(&w, b"errorLabels") {
+    if let Some(w) = find(reply, b"writeConcernError")
+        && let Some(a) = find(&w, b"errorLabels") {
             add(&a);
         }
-    }
-    if let Some(ws) = find(reply, b"writeConcernErrors") {
-        if let Some(mut it) = Iter::new(&ws) {
+    if let Some(ws) = find(reply, b"writeConcernErrors")
+        && let Some(mut it) = Iter::new(&ws) {
             while it.next() {
-                if let Value::Document(w) = it.value() {
-                    if let Some(a) = find(w, b"errorLabels") {
+                if let Value::Document(w) = it.value()
+                    && let Some(a) = find(w, b"errorLabels") {
                         add(&a);
                     }
-                }
             }
         }
-    }
     let mut z = zval::arr(labels);
     if n > 0 {
         update_prop(ex, b"errorLabels", &mut z);
@@ -274,13 +271,11 @@ pub unsafe fn type_by_const(z: *const sys::zval) -> String {
 /// arrays as stdClass / array).
 pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
     // phongo_bson_value_to_zval: an int64 is always an Int64 object
-    if let Some(mut it) = mongo_core::bson::iter::Iter::new(doc) {
-        if it.next() {
-            if let mongo_core::bson::iter::Value::Int64(v) = it.value() {
+    if let Some(mut it) = mongo_core::bson::iter::Iter::new(doc)
+        && it.next()
+            && let mongo_core::bson::iter::Value::Int64(v) = it.value() {
                 return Some(crate::bson::types::new_int64(v));
             }
-        }
-    }
     let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
     let z = to_zval(doc, &tm)?;
     let mut r = None;
@@ -294,6 +289,7 @@ pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
 }
 
 /// phongo_parse_session: the "session" option (a MongoDB\Driver\Session of this client).
+#[allow(clippy::result_unit_err, reason = "Err: a PHP exception was thrown, which carries the error")]
 pub unsafe fn parse_session(options: *mut sys::zval, client: &ClientRef) -> Result<Option<*mut sys::zval>, ()> {
     if options.is_null() {
         return Ok(None);
@@ -344,6 +340,7 @@ pub unsafe fn with_session<R>(z: *mut sys::zval, f: impl FnOnce(&mut mongo_core:
 }
 
 /// phongo_parse_write_concern: the "writeConcern" option.
+#[allow(clippy::result_unit_err, reason = "Err: a PHP exception was thrown, which carries the error")]
 pub unsafe fn parse_write_concern(options: *mut sys::zval) -> Result<Option<writeconcern::WriteConcern>, ()> {
     if options.is_null() {
         return Ok(None);

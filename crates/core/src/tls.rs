@@ -8,6 +8,7 @@
 //! - the host name (or IP address) against the certificate;
 //! - the server certificate's revocation status by OCSP (crate::ocsp), unless
 //!   tlsDisableCertificateRevocationCheck.
+//!
 //! tlsAllowInvalidCertificates skips the certificate checks, the host name included (OpenSSL
 //! checks the name as part of the verification it then ignores); tlsAllowInvalidHostnames skips
 //! the name check only; tlsInsecure both. The handshake signatures are always verified.
@@ -233,7 +234,7 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
         handshake_error(m)
     };
     let p = provider().inspect_err(|e| crate::log::error(crate::log::MONGOC, || e.message.clone()))?;
-    let builder = ClientConfig::builder_with_provider(p.clone()).with_safe_default_protocol_versions().map_err(|e| handshake_error(e))?;
+    let builder = ClientConfig::builder_with_provider(p.clone()).with_safe_default_protocol_versions().map_err(handshake_error)?;
     let mut roots = RootCertStore::empty();
     if o.ca_file.is_some() || o.ca_dir.is_some() {
         let mut n = 0;
