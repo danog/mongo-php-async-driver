@@ -1,20 +1,20 @@
 //! MongoDB\Driver\Cursor (src/MongoDB/Cursor.c over libmongoc's command cursors).
 
-use mongo_core::log;
 use super::ClientRef;
 use crate::bson::decode::TypeMap;
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval, ClassEntry, EngineCell};
+use crate::zend::{ClassEntry, EngineCell, hash, obj, sys, zval};
 use mongo_core::bson::iter::{Iter, Value};
 use mongo_core::bson::writer::Writer;
 use mongo_core::cmdparts::{Failure, Parts};
 use mongo_core::error::Error;
+use mongo_core::log;
 use mongo_core::session::ClientSession;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 use std::ptr::null_mut;
+use std::rc::Rc;
 
 /// mongoc_cursor_t's cursor-level options
 #[derive(Clone, Debug, Default)]
@@ -137,36 +137,49 @@ impl Drop for Cursor {
                     s.server_session = None;
                 }
             } else if self.id != 0
-                && let Some(mut cl) = c.try_checkout() {
-                    let mut w = Writer::with_capacity(64);
-                    w.utf8(b"killCursors", self.coll.as_bytes());
-                    let a = w.begin(4, b"cursors");
-                    w.int64(b"0", self.id);
-                    w.end(a);
-                    let body = w.finish();
-                    // _mongoc_client_kill_cursor: no reconnection in load-balanced mode
-                    let reconnect_ok = cl.td().ty != mongo_core::topology::TopologyType::LoadBalanced;
-                    let id = self.id;
-                    if let Err(e) = cl.stream_for_server(self.server_id, reconnect_ok) {
-                        log::info(log::CLIENT, || format!("Ignoring failure to connect to kill cursor {id}: {}", e.message));
-                    } else {
-                        let rc = self.session_rc();
-                        let r = match rc.as_ref().map(|r| super::aio::lock(r)).transpose() {
-                            Ok(mut guard) => self.run(&mut cl, &body, guard.as_deref_mut()),
-                            Err(e) => Err(Failure::from(e)),
-                        };
-                        if let Err(f) = r {
-                            log::info(log::CLIENT, || format!("Ignoring failure to kill cursor {id}: {}", f.error.message));
-                        }
+                && let Some(mut cl) = c.try_checkout()
+            {
+                let mut w = Writer::with_capacity(64);
+                w.utf8(b"killCursors", self.coll.as_bytes());
+                let a = w.begin(4, b"cursors");
+                w.int64(b"0", self.id);
+                w.end(a);
+                let body = w.finish();
+                // _mongoc_client_kill_cursor: no reconnection in load-balanced mode
+                let reconnect_ok = cl.td().ty != mongo_core::topology::TopologyType::LoadBalanced;
+                let id = self.id;
+                if let Err(e) = cl.stream_for_server(self.server_id, reconnect_ok) {
+                    log::info(log::CLIENT, || {
+                        format!(
+                            "Ignoring failure to connect to kill cursor {id}: {}",
+                            e.message
+                        )
+                    });
+                } else {
+                    let rc = self.session_rc();
+                    let r = match rc.as_ref().map(|r| super::aio::lock(r)).transpose() {
+                        Ok(mut guard) => self.run(&mut cl, &body, guard.as_deref_mut()),
+                        Err(e) => Err(Failure::from(e)),
+                    };
+                    if let Err(f) = r {
+                        log::info(log::CLIENT, || {
+                            format!("Ignoring failure to kill cursor {id}: {}", f.error.message)
+                        });
                     }
                 }
+            }
             if let Some(mut s) = self.implicit.take() {
                 c.end_session_idle(&mut s);
             }
             unsafe { super::apm::flush(&c) };
         }
         // the PHP values are released here, in phongo_cursor_free's order (assigning drops the old)
-        for z in [&mut self.session, &mut self.zquery, &mut self.zcommand, &mut self.zread_preference] {
+        for z in [
+            &mut self.session,
+            &mut self.zquery,
+            &mut self.zcommand,
+            &mut self.zread_preference,
+        ] {
             *z = zval::undef();
         }
     }
@@ -186,20 +199,43 @@ pub unsafe fn new_cursor(mut c: Cursor, manager: *mut sys::zend_object) -> sys::
 }
 
 /// The PHP values it holds, for the GC.
-unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_gc(
+    o: *mut sys::zend_object,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+) -> *mut sys::HashTable {
     let c = obj::data::<Cursor>(o);
-    let extra: [*mut sys::zval; 6] = [&mut c.zchild, &mut c.session, &mut c.zquery, &mut c.zcommand, &mut c.zread_preference, c.manager.gc()];
+    let extra: [*mut sys::zval; 6] = [
+        &mut c.zchild,
+        &mut c.session,
+        &mut c.zquery,
+        &mut c.zcommand,
+        &mut c.zread_preference,
+        c.manager.gc(),
+    ];
     obj::get_gc_with(o, table, n, extra)
 }
 
 /// phongo_cursor_get_debug_info
-unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_debug_info(
+    o: *mut sys::zend_object,
+    is_temp: *mut i32,
+) -> *mut sys::HashTable {
     use crate::zend::hash;
     *is_temp = 1;
     let c = obj::data::<Cursor>(o);
     let ht = hash::new(10);
-    let opt_str = |v: &Option<String>| v.as_ref().map_or_else(zval::null, |s| zval::string(s.as_bytes()));
-    let opt_zval = |z: &sys::zval| if zval::is(z, sys::IS_UNDEF) { zval::null() } else { zval::copy(z) };
+    let opt_str = |v: &Option<String>| {
+        v.as_ref()
+            .map_or_else(zval::null, |s| zval::string(s.as_bytes()))
+    };
+    let opt_zval = |z: &sys::zval| {
+        if zval::is(z, sys::IS_UNDEF) {
+            zval::null()
+        } else {
+            zval::copy(z)
+        }
+    };
     hash::str_update(ht, b"database", opt_str(&c.database));
     hash::str_update(ht, b"collection", opt_str(&c.collection));
     hash::str_update(ht, b"query", opt_zval(&c.zquery));
@@ -209,7 +245,13 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
     hash::str_update(ht, b"isDead", zval::bool(!c.more()));
     hash::str_update(ht, b"currentIndex", zval::long(c.current));
     hash::str_update(ht, b"currentDocument", opt_zval(&c.zchild));
-    hash::str_update(ht, b"server", c.client.as_ref().map_or_else(zval::null, |cl| super::server::new_server(cl.clone(), c.server_id, c.manager.obj())));
+    hash::str_update(
+        ht,
+        b"server",
+        c.client.as_ref().map_or_else(zval::null, |cl| {
+            super::server::new_server(cl.clone(), c.server_id, c.manager.obj())
+        }),
+    );
     ht
 }
 
@@ -237,13 +279,27 @@ impl Cursor {
         c.db = db.to_owned();
         c.state = State::InBatch;
         if !c.read_response(reply) {
-            c.error = Some((Error::new(mongo_core::error::domain::PROTOCOL, mongo_core::error::code::PROTOCOL_INVALID_REPLY, "Invalid reply to find command."), None));
+            c.error = Some((
+                Error::new(
+                    mongo_core::error::domain::PROTOCOL,
+                    mongo_core::error::code::PROTOCOL_INVALID_REPLY,
+                    "Invalid reply to find command.",
+                ),
+                None,
+            ));
         }
         c
     }
 
     /// _mongoc_cursor_find_new: an unprimed find cursor.
-    pub fn for_find(client: ClientRef, server_id: u32, db: &str, coll: &str, filter: Vec<u8>, find_opts: Vec<u8>) -> Cursor {
+    pub fn for_find(
+        client: ClientRef,
+        server_id: u32,
+        db: &str,
+        coll: &str,
+        filter: Vec<u8>,
+        find_opts: Vec<u8>,
+    ) -> Cursor {
         let mut c = Cursor::default();
         c.client = Some(client);
         c.server_id = server_id;
@@ -268,20 +324,21 @@ impl Cursor {
         let mut ns: Option<Vec<u8>> = None;
         let mut ns_invalid = false;
         if let Some(Value::Document(cur)) = find(reply, b"cursor")
-            && let Some(mut it) = Iter::new(cur) {
-                while it.next() {
-                    match (it.key(), it.value()) {
-                        (b"id", v) => self.id = mongo_core::sdam::as_i64(&v),
-                        (b"ns", Value::Utf8(s)) => ns = Some(s.to_vec()),
-                        (b"ns", _) => ns_invalid = true,
-                        (b"firstBatch" | b"nextBatch", Value::Array(a)) => {
-                            in_batch = true;
-                            self.push_batch(reply, a);
-                        }
-                        _ => {}
+            && let Some(mut it) = Iter::new(cur)
+        {
+            while it.next() {
+                match (it.key(), it.value()) {
+                    (b"id", v) => self.id = mongo_core::sdam::as_i64(&v),
+                    (b"ns", Value::Utf8(s)) => ns = Some(s.to_vec()),
+                    (b"ns", _) => ns_invalid = true,
+                    (b"firstBatch" | b"nextBatch", Value::Array(a)) => {
+                        in_batch = true;
+                        self.push_batch(reply, a);
                     }
+                    _ => {}
                 }
             }
+        }
         if let Some(ns) = ns {
             let dot = ns.iter().position(|&b| b == b'.');
             let has_coll = dot.is_some_and(|d| d + 1 < ns.len());
@@ -363,21 +420,35 @@ impl Cursor {
     /// operation, e.g. the connection checkout).
     fn session_rc(&mut self) -> Option<Rc<RefCell<ClientSession>>> {
         let has_obj = unsafe { !zval::is(&self.session, sys::IS_UNDEF) };
-        if has_obj { Some(unsafe { super::session_rc(&mut self.session) }) } else { None }
+        if has_obj {
+            Some(unsafe { super::session_rc(&mut self.session) })
+        } else {
+            None
+        }
     }
 
     /// Whether advancing would send a command (find or getMore) while the cursor's Session is
     /// held by another fiber's operation.
     #[inline]
     fn session_in_use(&mut self) -> bool {
-        let sends = self.error.is_none() && (self.state == State::Unprimed || (self.state == State::InBatch && self.batch.is_empty() && self.id != 0));
-        sends && self.session_rc().is_some_and(|r| r.try_borrow_mut().is_err())
+        let sends = self.error.is_none()
+            && (self.state == State::Unprimed
+                || (self.state == State::InBatch && self.batch.is_empty() && self.id != 0));
+        sends
+            && self
+                .session_rc()
+                .is_some_and(|r| r.try_borrow_mut().is_err())
     }
 
     /// _mongoc_cursor_run_command: assembles `body` with the cursor's read preference,
     /// read concern and session (`explicit`: the locked state of the Session object, if any),
     /// runs it and feeds the reply to the session.
-    fn run(&mut self, cl: &mut mongo_core::client::Client, body: &[u8], explicit: Option<&mut ClientSession>) -> Result<Vec<u8>, Failure> {
+    fn run(
+        &mut self,
+        cl: &mut mongo_core::client::Client,
+        body: &[u8],
+        explicit: Option<&mut ClientSession>,
+    ) -> Result<Vec<u8>, Failure> {
         let mut parts = Parts::new(&self.db, body);
         parts.is_read = true;
         parts.read_prefs = self.read_prefs.clone();
@@ -391,7 +462,10 @@ impl Cursor {
             Some(g) => Some(g),
             None => self.implicit.as_mut(),
         };
-        let is_get_more = matches!(mongo_core::cmdparts::command_name(body).as_deref(), Some("getMore" | "killCursors"));
+        let is_get_more = matches!(
+            mongo_core::cmdparts::command_name(body).as_deref(),
+            Some("getMore" | "killCursors")
+        );
         // _mongoc_cursor_fetch_stream: the stream before the command (a failure sends no
         // command events; its reply, e.g. pooled mode's backpressure labels, is the error's)
         if let Err(e) = cl.stream_for_server(self.server_id, true) {
@@ -416,7 +490,9 @@ impl Cursor {
 
     /// _mongoc_cursor_response_refresh with the find or getMore command.
     fn refresh(&mut self, body: Vec<u8>, name: &str) -> bool {
-        let Some(c) = self.client.clone() else { return false };
+        let Some(c) = self.client.clone() else {
+            return false;
+        };
         let rc = self.session_rc();
         let r = match rc.as_ref().map(|r| super::aio::lock(r)).transpose() {
             Ok(mut guard) => {
@@ -433,7 +509,14 @@ impl Cursor {
                     return true;
                 }
                 self.release_implicit_if_exhausted(&c);
-                self.error = Some((Error::new(mongo_core::error::domain::PROTOCOL, mongo_core::error::code::PROTOCOL_INVALID_REPLY, format!("Invalid reply to {name} command.")), None));
+                self.error = Some((
+                    Error::new(
+                        mongo_core::error::domain::PROTOCOL,
+                        mongo_core::error::code::PROTOCOL_INVALID_REPLY,
+                        format!("Invalid reply to {name} command."),
+                    ),
+                    None,
+                ));
                 false
             }
             Err(f) => {
@@ -447,14 +530,17 @@ impl Cursor {
     /// The implicit session goes back to the pool once the cursor is exhausted.
     fn release_implicit_if_exhausted(&mut self, c: &ClientRef) {
         if self.id == 0
-            && let Some(mut s) = self.implicit.take() {
-                c.end_session(&mut s);
-            }
+            && let Some(mut s) = self.implicit.take()
+        {
+            c.end_session(&mut s);
+        }
     }
 
     /// _prime of a find cursor: {find: <coll>, filter: <filter>} + options.
     fn prime(&mut self) {
-        let Some((filter, opts)) = self.find.clone() else { return };
+        let Some((filter, opts)) = self.find.clone() else {
+            return;
+        };
         if let Some(c) = &self.client {
             c.shared().next_operation_id();
         }
@@ -474,10 +560,19 @@ impl Cursor {
             w.int64(b"batchSize", (self.n_return() as i64).abs());
         }
         if let Some(cm) = &self.opts.comment {
-            let wire = self.client.as_ref().and_then(|c| match c.try_checkout() {
-                Some(cl) => cl.with_stream_description(self.server_id, |s| s.max_wire_version),
-                None => c.shared().td.borrow().server(self.server_id).map(|s| s.max_wire_version),
-            }).unwrap_or(0);
+            let wire = self
+                .client
+                .as_ref()
+                .and_then(|c| match c.try_checkout() {
+                    Some(cl) => cl.with_stream_description(self.server_id, |s| s.max_wire_version),
+                    None => c
+                        .shared()
+                        .td
+                        .borrow()
+                        .server(self.server_id)
+                        .map(|s| s.max_wire_version),
+                })
+                .unwrap_or(0);
             if wire >= 9 {
                 w.concat(cm);
             }
@@ -495,7 +590,11 @@ impl Cursor {
             return false;
         }
         if self.state == State::Done {
-            let e = Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot advance a completed or failed cursor.");
+            let e = Error::new(
+                mongo_core::error::domain::CURSOR,
+                mongo_core::error::code::CURSOR_INVALID_CURSOR,
+                "Cannot advance a completed or failed cursor.",
+            );
             self.error = Some((e, None));
             return false;
         }
@@ -558,7 +657,10 @@ impl Cursor {
     /// The next document of an internal find (the key vault): None at the end
     pub fn next_raw(&mut self) -> Result<Option<Vec<u8>>, (Error, Option<Vec<u8>>)> {
         if self.next_doc() {
-            return Ok(self.current_doc.take().map(|(a, b)| self.reply[a..b].to_vec()));
+            return Ok(self
+                .current_doc
+                .take()
+                .map(|(a, b)| self.reply[a..b].to_vec()));
         }
         match self.error.take() {
             Some(e) => Err(e),
@@ -572,10 +674,9 @@ impl Cursor {
 
     /// phongo_cursor_advance_and_check_for_error for executeQuery: primes the cursor.
     pub unsafe fn advance_first(&mut self) -> bool {
-        if !self.next_doc()
-            && self.throw_pending() {
-                return false;
-            }
+        if !self.next_doc() && self.throw_pending() {
+            return false;
+        }
         self.advanced = true;
         // phongo_cursor_init_for_query: the document is decoded on rewind()/current()
         true
@@ -599,7 +700,10 @@ unsafe fn exclusive(ex: Ex, advances: bool, f: impl FnOnce(&mut Cursor)) {
         return;
     }
     if obj::data::<Cursor>(o).decoding {
-        throw(E::Logic, "The cursor cannot be advanced or changed while it decodes a document");
+        throw(
+            E::Logic,
+            "The cursor cannot be advanced or changed while it decodes a document",
+        );
         return;
     }
     // before any state change (a getMore would find the session held)
@@ -649,7 +753,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_toArray(ex: Ex, rv: *mut sys:
     let mut this = zval::borrowed_obj(call::this(ex));
     // refused (in use by another fiber): no result
     let mut r = None;
-    exclusive(ex, true, |_| r = Some(sys::spl_iterator_apply(&mut *this, Some(to_array_apply), &mut out as *mut _ as *mut std::ffi::c_void)));
+    exclusive(ex, true, |_| {
+        r = Some(sys::spl_iterator_apply(
+            &mut *this,
+            Some(to_array_apply),
+            &mut out as *mut _ as *mut std::ffi::c_void,
+        ))
+    });
     let Some(r) = r else { return };
     if r != 0 {
         drop(out);
@@ -659,7 +769,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_toArray(ex: Ex, rv: *mut sys:
     zval::write(rv, out);
 }
 
-unsafe extern "C" fn to_array_apply(iter: *mut sys::zend_object_iterator, puser: *mut std::ffi::c_void) -> i32 {
+unsafe extern "C" fn to_array_apply(
+    iter: *mut sys::zend_object_iterator,
+    puser: *mut std::ffi::c_void,
+) -> i32 {
     let data = ((*(*iter).funcs).get_current_data.unwrap())(iter);
     if call::has_exception() || data.is_null() || zval::is(data, sys::IS_UNDEF) {
         return sys::ZEND_HASH_APPLY_STOP as i32;
@@ -679,7 +792,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_getServer(ex: Ex, rv: *mut sy
     if call::none(ex) {
         let c = me(ex);
         if let Some(cl) = &c.client {
-            zval::write(rv, super::server::new_server(cl.clone(), c.server_id, c.manager.obj()));
+            zval::write(
+                rv,
+                super::server::new_server(cl.clone(), c.server_id, c.manager.obj()),
+            );
         }
     }
 }
@@ -693,14 +809,28 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_isDead(ex: Ex, rv: *mut sys::
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_current(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let c = me(ex);
-        zval::write(rv, if zval::is(&c.zchild, sys::IS_UNDEF) { zval::null() } else { zval::copy(zval::deref(&mut c.zchild)) });
+        zval::write(
+            rv,
+            if zval::is(&c.zchild, sys::IS_UNDEF) {
+                zval::null()
+            } else {
+                zval::copy(zval::deref(&mut c.zchild))
+            },
+        );
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Cursor_key(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
         let c = me(ex);
-        zval::write(rv, if zval::is(&c.zchild, sys::IS_UNDEF) { zval::null() } else { zval::long(c.current) });
+        zval::write(
+            rv,
+            if zval::is(&c.zchild, sys::IS_UNDEF) {
+                zval::null()
+            } else {
+                zval::long(c.current)
+            },
+        );
     }
 }
 

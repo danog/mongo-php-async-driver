@@ -40,20 +40,61 @@ pub struct CommandInfo {
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    CommandStarted { info: CommandInfo, command: Vec<u8> },
-    CommandSucceeded { info: CommandInfo, duration_us: i64, reply: Vec<u8> },
-    CommandFailed { info: CommandInfo, duration_us: i64, error: Error, reply: Vec<u8> },
+    CommandStarted {
+        info: CommandInfo,
+        command: Vec<u8>,
+    },
+    CommandSucceeded {
+        info: CommandInfo,
+        duration_us: i64,
+        reply: Vec<u8>,
+    },
+    CommandFailed {
+        info: CommandInfo,
+        duration_us: i64,
+        error: Error,
+        reply: Vec<u8>,
+    },
     /// `addr`: the server's host_and_port
-    ServerOpening { topology_id: [u8; 12], addr: String },
-    ServerClosed { topology_id: [u8; 12], addr: String },
-    ServerChanged { topology_id: [u8; 12], addr: String, previous: Box<ServerDescription>, new: Box<ServerDescription> },
-    TopologyOpening { topology_id: [u8; 12] },
-    TopologyChanged { topology_id: [u8; 12], previous: Box<TopologyDescription>, new: Box<TopologyDescription> },
-    TopologyClosed { topology_id: [u8; 12] },
+    ServerOpening {
+        topology_id: [u8; 12],
+        addr: String,
+    },
+    ServerClosed {
+        topology_id: [u8; 12],
+        addr: String,
+    },
+    ServerChanged {
+        topology_id: [u8; 12],
+        addr: String,
+        previous: Box<ServerDescription>,
+        new: Box<ServerDescription>,
+    },
+    TopologyOpening {
+        topology_id: [u8; 12],
+    },
+    TopologyChanged {
+        topology_id: [u8; 12],
+        previous: Box<TopologyDescription>,
+        new: Box<TopologyDescription>,
+    },
+    TopologyClosed {
+        topology_id: [u8; 12],
+    },
     /// the single-threaded scanner's heartbeats are never awaited
-    HeartbeatStarted { addr: String },
-    HeartbeatSucceeded { addr: String, duration_us: i64, reply: Vec<u8> },
-    HeartbeatFailed { addr: String, duration_us: i64, error: Error },
+    HeartbeatStarted {
+        addr: String,
+    },
+    HeartbeatSucceeded {
+        addr: String,
+        duration_us: i64,
+        reply: Vec<u8>,
+    },
+    HeartbeatFailed {
+        addr: String,
+        duration_us: i64,
+        error: Error,
+    },
 }
 
 /// An event and the time it was created: nanoseconds on the clock of PHP's hrtime(true).
@@ -85,7 +126,10 @@ impl Queue {
 
     /// Queues `event` (the caller checked `enabled()`), stamped with the time.
     pub fn push_now(&mut self, event: Event) {
-        self.0.push(Timed { at: hrtime(), event });
+        self.0.push(Timed {
+            at: hrtime(),
+            event,
+        });
     }
 }
 
@@ -107,7 +151,9 @@ pub fn hrtime() -> u64 {
 /// counter frequency, a double), computed in the same floating-point steps.
 #[cfg(windows)]
 pub fn clock_default() -> u64 {
-    use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
     static SCALE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
     let scale = *SCALE.get_or_init(|| {
         let mut f = 0i64;
@@ -127,10 +173,15 @@ pub fn clock_default() -> u64 {
 /// zend_hrtime on Linux and other POSIX systems: CLOCK_MONOTONIC.
 #[cfg(all(unix, not(target_vendor = "apple")))]
 pub fn clock_default() -> u64 {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     // SAFETY: a valid timespec out-parameter
     if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } == 0 {
-        (ts.tv_sec as u64).wrapping_mul(1_000_000_000).wrapping_add(ts.tv_nsec as u64)
+        (ts.tv_sec as u64)
+            .wrapping_mul(1_000_000_000)
+            .wrapping_add(ts.tv_nsec as u64)
     } else {
         0
     }
@@ -145,7 +196,11 @@ pub fn clock_default() -> u64 {
         let mut tb = libc::mach_timebase_info { numer: 0, denom: 0 };
         // SAFETY: a valid out-parameter
         unsafe { libc::mach_timebase_info(&mut tb) };
-        if tb.denom == 0 { (1, 1) } else { (u64::from(tb.numer), u64::from(tb.denom)) }
+        if tb.denom == 0 {
+            (1, 1)
+        } else {
+            (u64::from(tb.numer), u64::from(tb.denom))
+        }
     });
     // SAFETY: no arguments
     let t = unsafe { libc::mach_absolute_time() };
@@ -164,12 +219,24 @@ pub fn clock_uptime_raw() -> u64 {
 
 /// _mongoc_apm_is_sensitive_command_name / _mongoc_apm_is_sensitive_hello_message
 pub fn is_sensitive(name: &str, body: &[u8]) -> bool {
-    const NAMES: &[&str] = &["authenticate", "saslStart", "saslContinue", "getnonce", "createUser", "updateUser", "copydbgetnonce", "copydbsaslstart", "copydb"];
+    const NAMES: &[&str] = &[
+        "authenticate",
+        "saslStart",
+        "saslContinue",
+        "getnonce",
+        "createUser",
+        "updateUser",
+        "copydbgetnonce",
+        "copydbsaslstart",
+        "copydb",
+    ];
     if NAMES.iter().any(|n| n.eq_ignore_ascii_case(name)) {
         return true;
     }
     if !(name.eq_ignore_ascii_case("hello") || name.eq_ignore_ascii_case("isMaster")) {
         return false;
     }
-    crate::bson::iter::is_empty(body) || crate::bson::iter::Iter::new(body).is_some_and(|mut it| it.find(b"speculativeAuthenticate"))
+    crate::bson::iter::is_empty(body)
+        || crate::bson::iter::Iter::new(body)
+            .is_some_and(|mut it| it.find(b"speculativeAuthenticate"))
 }

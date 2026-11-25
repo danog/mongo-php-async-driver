@@ -13,7 +13,7 @@ pub mod sys;
 pub mod zstr;
 pub mod zval;
 
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 /// The executor globals (EG) of the calling thread.
 #[inline(always)]
@@ -60,7 +60,10 @@ pub fn info_row(k: &CStr, v: &str) {
 #[macro_export]
 macro_rules! zh {
     ($f:path) => {{
-        unsafe extern "vectorcall" fn shim(ex: *mut $crate::zend::sys::zend_execute_data, rv: *mut $crate::zend::sys::zval) {
+        unsafe extern "vectorcall" fn shim(
+            ex: *mut $crate::zend::sys::zend_execute_data,
+            rv: *mut $crate::zend::sys::zval,
+        ) {
             unsafe { $f(ex, rv) }
         }
         shim
@@ -133,5 +136,9 @@ impl ClassEntry {
 
 /// Stub for an ext-mongodb method or function not ported yet: throws Error.
 pub unsafe fn not_implemented(handler: &CStr) {
-    sys::zend_throw_error(std::ptr::null_mut(), c"%s is not implemented yet by this mongodb extension".as_ptr(), handler.as_ptr());
+    sys::zend_throw_error(
+        std::ptr::null_mut(),
+        c"%s is not implemented yet by this mongodb extension".as_ptr(),
+        handler.as_ptr(),
+    );
 }

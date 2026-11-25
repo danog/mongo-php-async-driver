@@ -42,18 +42,30 @@ fn opt_json(v: &OptVal) -> Value {
         OptVal::Int32(i) => Value::from(*i),
         OptVal::Int64(i) => Value::from(*i),
         OptVal::Bool(b) => Value::Bool(*b),
-        OptVal::Doc(d) => Value::Object(d.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect()),
+        OptVal::Doc(d) => Value::Object(
+            d.iter()
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect(),
+        ),
     }
 }
 
 fn find_case<'a>(m: &'a Map<String, Value>, k: &str) -> Option<&'a Value> {
-    m.iter().find(|(x, _)| x.eq_ignore_ascii_case(k)).map(|(_, v)| v)
+    m.iter()
+        .find(|(x, _)| x.eq_ignore_ascii_case(k))
+        .map(|(_, v)| v)
 }
 
 /// bson_contains_iter: every key of `want` (case-insensitive) is in `have` with an equal value.
-fn contains(have: &Map<String, Value>, want: &Map<String, Value>, path: &str) -> Result<(), String> {
+fn contains(
+    have: &Map<String, Value>,
+    want: &Map<String, Value>,
+    path: &str,
+) -> Result<(), String> {
     for (k, w) in want {
-        let Some(h) = find_case(have, k) else { return Err(format!("{path}{k} is not present")) };
+        let Some(h) = find_case(have, k) else {
+            return Err(format!("{path}{k} is not present"));
+        };
         let ok = match w {
             Value::Object(wm) => match h {
                 Value::Object(hm) => {
@@ -81,17 +93,34 @@ fn contains(have: &Map<String, Value>, want: &Map<String, Value>, path: &str) ->
 
 /// Rename mechanism -> authmechanism and mechanism_properties -> authmechanismproperties.
 fn normalize_auth(src: &Map<String, Value>, exclude: &[&str]) -> Map<String, Value> {
-    let mut out: Map<String, Value> = src.iter().filter(|(k, _)| !exclude.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
-    if let Some(v) = src.get("mechanism").or(src.get("authmechanism")).filter(|v| v.is_string()) {
+    let mut out: Map<String, Value> = src
+        .iter()
+        .filter(|(k, _)| !exclude.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if let Some(v) = src
+        .get("mechanism")
+        .or(src.get("authmechanism"))
+        .filter(|v| v.is_string())
+    {
         out.insert("authmechanism".into(), v.clone());
     }
-    if let Some(v) = src.get("mechanism_properties").or(src.get("authmechanismproperties")).filter(|v| v.is_object()) {
+    if let Some(v) = src
+        .get("mechanism_properties")
+        .or(src.get("authmechanismproperties"))
+        .filter(|v| v.is_object())
+    {
         out.insert("authmechanismproperties".into(), v.clone());
     }
     out
 }
 
-const CRED_KEYS: &[&str] = &["authmechanism", "authmechanismproperties", "mechanism", "mechanism_properties"];
+const CRED_KEYS: &[&str] = &[
+    "authmechanism",
+    "authmechanismproperties",
+    "mechanism",
+    "mechanism_properties",
+];
 
 fn run(t: &Value) -> Result<(), String> {
     let uri_s = t["uri"].as_str().unwrap();
@@ -102,24 +131,46 @@ fn run(t: &Value) -> Result<(), String> {
     // BEGIN exceptions (as libmongoc's runner)
     if let Some(a) = auth
         && let Some(db) = a.get("db").or(a.get("source")).and_then(Value::as_str)
-            && db.contains('.') {
-                return if r.is_err() { Ok(()) } else { Err("accepted a dotted auth db".into()) };
-            }
+        && db.contains('.')
+    {
+        return if r.is_err() {
+            Ok(())
+        } else {
+            Err("accepted a dotted auth db".into())
+        };
+    }
     let mut warned = false;
-    if valid
-        && let Err(e) = &r {
-            let eager = ["=invalid", "heartbeatFrequencyMS=-2", "w=-2", "wTimeoutMS=-2", "zlibCompressionLevel=-2", "zlibCompressionLevel=10", "srvMaxHosts=-1", "srvMaxHosts=foo"];
-            if eager.iter().any(|x| uri_s.contains(x)) || (!uri_s.contains("mongodb+srv") && uri_s.contains("srvServiceName=customname")) || uri_s.contains("TOKEN_RESOURCE:mongodb://host1%2Chost2") {
-                let _ = e;
-                return Ok(()); // libmongoc fails eagerly where the spec expects a warning (CDRIVER-3167/5580)
-            }
-            if uri_s.contains("CANONICALIZE_HOST_NAME:none") || uri_s.contains("CANONICALIZE_HOST_NAME:forward") {
-                return Ok(()); // CDRIVER-4128
-            }
+    if valid && let Err(e) = &r {
+        let eager = [
+            "=invalid",
+            "heartbeatFrequencyMS=-2",
+            "w=-2",
+            "wTimeoutMS=-2",
+            "zlibCompressionLevel=-2",
+            "zlibCompressionLevel=10",
+            "srvMaxHosts=-1",
+            "srvMaxHosts=foo",
+        ];
+        if eager.iter().any(|x| uri_s.contains(x))
+            || (!uri_s.contains("mongodb+srv") && uri_s.contains("srvServiceName=customname"))
+            || uri_s.contains("TOKEN_RESOURCE:mongodb://host1%2Chost2")
+        {
+            let _ = e;
+            return Ok(()); // libmongoc fails eagerly where the spec expects a warning (CDRIVER-3167/5580)
         }
+        if uri_s.contains("CANONICALIZE_HOST_NAME:none")
+            || uri_s.contains("CANONICALIZE_HOST_NAME:forward")
+        {
+            return Ok(()); // CDRIVER-4128
+        }
+    }
     if let Ok(u) = &r {
         let neg = |k: &str| u.get_int32(k, 0) < 0;
-        if neg("connecttimeoutms") || neg("localthresholdms") || neg("serverselectiontimeoutms") || neg("sockettimeoutms") {
+        if neg("connecttimeoutms")
+            || neg("localthresholdms")
+            || neg("serverselectiontimeoutms")
+            || neg("sockettimeoutms")
+        {
             warned = true; // the runner logs a warning itself
         }
         if uri_s.contains("compressors=") || uri_s.contains("readPreferenceTags=") {
@@ -138,24 +189,31 @@ fn run(t: &Value) -> Result<(), String> {
         for h in hosts {
             let host = h["host"].as_str().unwrap_or("localhost");
             let port = h["port"].as_u64().unwrap_or(27017);
-            if !u.hosts.iter().any(|x| x.host == host && x.port as u64 == port) {
+            if !u
+                .hosts
+                .iter()
+                .any(|x| x.host == host && x.port as u64 == port)
+            {
                 return Err(format!("host {host}:{port} not found"));
             }
         }
     }
     if let Some(a) = auth {
         if let Some(x) = a.get("username").and_then(Value::as_str)
-            && u.username.as_deref() != Some(x) {
-                return Err(format!("username {:?}", u.username));
-            }
+            && u.username.as_deref() != Some(x)
+        {
+            return Err(format!("username {:?}", u.username));
+        }
         if let Some(x) = a.get("password").and_then(Value::as_str)
-            && u.password.as_deref() != Some(x) {
-                return Err(format!("password {:?}", u.password));
-            }
+            && u.password.as_deref() != Some(x)
+        {
+            return Err(format!("password {:?}", u.password));
+        }
         if let Some(x) = a.get("db").or(a.get("source")).and_then(Value::as_str)
-            && u.auth_source() != x {
-                return Err(format!("auth source {:?}", u.auth_source()));
-            }
+            && u.auth_source() != x
+        {
+            return Err(format!("auth source {:?}", u.auth_source()));
+        }
     }
     let mut actual = Map::new();
     for (k, v) in u.options.0.iter().chain(u.credentials.0.iter()) {
@@ -182,8 +240,13 @@ fn run(t: &Value) -> Result<(), String> {
                         let s = if *b { "true" } else { "false" };
                         p.insert("CANONICALIZE_HOST_NAME".into(), Value::String(s.into()));
                     }
-                    let Some(have) = u.mechanism_properties() else { return Err("no authmechanismproperties".into()) };
-                    let have: Map<String, Value> = have.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
+                    let Some(have) = u.mechanism_properties() else {
+                        return Err("no authmechanismproperties".into());
+                    };
+                    let have: Map<String, Value> = have
+                        .iter()
+                        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                        .collect();
                     contains(&have, &p, "authmechanismproperties.")?;
                     true
                 }
@@ -203,10 +266,17 @@ fn run(t: &Value) -> Result<(), String> {
 
 #[test]
 fn uri_options() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/spec/source/uri-options/tests");
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/spec/source/uri-options/tests"
+    );
     let (mut n, mut skipped) = (0, 0);
     let mut failures = Vec::new();
-    let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().map(|f| f.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|f| f.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
     files.sort();
     for p in files {
         let j: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
@@ -218,11 +288,18 @@ fn uri_options() {
             }
             n += 1;
             if let Err(e) = run(t) {
-                failures.push(format!("{}: {d}: {e} [{}]", p.file_name().unwrap().to_string_lossy(), t["uri"].as_str().unwrap()));
+                failures.push(format!(
+                    "{}: {d}: {e} [{}]",
+                    p.file_name().unwrap().to_string_lossy(),
+                    t["uri"].as_str().unwrap()
+                ));
             }
         }
     }
     failures.retain(|f| !DIVERGENCES.iter().any(|d| f.starts_with(d)));
-    eprintln!("uri-options: {n} cases run, {skipped} skipped, {} failures", failures.len());
+    eprintln!(
+        "uri-options: {n} cases run, {skipped} skipped, {} failures",
+        failures.len()
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

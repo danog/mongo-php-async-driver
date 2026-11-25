@@ -5,7 +5,7 @@
 
 use crate::fle2::{common, encrypted_tokens, token_key};
 use mongo_core::bson::fmt::fmt_g;
-use mongo_core::bson::iter::{Iter, Value, T_DATE_TIME, T_DECIMAL128, T_DOUBLE, T_INT32, T_INT64};
+use mongo_core::bson::iter::{Iter, T_DATE_TIME, T_DECIMAL128, T_DOUBLE, T_INT32, T_INT64, Value};
 use mongo_core::bson::writer::Writer;
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -50,7 +50,9 @@ fn g(v: f64) -> String {
 /// `mc_validate_sparsity`
 pub fn validate_sparsity(s: i64) -> Result<()> {
     if s < 0 {
-        return Err(format!("Error validating sparsity: sparsity must be non-negative, got: {s}"));
+        return Err(format!(
+            "Error validating sparsity: sparsity must be non-negative, got: {s}"
+        ));
     }
     Ok(())
 }
@@ -66,7 +68,10 @@ impl Val {
     fn from_iter(it: &Iter) -> Val {
         let mut w = Writer::with_capacity(32);
         w.element_from(Some(b""), it);
-        Val { t: it.value().type_code(), elem: w.finish() }
+        Val {
+            t: it.value().type_code(),
+            elem: w.finish(),
+        }
     }
     fn value(&self) -> Value<'_> {
         let mut it = Iter::new(&self.elem).expect("built by from_iter");
@@ -118,7 +123,10 @@ impl RangeOpts {
     /// `mc_RangeOpts_parse`
     pub fn parse(doc: &[u8]) -> Result<RangeOpts> {
         const P: &str = "Error parsing RangeOpts: ";
-        let mut ro = RangeOpts { sparsity: SPARSITY_DEFAULT, ..Default::default() };
+        let mut ro = RangeOpts {
+            sparsity: SPARSITY_DEFAULT,
+            ..Default::default()
+        };
         let mut it = Iter::new(doc).ok_or(format!("{P}Invalid BSON"))?;
         let mut seen: Vec<&'static str> = Vec::new();
         let mut dup = |name: &'static str| -> Result<()> {
@@ -145,14 +153,21 @@ impl RangeOpts {
                             validate_sparsity(s)?;
                             ro.sparsity = s;
                         }
-                        v => return Err(format!("{P}Expected int64 for sparsity, got: {}", type_name(v.type_code()))),
+                        v => {
+                            return Err(format!(
+                                "{P}Expected int64 for sparsity, got: {}",
+                                type_name(v.type_code())
+                            ));
+                        }
                     }
                 }
                 b"precision" => {
                     dup("precision")?;
                     match it.value() {
                         Value::Int32(p) if p >= 0 => ro.precision = Some(p),
-                        Value::Int32(_) => return Err(format!("{P}'precision' must be non-negative")),
+                        Value::Int32(_) => {
+                            return Err(format!("{P}'precision' must be non-negative"));
+                        }
                         _ => return Err(format!("{P}'precision' must be an int32")),
                     }
                 }
@@ -160,33 +175,67 @@ impl RangeOpts {
                     dup("trimFactor")?;
                     match it.value() {
                         Value::Int32(t) if t >= 0 => ro.trim_factor = Some(t),
-                        Value::Int32(_) => return Err(format!("{P}'trimFactor' must be non-negative")),
-                        v => return Err(format!("{P}Expected int32 for trimFactor, got: {}", type_name(v.type_code()))),
+                        Value::Int32(_) => {
+                            return Err(format!("{P}'trimFactor' must be non-negative"));
+                        }
+                        v => {
+                            return Err(format!(
+                                "{P}Expected int32 for trimFactor, got: {}",
+                                type_name(v.type_code())
+                            ));
+                        }
                     }
                 }
-                k => return Err(format!("{P}Unrecognized field: '{}'", String::from_utf8_lossy(k))),
+                k => {
+                    return Err(format!(
+                        "{P}Unrecognized field: '{}'",
+                        String::from_utf8_lossy(k)
+                    ));
+                }
             }
         }
         let fp = |t: u8| t == T_DOUBLE || t == T_DECIMAL128;
         if ro.precision.is_some() {
-            let min = ro.min.as_ref().ok_or(format!("{P}setting precision requires min"))?;
+            let min = ro
+                .min
+                .as_ref()
+                .ok_or(format!("{P}setting precision requires min"))?;
             if !fp(min.t) {
-                return Err(format!("{P}expected 'precision' to be set with double or decimal128 index, but got: {} min", type_name(min.t)));
+                return Err(format!(
+                    "{P}expected 'precision' to be set with double or decimal128 index, but got: {} min",
+                    type_name(min.t)
+                ));
             }
-            let max = ro.max.as_ref().ok_or(format!("{P}setting precision requires max"))?;
+            let max = ro
+                .max
+                .as_ref()
+                .ok_or(format!("{P}setting precision requires max"))?;
             if !fp(max.t) {
-                return Err(format!("{P}expected 'precision' to be set with double or decimal128 index, but got: {} max", type_name(max.t)));
+                return Err(format!(
+                    "{P}expected 'precision' to be set with double or decimal128 index, but got: {} max",
+                    type_name(max.t)
+                ));
             }
         }
         if let (Some(a), Some(b)) = (&ro.min, &ro.max)
-            && a.t != b.t {
-                return Err(format!("{P}expected 'min' and 'max' to be same type, but got: {} min and {} max", type_name(a.t), type_name(b.t)));
-            }
+            && a.t != b.t
+        {
+            return Err(format!(
+                "{P}expected 'min' and 'max' to be same type, but got: {} min and {} max",
+                type_name(a.t),
+                type_name(b.t)
+            ));
+        }
         for (v, name) in [(&ro.min, "min"), (&ro.max, "max")] {
             if let Some(v) = v
-                && fp(v.t) && ro.precision.is_none() {
-                    return Err(format!("{P}expected 'precision' to be set with '{name}' for {}", type_name(v.t)));
-                }
+                && fp(v.t)
+                && ro.precision.is_none()
+            {
+                return Err(format!(
+                    "{P}expected 'precision' to be set with '{name}' for {}",
+                    type_name(v.t)
+                ));
+            }
         }
         Ok(ro)
     }
@@ -206,14 +255,23 @@ impl RangeOpts {
                 return Ok(b.clone());
             }
             match v.t {
-                T_INT32 | T_INT64 | T_DATE_TIME => Err(format!("{p}Range option '{which}' is required for type: {}", type_name(v.t))),
+                T_INT32 | T_INT64 | T_DATE_TIME => Err(format!(
+                    "{p}Range option '{which}' is required for type: {}",
+                    type_name(v.t)
+                )),
                 T_DOUBLE => {
                     let mut w = Writer::with_capacity(16);
                     w.double(b"", dflt);
-                    Ok(Val { t: T_DOUBLE, elem: w.finish() })
+                    Ok(Val {
+                        t: T_DOUBLE,
+                        elem: w.finish(),
+                    })
                 }
                 T_DECIMAL128 => Ok(decimal_extreme(dflt < 0.0)),
-                t => Err(format!("{p}unsupported BSON type: {} for range", type_name(t))),
+                t => Err(format!(
+                    "{p}unsupported BSON type: {} for range",
+                    type_name(t)
+                )),
             }
         };
         let min = bound(&self.min, "min", -f64::MAX)?;
@@ -227,7 +285,13 @@ impl RangeOpts {
                 ));
             }
         }
-        Ok(InsertSpec { v: v.clone(), min, max, precision: self.precision, trim_factor: self.trim_factor })
+        Ok(InsertSpec {
+            v: v.clone(),
+            min,
+            max,
+            precision: self.precision,
+            trim_factor: self.trim_factor,
+        })
     }
 
     /// `mc_getNumberOfBits`
@@ -262,7 +326,12 @@ impl RangeOpts {
                 };
                 128 - type_info_decimal(v, b, self.precision)?.max.leading_zeros()
             }
-            t => return Err(format!("{P}unsupported BSON type: {} for range", type_name(t))),
+            t => {
+                return Err(format!(
+                    "{P}unsupported BSON type: {} for range",
+                    type_name(t)
+                ));
+            }
         };
         Ok(r)
     }
@@ -292,9 +361,16 @@ fn encode_i64(v: i64) -> u64 {
 
 /// `mc_getTypeInfo32`
 pub fn type_info32(value: i32, bounds: Option<(i32, i32)>) -> Result<Ost<u32>> {
-    let Some((min, max)) = bounds else { return Ok(Ost { value: encode_i32(value), max: u32::MAX }) };
+    let Some((min, max)) = bounds else {
+        return Ok(Ost {
+            value: encode_i32(value),
+            max: u32::MAX,
+        });
+    };
     if min >= max {
-        return Err(format!("The minimum value must be less than the maximum value, got min: {min}, max: {max}"));
+        return Err(format!(
+            "The minimum value must be less than the maximum value, got min: {min}, max: {max}"
+        ));
     }
     if value > max || value < min {
         return Err(format!(
@@ -302,14 +378,24 @@ pub fn type_info32(value: i32, bounds: Option<(i32, i32)>) -> Result<Ost<u32>> {
         ));
     }
     let m = encode_i32(min);
-    Ok(Ost { value: encode_i32(value) - m, max: encode_i32(max) - m })
+    Ok(Ost {
+        value: encode_i32(value) - m,
+        max: encode_i32(max) - m,
+    })
 }
 
 /// `mc_getTypeInfo64`
 pub fn type_info64(value: i64, bounds: Option<(i64, i64)>) -> Result<Ost<u64>> {
-    let Some((min, max)) = bounds else { return Ok(Ost { value: encode_i64(value), max: u64::MAX }) };
+    let Some((min, max)) = bounds else {
+        return Ok(Ost {
+            value: encode_i64(value),
+            max: u64::MAX,
+        });
+    };
     if min >= max {
-        return Err(format!("The minimum value must be less than the maximum value, got min: {min}, max: {max}"));
+        return Err(format!(
+            "The minimum value must be less than the maximum value, got min: {min}, max: {max}"
+        ));
     }
     if value > max || value < min {
         return Err(format!(
@@ -317,7 +403,10 @@ pub fn type_info64(value: i64, bounds: Option<(i64, i64)>) -> Result<Ost<u64>> {
         ));
     }
     let m = encode_i64(min);
-    Ok(Ost { value: encode_i64(value) - m, max: encode_i64(max) - m })
+    Ok(Ost {
+        value: encode_i64(value) - m,
+        max: encode_i64(max) - m,
+    })
 }
 
 /// What stands for a plaintext value (or its order-preserving encoding) in error messages:
@@ -329,16 +418,26 @@ const SCALED_DOUBLE_BOUNDS: f64 = 9007199254740992.0;
 /// `mc_canUsePrecisionModeDouble`: Ok(Some(bits)) when usable, Ok(None) when not (≥ 53 bits)
 fn can_use_precision_mode(min: f64, max: f64, precision: i32) -> Result<Option<u32>> {
     if min >= max {
-        return Err(format!("Invalid bounds for double range precision, min must be less than max. min: {}, max: {}", g(min), g(max)));
+        return Err(format!(
+            "Invalid bounds for double range precision, min must be less than max. min: {}, max: {}",
+            g(min),
+            g(max)
+        ));
     }
     let scaled_prc = 10f64.powi(precision);
     let smax = max * scaled_prc;
     let smin = min * scaled_prc;
     if smax != smax.trunc() {
-        return Err(format!("Invalid upper bound for double precision. Fractional digits must be less than the specified precision value. max: {}", g(max)));
+        return Err(format!(
+            "Invalid upper bound for double precision. Fractional digits must be less than the specified precision value. max: {}",
+            g(max)
+        ));
     }
     if smin != smin.trunc() {
-        return Err(format!("Invalid lower bound for double precision. Fractional digits must be less than the specified precision value. min: {}", g(min)));
+        return Err(format!(
+            "Invalid lower bound for double precision. Fractional digits must be less than the specified precision value. min: {}",
+            g(min)
+        ));
     }
     if smax.abs() >= SCALED_DOUBLE_BOUNDS {
         return Err(format!(
@@ -358,7 +457,9 @@ fn can_use_precision_mode(min: f64, max: f64, precision: i32) -> Result<Option<u
     let t4 = u64::MAX as f64 - t1;
     let t5 = t4.log10().floor() - 1.0;
     if precision as f64 > t5 {
-        return Err(format!("Invalid value for precision. precision: {precision}"));
+        return Err(format!(
+            "Invalid value for precision. precision: {precision}"
+        ));
     }
     let (i1, i2) = (smax as i64, smin as i64);
     let range = i1.wrapping_sub(i2) as u64;
@@ -371,12 +472,20 @@ fn can_use_precision_mode(min: f64, max: f64, precision: i32) -> Result<Option<u
     }
     let i3 = range + scaled_prc as u64;
     let clz = i3.leading_zeros();
-    let bits = if i3 & (i3 - 1) == 0 { 64 - clz - 1 } else { 64 - clz };
+    let bits = if i3 & (i3 - 1) == 0 {
+        64 - clz - 1
+    } else {
+        64 - clz
+    };
     Ok((bits < 53).then_some(bits))
 }
 
 /// `mc_getTypeInfoDouble`
-pub fn type_info_double(mut value: f64, bounds: Option<(f64, f64)>, precision: Option<i32>) -> Result<Ost<u64>> {
+pub fn type_info_double(
+    mut value: f64,
+    bounds: Option<(f64, f64)>,
+    precision: Option<i32>,
+) -> Result<Ost<u64>> {
     if bounds.is_some() != precision.is_some() {
         return Err("min, max, and precision must all be set or must all be unset".into());
     }
@@ -385,7 +494,11 @@ pub fn type_info_double(mut value: f64, bounds: Option<(f64, f64)>, precision: O
     }
     if let Some((min, max)) = bounds {
         if min >= max {
-            return Err(format!("The minimum value must be less than the maximum value, got min: {}, max: {}", g(min), g(max)));
+            return Err(format!(
+                "The minimum value must be less than the maximum value, got min: {}, max: {}",
+                g(min),
+                g(max)
+            ));
         }
         if value > max || value < min {
             return Err(format!(
@@ -407,12 +520,15 @@ pub fn type_info_double(mut value: f64, bounds: Option<(f64, f64)>, precision: O
                     "The domain of double values specified by the min, max, and precision cannot be represented in fewer than 53 bits. min: {}, max: {}, precision: {p}",
                     g(min),
                     g(max)
-                ))
+                ));
             }
             Some(bits) => {
                 let v_prime = (value * 10f64.powi(p)).trunc() as i64;
                 let scaled_min = (min * 10f64.powi(p)) as i64;
-                return Ok(Ost { value: v_prime.wrapping_sub(scaled_min) as u64, max: (1u64 << bits) - 1 });
+                return Ok(Ost {
+                    value: v_prime.wrapping_sub(scaled_min) as u64,
+                    max: (1u64 << bits) - 1,
+                });
             }
         }
     }
@@ -421,7 +537,10 @@ pub fn type_info_double(mut value: f64, bounds: Option<(f64, f64)>, precision: O
     if is_neg {
         uv = (1u64 << 63).wrapping_sub(uv);
     }
-    Ok(Ost { value: uv, max: u64::MAX })
+    Ok(Ost {
+        value: uv,
+        max: u64::MAX,
+    })
 }
 
 /// `mc_edges_t`: the edge strings and the trim factor used
@@ -469,7 +588,11 @@ fn edges_new(leaf: &str, sparsity: usize, tf: Option<i32>) -> Result<Edges> {
             edges.push(leaf[..i].to_string());
         }
     }
-    Ok(Edges { edges, leaf: leaf.to_string(), used_trim_factor: trim })
+    Ok(Edges {
+        edges,
+        leaf: leaf.to_string(),
+        used_trim_factor: trim,
+    })
 }
 
 fn bits(v: u64, width: u32, max_leading_zeros: u32) -> String {
@@ -482,22 +605,38 @@ pub fn get_edges(spec: &InsertSpec, sparsity: usize) -> Result<Edges> {
     match spec.v.t {
         T_INT32 => {
             let o = type_info32(spec.v.i32(), Some((spec.min.i32(), spec.max.i32())))?;
-            edges_new(&bits(o.value as u64, 32, o.max.leading_zeros()), sparsity, spec.trim_factor)
+            edges_new(
+                &bits(o.value as u64, 32, o.max.leading_zeros()),
+                sparsity,
+                spec.trim_factor,
+            )
         }
         T_INT64 | T_DATE_TIME => {
             let o = type_info64(spec.v.i64(), Some((spec.min.i64(), spec.max.i64())))?;
-            edges_new(&bits(o.value, 64, o.max.leading_zeros()), sparsity, spec.trim_factor)
+            edges_new(
+                &bits(o.value, 64, o.max.leading_zeros()),
+                sparsity,
+                spec.trim_factor,
+            )
         }
         T_DOUBLE => {
             let b = spec.precision.map(|_| (spec.min.f64(), spec.max.f64()));
             let o = type_info_double(spec.v.f64(), b, spec.precision)?;
-            edges_new(&bits(o.value, 64, o.max.leading_zeros()), sparsity, spec.trim_factor)
+            edges_new(
+                &bits(o.value, 64, o.max.leading_zeros()),
+                sparsity,
+                spec.trim_factor,
+            )
         }
         T_DECIMAL128 => {
             let b = spec.precision.map(|_| (spec.min.dec(), spec.max.dec()));
             let o = type_info_decimal(spec.v.dec(), b, spec.precision)?;
             let s = format!("{:0128b}", o.value);
-            edges_new(&s[o.max.leading_zeros() as usize..], sparsity, spec.trim_factor)
+            edges_new(
+                &s[o.max.leading_zeros() as usize..],
+                sparsity,
+                spec.trim_factor,
+            )
         }
         t => Err(format!("unsupported BSON type: {} for range", type_name(t))),
     }
@@ -589,12 +728,22 @@ mod tests {
 // FLE2FindRangePayloadV2 (mc-fle2-find-range-payload-v2.c)
 
 /// `MinCoverGenerator_u128`
-fn min_cover128(range_min: u128, range_max: u128, max: u128, sparsity: usize, tf: Option<i32>) -> Result<(Vec<String>, i32)> {
+fn min_cover128(
+    range_min: u128,
+    range_max: u128,
+    max: u128,
+    sparsity: usize,
+    tf: Option<i32>,
+) -> Result<(Vec<String>, i32)> {
     if range_min > range_max {
-        return Err(format!("Range min ({REDACTED}) must be less than or equal to range max ({REDACTED}) for range search"));
+        return Err(format!(
+            "Range min ({REDACTED}) must be less than or equal to range max ({REDACTED}) for range search"
+        ));
     }
     if range_max > max {
-        return Err(format!("Range max ({REDACTED}) must be less than or equal to max ({max}) for range search"));
+        return Err(format!(
+            "Range max ({REDACTED}) must be less than or equal to max ({max}) for range search"
+        ));
     }
     if sparsity == 0 {
         return Err("Sparsity must be > 0".into());
@@ -609,7 +758,13 @@ fn min_cover128(range_min: u128, range_max: u128, max: u128, sparsity: usize, tf
     if trim < 0 {
         return Err(format!("Trim factor must be >= 0, but got ({trim})"));
     }
-    let apply_mask = |v: u128, masked: usize| if masked == 0 { v } else { v | (u128::MAX >> (128 - masked)) };
+    let apply_mask = |v: u128, masked: usize| {
+        if masked == 0 {
+            v
+        } else {
+            v | (u128::MAX >> (128 - masked))
+        }
+    };
     let stored = |masked: usize| {
         let level = maxlen - masked;
         masked == 0 || (level >= trim as usize && level.is_multiple_of(sparsity))
@@ -643,23 +798,52 @@ fn min_cover128(range_min: u128, range_max: u128, max: u128, sparsity: usize, tf
         }
         let nb = masked - 1;
         rec(out, start, nb, lo, hi, apply_mask, stored, to_string);
-        rec(out, start | (1u128 << nb), nb, lo, hi, apply_mask, stored, to_string);
+        rec(
+            out,
+            start | (1u128 << nb),
+            nb,
+            lo,
+            hi,
+            apply_mask,
+            stored,
+            to_string,
+        );
     }
-    rec(&mut out, 0, maxlen, range_min, range_max, &apply_mask, &stored, &to_string);
+    rec(
+        &mut out,
+        0,
+        maxlen,
+        range_min,
+        range_max,
+        &apply_mask,
+        &stored,
+        &to_string,
+    );
     Ok((out, trim))
 }
 
 /// `adjustBounds_u128`
-fn adjust_bounds128(lo: &mut u128, inc_lo: bool, min: u128, hi: &mut u128, inc_hi: bool, max: u128) -> Result<()> {
+fn adjust_bounds128(
+    lo: &mut u128,
+    inc_lo: bool,
+    min: u128,
+    hi: &mut u128,
+    inc_hi: bool,
+    max: u128,
+) -> Result<()> {
     if !inc_lo {
         if *lo >= max {
-            return Err(format!("Lower bound ({REDACTED}) must be less than the range maximum ({max}) if lower bound is excluded from range."));
+            return Err(format!(
+                "Lower bound ({REDACTED}) must be less than the range maximum ({max}) if lower bound is excluded from range."
+            ));
         }
         *lo += 1;
     }
     if !inc_hi {
         if *hi <= min {
-            return Err(format!("Upper bound ({REDACTED}) must be greater than the range minimum ({min}) if upper bound is excluded from range."));
+            return Err(format!(
+                "Upper bound ({REDACTED}) must be greater than the range minimum ({min}) if upper bound is excluded from range."
+            ));
         }
         *hi -= 1;
     }
@@ -676,17 +860,29 @@ impl PartialOrd for crate::dec128::Dec {
 fn decimal_extreme(negative: bool) -> Val {
     let d = crate::dec128::Dec::finite(negative, crate::dec128::pow10(34) - 1, 6111);
     let mut w = Writer::with_capacity(32);
-    w.value(b"", &Value::Decimal128(mongo_core::bson::decimal128::Decimal128::from_le_bytes(d.to_bytes())));
-    Val { t: T_DECIMAL128, elem: w.finish() }
+    w.value(
+        b"",
+        &Value::Decimal128(mongo_core::bson::decimal128::Decimal128::from_le_bytes(
+            d.to_bytes(),
+        )),
+    );
+    Val {
+        t: T_DECIMAL128,
+        elem: w.finish(),
+    }
 }
 
 /// `dec128_to_uint128` / `dec128_to_int128` (wrapping, as mlib_int128)
 fn dec_to_int128(d: &crate::dec128::Dec) -> u128 {
-    use crate::dec128::{pow10_wrapping, EXPONENT_BIAS};
+    use crate::dec128::{EXPONENT_BIAS, pow10_wrapping};
     let neg = d.is_negative();
     let exp = d.biased_exp() - EXPONENT_BIAS;
     let e = pow10_wrapping(exp.unsigned_abs().min(255));
-    let mag = if exp < 0 { d.coeff() / e.max(1) } else { d.coeff().wrapping_mul(e) };
+    let mag = if exp < 0 {
+        d.coeff() / e.max(1)
+    } else {
+        d.coeff().wrapping_mul(e)
+    };
     if neg { mag.wrapping_neg() } else { mag }
 }
 
@@ -699,7 +895,11 @@ fn uint128_max_dec() -> crate::dec128::Dec {
 }
 
 /// `mc_canUsePrecisionModeDecimal`: Ok(Some(bits)) when usable, Ok(None) when not (>= 128 bits)
-fn can_use_precision_mode_decimal(min: crate::dec128::Dec, max: crate::dec128::Dec, precision: i32) -> Result<Option<u32>> {
+fn can_use_precision_mode_decimal(
+    min: crate::dec128::Dec,
+    max: crate::dec128::Dec,
+    precision: i32,
+) -> Result<Option<u32>> {
     use crate::dec128::Dec;
     if !max.is_finite() {
         return Err("Invalid upper bound for Decimal128 precision. Max is infinite.".into());
@@ -747,25 +947,37 @@ fn can_use_precision_mode_decimal(min: crate::dec128::Dec, max: crate::dec128::D
     // t_5 = floor(log10(t_4)) - 1
     let t5 = t4.floor_log10().map(|l| l - 1);
     if t5.is_none_or(|t| t < precision as i64) {
-        return Err(format!("Invalid value for precision. precision: {precision}"));
+        return Err(format!(
+            "Invalid value for precision. precision: {precision}"
+        ));
     }
     let range128 = dec_to_int128(&smax).wrapping_sub(dec_to_int128(&smin));
     if precision > u8::MAX as i32 {
-        return Err(format!("Invalid value for precision. Must be less than 255. precision: {precision}"));
+        return Err(format!(
+            "Invalid value for precision. Must be less than 255. precision: {precision}"
+        ));
     }
     let i3 = range128.wrapping_add(crate::dec128::pow10_wrapping(precision as u32));
     if i3 == 0 {
         return Err("Invalid input to ceil_log2_int128 function. Input cannot be 0.".into());
     }
     let clz = i3.leading_zeros();
-    let bits = if i3 & (i3 - 1) == 0 { 128 - clz - 1 } else { 128 - clz };
+    let bits = if i3 & (i3 - 1) == 0 {
+        128 - clz - 1
+    } else {
+        128 - clz
+    };
     let _ = Dec::from_i64(0);
     Ok(if bits >= 128 { None } else { Some(bits) })
 }
 
 /// `mc_getTypeInfoDecimal128`
-pub fn type_info_decimal(value: crate::dec128::Dec, bounds: Option<(crate::dec128::Dec, crate::dec128::Dec)>, precision: Option<i32>) -> Result<Ost<u128>> {
-    use crate::dec128::{pow10, Dec};
+pub fn type_info_decimal(
+    value: crate::dec128::Dec,
+    bounds: Option<(crate::dec128::Dec, crate::dec128::Dec)>,
+    precision: Option<i32>,
+) -> Result<Ost<u128>> {
+    use crate::dec128::{Dec, pow10};
     if bounds.is_some() != precision.is_some() {
         return Err("min, max, and precision must all be set or must all be unset".into());
     }
@@ -774,7 +986,10 @@ pub fn type_info_decimal(value: crate::dec128::Dec, bounds: Option<(crate::dec12
             return Err(format!("Precision must be non-negative, but got {p}"));
         }
         if !Dec::from_i64(1).scale(p as i64).is_finite() {
-            return Err("Precision is too large and cannot be used to calculate the scaled range bounds".into());
+            return Err(
+                "Precision is too large and cannot be used to calculate the scaled range bounds"
+                    .into(),
+            );
         }
     }
     if value.is_inf() || value.is_nan() {
@@ -782,7 +997,11 @@ pub fn type_info_decimal(value: crate::dec128::Dec, bounds: Option<(crate::dec12
     }
     if let Some((min, max)) = &bounds {
         if min.greater_equal(max) {
-            return Err(format!("The minimum value must be less than the maximum value, got min: {}, max: {}", min.to_intel_string(), max.to_intel_string()));
+            return Err(format!(
+                "The minimum value must be less than the maximum value, got min: {}, max: {}",
+                min.to_intel_string(),
+                max.to_intel_string()
+            ));
         }
         if value.greater(max) || value.less(min) {
             return Err(format!(
@@ -807,12 +1026,18 @@ pub fn type_info_decimal(value: crate::dec128::Dec, bounds: Option<(crate::dec12
             return Err("Decimal128 value out of range for precision mode".into());
         }
         let ost_max = (1u128 << bits).wrapping_sub(1);
-        return Ok(Ost { value: dec_to_int128(&v_prime2), max: ost_max });
+        return Ok(Ost {
+            value: dec_to_int128(&v_prime2),
+            max: ost_max,
+        });
     }
     let coeff = value.coeff();
     let two127 = 1u128 << 127;
     if coeff == 0 {
-        return Ok(Ost { value: two127, max: u128::MAX });
+        return Ok(Ost {
+            value: two127,
+            max: u128::MAX,
+        });
     }
     let c_max = pow10(34) - 1;
     let c_max_div_ten = c_max / 10;
@@ -832,21 +1057,39 @@ pub fn type_info_decimal(value: crate::dec128::Dec, bounds: Option<(crate::dec12
     if value.is_negative() {
         result = result.wrapping_neg();
     }
-    Ok(Ost { value: result, max: u128::MAX })
+    Ok(Ost {
+        value: result,
+        max: u128::MAX,
+    })
 }
 
 /// `MinCoverGenerator` (32- or 64-bit): the edges and the trim factor used
-fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usize, tf: Option<i32>) -> Result<(Vec<String>, i32)> {
+fn min_cover(
+    range_min: u64,
+    range_max: u64,
+    max: u64,
+    bits: u32,
+    sparsity: usize,
+    tf: Option<i32>,
+) -> Result<(Vec<String>, i32)> {
     if range_min > range_max {
-        return Err(format!("Range min ({REDACTED}) must be less than or equal to range max ({REDACTED}) for range search"));
+        return Err(format!(
+            "Range min ({REDACTED}) must be less than or equal to range max ({REDACTED}) for range search"
+        ));
     }
     if range_max > max {
-        return Err(format!("Range max ({REDACTED}) must be less than or equal to max ({max}) for range search"));
+        return Err(format!(
+            "Range max ({REDACTED}) must be less than or equal to max ({max}) for range search"
+        ));
     }
     if sparsity == 0 {
         return Err("Sparsity must be > 0".into());
     }
-    let lz = if bits == 32 { (max as u32).leading_zeros() } else { max.leading_zeros() };
+    let lz = if bits == 32 {
+        (max as u32).leading_zeros()
+    } else {
+        max.leading_zeros()
+    };
     let maxlen = (bits - lz) as usize;
     let trim = trim_factor_default(maxlen, tf);
     if trim != 0 && trim as i64 >= maxlen as i64 {
@@ -857,8 +1100,18 @@ fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usiz
     if trim < 0 {
         return Err(format!("Trim factor must be >= 0, but got ({trim})"));
     }
-    let ones = if bits == 32 { u32::MAX as u64 } else { u64::MAX };
-    let apply_mask = |v: u64, masked: usize| if masked == 0 { v } else { v | (ones >> (bits as usize - masked)) };
+    let ones = if bits == 32 {
+        u32::MAX as u64
+    } else {
+        u64::MAX
+    };
+    let apply_mask = |v: u64, masked: usize| {
+        if masked == 0 {
+            v
+        } else {
+            v | (ones >> (bits as usize - masked))
+        }
+    };
     let stored = |masked: usize| {
         let level = maxlen - masked;
         masked == 0 || (level >= trim as usize && level.is_multiple_of(sparsity))
@@ -892,23 +1145,52 @@ fn min_cover(range_min: u64, range_max: u64, max: u64, bits: u32, sparsity: usiz
         }
         let nb = masked - 1;
         rec(out, start, nb, lo, hi, apply_mask, stored, to_string);
-        rec(out, start | (1u64 << nb), nb, lo, hi, apply_mask, stored, to_string);
+        rec(
+            out,
+            start | (1u64 << nb),
+            nb,
+            lo,
+            hi,
+            apply_mask,
+            stored,
+            to_string,
+        );
     }
-    rec(&mut out, 0, maxlen, range_min, range_max, &apply_mask, &stored, &to_string);
+    rec(
+        &mut out,
+        0,
+        maxlen,
+        range_min,
+        range_max,
+        &apply_mask,
+        &stored,
+        &to_string,
+    );
     Ok((out, trim))
 }
 
 /// `adjustBounds`
-fn adjust_bounds(lo: &mut u64, inc_lo: bool, min: u64, hi: &mut u64, inc_hi: bool, max: u64) -> Result<()> {
+fn adjust_bounds(
+    lo: &mut u64,
+    inc_lo: bool,
+    min: u64,
+    hi: &mut u64,
+    inc_hi: bool,
+    max: u64,
+) -> Result<()> {
     if !inc_lo {
         if *lo >= max {
-            return Err(format!("Lower bound ({REDACTED}) must be less than the range maximum ({max}) if lower bound is excluded from range."));
+            return Err(format!(
+                "Lower bound ({REDACTED}) must be less than the range maximum ({max}) if lower bound is excluded from range."
+            ));
         }
         *lo += 1;
     }
     if !inc_hi {
         if *hi <= min {
-            return Err(format!("Upper bound ({REDACTED}) must be greater than the range minimum ({min}) if upper bound is excluded from range."));
+            return Err(format!(
+                "Upper bound ({REDACTED}) must be greater than the range minimum ({min}) if upper bound is excluded from range."
+            ));
         }
         *hi -= 1;
     }
@@ -916,21 +1198,50 @@ fn adjust_bounds(lo: &mut u64, inc_lo: bool, min: u64, hi: &mut u64, inc_hi: boo
 }
 
 /// `CHECK_BOUNDS`
-fn check_bounds<T: PartialOrd + Copy>(lo: T, inc_lo: bool, hi: T, inc_hi: bool, b: Option<(T, T)>, f: &dyn Fn(T) -> String) -> Result<()> {
+fn check_bounds<T: PartialOrd + Copy>(
+    lo: T,
+    inc_lo: bool,
+    hi: T,
+    inc_hi: bool,
+    b: Option<(T, T)>,
+    f: &dyn Fn(T) -> String,
+) -> Result<()> {
     if let Some((min, max)) = b {
         if hi < min {
-            return Err(format!("Upper bound ({}) must be greater than or equal to the range minimum ({})", REDACTED, f(min)));
+            return Err(format!(
+                "Upper bound ({}) must be greater than or equal to the range minimum ({})",
+                REDACTED,
+                f(min)
+            ));
         }
-        #[allow(clippy::neg_cmp_op_on_partial_ord, reason = "NaN bounds must fail these checks")]
+        #[allow(
+            clippy::neg_cmp_op_on_partial_ord,
+            reason = "NaN bounds must fail these checks"
+        )]
         if !inc_hi && !(min < hi) {
-            return Err(format!("Upper bound ({}) must be greater than the range minimum ({}) if upper bound is excluded from range", REDACTED, f(min)));
+            return Err(format!(
+                "Upper bound ({}) must be greater than the range minimum ({}) if upper bound is excluded from range",
+                REDACTED,
+                f(min)
+            ));
         }
         if max < lo {
-            return Err(format!("Lower bound ({}) must be less than or equal to the range maximum ({})", REDACTED, f(max)));
+            return Err(format!(
+                "Lower bound ({}) must be less than or equal to the range maximum ({})",
+                REDACTED,
+                f(max)
+            ));
         }
-        #[allow(clippy::neg_cmp_op_on_partial_ord, reason = "NaN bounds must fail these checks")]
+        #[allow(
+            clippy::neg_cmp_op_on_partial_ord,
+            reason = "NaN bounds must fail these checks"
+        )]
         if !inc_lo && !(lo < max) {
-            return Err(format!("Lower bound ({}) must be less than the range maximum ({}) if lower bound is excluded from range", REDACTED, f(max)));
+            return Err(format!(
+                "Lower bound ({}) must be less than the range maximum ({}) if lower bound is excluded from range",
+                REDACTED,
+                f(max)
+            ));
         }
     }
     Ok(())
@@ -962,7 +1273,8 @@ fn mincover(e: &EdgesInfo, sparsity: usize) -> Result<(Vec<String>, i32)> {
             type_name(e.index_max.t)
         ));
     }
-    let (mut lo, mut inc_lo, mut hi, mut inc_hi) = (&e.lower, e.lb_included, &e.upper, e.ub_included);
+    let (mut lo, mut inc_lo, mut hi, mut inc_hi) =
+        (&e.lower, e.lb_included, &e.upper, e.ub_included);
     if is_infinite(lo) {
         lo = &e.index_min;
         inc_lo = true;
@@ -972,10 +1284,18 @@ fn mincover(e: &EdgesInfo, sparsity: usize) -> Result<(Vec<String>, i32)> {
         inc_hi = true;
     }
     if lo.t != t {
-        return Err(format!("expected lowerBound to match index type {}, got {}", type_name(t), type_name(lo.t)));
+        return Err(format!(
+            "expected lowerBound to match index type {}, got {}",
+            type_name(t),
+            type_name(lo.t)
+        ));
     }
     if hi.t != t {
-        return Err(format!("expected upperBound to match index type {}, got {}", type_name(t), type_name(hi.t)));
+        return Err(format!(
+            "expected upperBound to match index type {}, got {}",
+            type_name(t),
+            type_name(hi.t)
+        ));
     }
     let tf = e.trim_factor;
     match t {
@@ -1009,14 +1329,19 @@ fn mincover(e: &EdgesInfo, sparsity: usize) -> Result<(Vec<String>, i32)> {
         T_DECIMAL128 => {
             let b = e.precision.map(|_| (e.index_min.dec(), e.index_max.dec()));
             // CHECK_BOUNDS with the indexMin/indexMax as given (without precision they are unset)
-            check_bounds(lo.dec(), inc_lo, hi.dec(), inc_hi, b, &|v| v.to_intel_string())?;
+            check_bounds(lo.dec(), inc_lo, hi.dec(), inc_hi, b, &|v| {
+                v.to_intel_string()
+            })?;
             let a = type_info_decimal(lo.dec(), b, e.precision)?;
             let c = type_info_decimal(hi.dec(), b, e.precision)?;
             let (mut l, mut h) = (a.value, c.value);
             adjust_bounds128(&mut l, inc_lo, 0, &mut h, inc_hi, c.max)?;
             min_cover128(l, h, a.max, sparsity, tf)
         }
-        t => Err(format!("FLE2 find is not supported for type: {}", type_name(t))),
+        t => Err(format!(
+            "FLE2 find is not supported for type: {}",
+            type_name(t)
+        )),
     }
 }
 
@@ -1101,23 +1426,44 @@ struct DriverSpec {
 fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
     // libmongocrypt appends the expression as Extended JSON: here with every value replaced by
     // "<redacted>" (the plaintext query values), keeping the structure (safety divergence)
-    let json = mongo_core::bson::json::to_json(&redact_values(input), mongo_core::bson::json::Mode::Canonical, false).unwrap_or_default();
+    let json = mongo_core::bson::json::to_json(
+        &redact_values(input),
+        mongo_core::bson::json::Mode::Canonical,
+        false,
+    )
+    .unwrap_or_default();
     let err = |m: String| format!("{m}: {}", String::from_utf8_lossy(&json));
     let mut it = Iter::new(input).ok_or_else(|| err("error unable to find '$and'".into()))?;
     if !it.next() || it.key() != b"$and" {
         return Err(err("error unable to find '$and'".into()));
     }
-    let Value::Array(arr) = it.value() else { return Err(err("expected '$and' to be array".into())) };
+    let Value::Array(arr) = it.value() else {
+        return Err(err("expected '$and' to be array".into()));
+    };
     if it.next() {
-        return Err(err(format!("unexpected extra key '{}' after '$and'", String::from_utf8_lossy(it.key()))));
+        return Err(err(format!(
+            "unexpected extra key '{}' after '$and'",
+            String::from_utf8_lossy(it.key())
+        )));
     }
-    let mut spec = DriverSpec { lower: None, upper: None, field: String::new(), first: Op::Gt, second: None, n_ops: 0, aggregate: false };
+    let mut spec = DriverSpec {
+        lower: None,
+        upper: None,
+        field: String::new(),
+        first: Op::Gt,
+        second: None,
+        n_ops: 0,
+        aggregate: false,
+    };
     let mut kind = 0u8; // 0 unknown, 1 match, 2 aggregate
     let mut el = Iter::new(arr).ok_or_else(|| err("failed to recurse into '$and'".into()))?;
     let mut field: Option<String> = None;
     while el.next() {
-        let Value::Document(d) = el.value() else { return Err(err("expected document in '$and' array".into())) };
-        let mut di = Iter::new(d).ok_or_else(|| err("failed to recurse into '$and' element".into()))?;
+        let Value::Document(d) = el.value() else {
+            return Err(err("expected document in '$and' array".into()));
+        };
+        let mut di =
+            Iter::new(d).ok_or_else(|| err("failed to recurse into '$and' element".into()))?;
         if !di.next() {
             return Err(err("unexpected empty '$and' array document".into()));
         }
@@ -1132,26 +1478,35 @@ fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
         let (op_s, f, value) = if kind == 2 {
             // {$gt: ["$age", 5]}
             let op_s = String::from_utf8_lossy(di.key()).into_owned();
-            let Value::Array(a) = di.value() else { return Err(err("expected argument to be array".into())) };
+            let Value::Array(a) = di.value() else {
+                return Err(err("expected argument to be array".into()));
+            };
             let mut ai = Iter::new(a).ok_or_else(|| err("failed to recurse into array".into()))?;
             if !ai.next() {
                 return Err(err(format!("expected 2 elements in operand {op_s}, got 0")));
             }
-            let Value::Utf8(f) = ai.value() else { return Err(err(format!("expected UTF-8 as first element in {op_s}"))) };
+            let Value::Utf8(f) = ai.value() else {
+                return Err(err(format!("expected UTF-8 as first element in {op_s}")));
+            };
             let f = String::from_utf8_lossy(f).into_owned();
             if !ai.next() {
                 return Err(err(format!("expected 2 elements in operand {op_s}, got 1")));
             }
             let v = Val::from_iter(&ai);
             if ai.next() {
-                return Err(err(format!("expected 2 elements in operand {op_s}, got > 2")));
+                return Err(err(format!(
+                    "expected 2 elements in operand {op_s}, got > 2"
+                )));
             }
             (op_s, f, v)
         } else {
             // {age: {$gt: 5}}
             let f = String::from_utf8_lossy(di.key()).into_owned();
-            let Value::Document(od) = di.value() else { return Err(err("expected argument to be document".into())) };
-            let mut oi = Iter::new(od).ok_or_else(|| err("failed to recurse into document".into()))?;
+            let Value::Document(od) = di.value() else {
+                return Err(err("expected argument to be document".into()));
+            };
+            let mut oi =
+                Iter::new(od).ok_or_else(|| err("failed to recurse into document".into()))?;
             if !oi.next() {
                 return Err(err(format!("expected 1 elements in operand {f}, got 0")));
             }
@@ -1165,7 +1520,8 @@ fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
             }
             (op_s, f, v)
         };
-        let op = op_of(op_s.as_bytes()).ok_or_else(|| err(format!("unsupported operator type {op_s}")))?;
+        let op = op_of(op_s.as_bytes())
+            .ok_or_else(|| err(format!("unsupported operator type {op_s}")))?;
         match op {
             Op::Gt | Op::Gte => {
                 if spec.lower.is_some() {
@@ -1181,9 +1537,12 @@ fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
             }
         }
         if let Some(prev) = &field
-            && *prev != f {
-                return Err(err(format!("unexpected field mismatch. Expected all fields to be {prev}, but got {f}")));
-            }
+            && *prev != f
+        {
+            return Err(err(format!(
+                "unexpected field mismatch. Expected all fields to be {prev}, but got {f}"
+            )));
+        }
         spec.n_ops += 1;
         match spec.n_ops {
             1 => spec.first = op,
@@ -1198,7 +1557,15 @@ fn parse_driver_spec(input: &[u8]) -> Result<DriverSpec> {
 
 /// FLE2FindRangePayloadV2 (with edges unless `stub`)
 #[allow(clippy::too_many_arguments)]
-fn find_range_payload(key: &[u8], e: Option<&EdgesInfo>, sparsity: i64, max_contention: i64, payload_id: i32, first: Op, second: Option<Op>) -> Result<Vec<u8>> {
+fn find_range_payload(
+    key: &[u8],
+    e: Option<&EdgesInfo>,
+    sparsity: i64,
+    max_contention: i64,
+    payload_id: i32,
+    first: Op,
+    second: Option<Op>,
+) -> Result<Vec<u8>> {
     let mut w = Writer::with_capacity(2048);
     let mut used_tf = None;
     if let Some(e) = e {
@@ -1237,19 +1604,29 @@ fn find_range_payload(key: &[u8], e: Option<&EdgesInfo>, sparsity: i64, max_cont
 }
 
 /// `FLE2RangeFindDriverSpec_to_ciphertexts`: the encrypted expression `{v: ...}` of `{v: <expr>}`
-pub fn encrypt_expression(input: &[u8], ro: &RangeOpts, max_contention: i64, key: &[u8]) -> Result<Vec<u8>> {
+pub fn encrypt_expression(
+    input: &[u8],
+    ro: &RangeOpts,
+    max_contention: i64,
+    key: &[u8],
+) -> Result<Vec<u8>> {
     let mut it = Iter::new(input).ok_or("unable to convert input to BSON")?;
     if !it.find(b"v") {
         return Err("invalid input BSON, must contain 'v'".into());
     }
-    let Value::Document(v_doc) = it.value() else { return Err("invalid input BSON, expected 'v' to be document".into()) };
+    let Value::Document(v_doc) = it.value() else {
+        return Err("invalid input BSON, expected 'v' to be document".into());
+    };
     let spec = parse_driver_spec(v_doc)?;
     // mc_FLE2RangeFindDriverSpec_to_placeholders: default index bounds
     let index_type = match (&spec.lower, &spec.upper) {
         (Some((v, _)), _) | (None, Some((v, _))) => v.t,
         _ => return Err("expected lower or upper bound to be set".into()),
     };
-    let probe = Val { t: index_type, elem: Vec::new() };
+    let probe = Val {
+        t: index_type,
+        elem: Vec::new(),
+    };
     let bound = |o: &Option<Val>, which: &str, dflt: f64| -> Result<Val> {
         let p = format!("Error appending {which} to FLE2RangeInsertSpec: ");
         if let Some(b) = o {
@@ -1263,14 +1640,23 @@ pub fn encrypt_expression(input: &[u8], ro: &RangeOpts, max_contention: i64, key
             return Ok(b.clone());
         }
         match probe.t {
-            T_INT32 | T_INT64 | T_DATE_TIME => Err(format!("{p}Range option '{which}' is required for type: {}", type_name(probe.t))),
+            T_INT32 | T_INT64 | T_DATE_TIME => Err(format!(
+                "{p}Range option '{which}' is required for type: {}",
+                type_name(probe.t)
+            )),
             T_DOUBLE => {
                 let mut w = Writer::with_capacity(16);
                 w.double(b"", dflt);
-                Ok(Val { t: T_DOUBLE, elem: w.finish() })
+                Ok(Val {
+                    t: T_DOUBLE,
+                    elem: w.finish(),
+                })
             }
             T_DECIMAL128 => Ok(decimal_extreme(dflt < 0.0)),
-            t => Err(format!("{p}unsupported BSON type: {} for range", type_name(t))),
+            t => Err(format!(
+                "{p}unsupported BSON type: {} for range",
+                type_name(t)
+            )),
         }
     };
     let index_min = bound(&ro.min, "min", -f64::MAX)?;
@@ -1278,14 +1664,46 @@ pub fn encrypt_expression(input: &[u8], ro: &RangeOpts, max_contention: i64, key
     let inf = |v: f64| {
         let mut w = Writer::with_capacity(16);
         w.double(b"", v);
-        Val { t: T_DOUBLE, elem: w.finish() }
+        Val {
+            t: T_DOUBLE,
+            elem: w.finish(),
+        }
     };
     let (lower, lb_included) = spec.lower.clone().unwrap_or((inf(f64::NEG_INFINITY), true));
     let (upper, ub_included) = spec.upper.clone().unwrap_or((inf(f64::INFINITY), true));
-    let edges = EdgesInfo { lower, lb_included, upper, ub_included, index_min, index_max, precision: ro.precision, trim_factor: ro.trim_factor };
+    let edges = EdgesInfo {
+        lower,
+        lb_included,
+        upper,
+        ub_included,
+        index_min,
+        index_max,
+        precision: ro.precision,
+        trim_factor: ro.trim_factor,
+    };
     let pid = next_payload_id();
-    let p1 = find_range_payload(key, Some(&edges), ro.sparsity, max_contention, pid, spec.first, spec.second)?;
-    let p2 = if spec.n_ops == 2 { Some(find_range_payload(key, None, ro.sparsity, max_contention, pid, spec.first, spec.second)?) } else { None };
+    let p1 = find_range_payload(
+        key,
+        Some(&edges),
+        ro.sparsity,
+        max_contention,
+        pid,
+        spec.first,
+        spec.second,
+    )?;
+    let p2 = if spec.n_ops == 2 {
+        Some(find_range_payload(
+            key,
+            None,
+            ro.sparsity,
+            max_contention,
+            pid,
+            spec.first,
+            spec.second,
+        )?)
+    } else {
+        None
+    };
     let blob = |p: &[u8]| {
         let mut b = vec![crate::fle2::SUBTYPE_FIND_RANGE_V2];
         b.extend_from_slice(p);
@@ -1294,7 +1712,12 @@ pub fn encrypt_expression(input: &[u8], ro: &RangeOpts, max_contention: i64, key
     let mut w = Writer::with_capacity(4096);
     let v = w.begin(mongo_core::bson::iter::T_DOCUMENT, b"v");
     let and = w.begin(mongo_core::bson::iter::T_ARRAY, b"$and");
-    let ops: Vec<(Op, Vec<u8>)> = std::iter::once((spec.first, blob(&p1))).chain(p2.as_ref().map(|p| (spec.second.expect("two operators"), blob(p)))).collect();
+    let ops: Vec<(Op, Vec<u8>)> = std::iter::once((spec.first, blob(&p1)))
+        .chain(
+            p2.as_ref()
+                .map(|p| (spec.second.expect("two operators"), blob(p))),
+        )
+        .collect();
     for (i, (op, b)) in ops.iter().enumerate() {
         let e = w.begin(mongo_core::bson::iter::T_DOCUMENT, i.to_string().as_bytes());
         if spec.aggregate {

@@ -20,12 +20,12 @@ pub mod sdam;
 pub mod server;
 pub mod serverapi;
 pub mod session;
-pub mod writeconcern;
 pub mod uri_options;
+pub mod writeconcern;
 pub mod writeresult;
 
 use crate::zend::{call, class, sys, zval};
-use mongo_core::error::{code, domain, Error};
+use mongo_core::error::{Error, code, domain};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -129,24 +129,42 @@ pub(crate) unsafe fn lookup(n: &CStr) -> *mut sys::zend_class_entry {
 /// phongo_exception_from_mongoc_domain
 pub(crate) unsafe fn exception_ce(e: &Error) -> *mut sys::zend_class_entry {
     let n: &CStr = match (e.domain, e.code) {
-        (domain::CLIENT, code::CLIENT_SESSION_IN_USE) => c"mongodb\\driver\\exception\\logicexception",
-        (domain::CLIENT, code::CLIENT_AUTHENTICATE) => c"mongodb\\driver\\exception\\authenticationexception",
-        (domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_ARG) => c"mongodb\\driver\\exception\\invalidargumentexception",
-        (domain::COMMAND, code::COMMAND_INVALID_ARG) => c"mongodb\\driver\\exception\\invalidargumentexception",
+        (domain::CLIENT, code::CLIENT_SESSION_IN_USE) => {
+            c"mongodb\\driver\\exception\\logicexception"
+        }
+        (domain::CLIENT, code::CLIENT_AUTHENTICATE) => {
+            c"mongodb\\driver\\exception\\authenticationexception"
+        }
+        (domain::CLIENT, code::CLIENT_INVALID_ENCRYPTION_ARG) => {
+            c"mongodb\\driver\\exception\\invalidargumentexception"
+        }
+        (domain::COMMAND, code::COMMAND_INVALID_ARG) => {
+            c"mongodb\\driver\\exception\\invalidargumentexception"
+        }
         (domain::SERVER, 50) => c"mongodb\\driver\\exception\\executiontimeoutexception",
         (domain::SERVER, _) => c"mongodb\\driver\\exception\\serverexception",
-        (domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE) => c"mongodb\\driver\\exception\\connectiontimeoutexception",
-        (domain::STREAM, code::STREAM_SOCKET) => c"mongodb\\driver\\exception\\connectiontimeoutexception",
+        (domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE) => {
+            c"mongodb\\driver\\exception\\connectiontimeoutexception"
+        }
+        (domain::STREAM, code::STREAM_SOCKET) => {
+            c"mongodb\\driver\\exception\\connectiontimeoutexception"
+        }
         (domain::STREAM, _) => c"mongodb\\driver\\exception\\connectionexception",
         (domain::WRITE_CONCERN, _) => c"mongodb\\driver\\exception\\serverexception",
-        (domain::PROTOCOL, code::PROTOCOL_BAD_WIRE_VERSION) => c"mongodb\\driver\\exception\\connectionexception",
+        (domain::PROTOCOL, code::PROTOCOL_BAD_WIRE_VERSION) => {
+            c"mongodb\\driver\\exception\\connectionexception"
+        }
         (domain::CLIENT_SIDE_ENCRYPTION, _) => c"mongodb\\driver\\exception\\encryptionexception",
         _ => c"mongodb\\driver\\exception\\runtimeexception",
     };
     lookup(n)
 }
 
-unsafe fn throw_code(ce: *mut sys::zend_class_entry, msg: &str, code: i64) -> *mut sys::zend_object {
+unsafe fn throw_code(
+    ce: *mut sys::zend_class_entry,
+    msg: &str,
+    code: i64,
+) -> *mut sys::zend_object {
     let c = call::cs(msg);
     sys::zend_throw_exception(ce, c.as_ptr(), code)
 }
@@ -159,12 +177,21 @@ unsafe fn update_prop(o: *mut sys::zend_object, name: &[u8], v: *mut sys::zval) 
 pub unsafe fn throw_error(e: &Error, reply: Option<&[u8]>) {
     // a wait interrupted by a pending PHP exception (thrown into the fiber, by an error handler,
     // or the fiber's destruction): that exception propagates, not one of ours over it
-    if call::has_exception() && e.domain == domain::STREAM && e.message == mongo_core::aio::Interrupted.to_string() {
+    if call::has_exception()
+        && e.domain == domain::STREAM
+        && e.message == mongo_core::aio::Interrupted.to_string()
+    {
         return;
     }
     let ex;
-    if let Some(r) = reply.filter(|_| (e.domain == domain::SERVER && e.code != 50) || e.domain == domain::WRITE_CONCERN) {
-        ex = throw_code(lookup(c"mongodb\\driver\\exception\\commandexception"), &e.message, e.php_code());
+    if let Some(r) = reply.filter(|_| {
+        (e.domain == domain::SERVER && e.code != 50) || e.domain == domain::WRITE_CONCERN
+    }) {
+        ex = throw_code(
+            lookup(c"mongodb\\driver\\exception\\commandexception"),
+            &e.message,
+            e.php_code(),
+        );
         let tm = crate::bson::decode::TypeMap::default();
         let st = crate::bson::decode::State::new(&tm);
         if let Some(mut z) = crate::bson::decode::to_zval(r, &st) {
@@ -181,7 +208,12 @@ pub unsafe fn throw_error(e: &Error, reply: Option<&[u8]>) {
 /// phongo_exception_add_error_labels
 unsafe fn add_error_labels(ex: *mut sys::zend_object, reply: &[u8]) {
     use mongo_core::bson::iter::{Iter, Value};
-    if ex.is_null() || !crate::zend::obj::instanceof((*ex).ce, lookup(c"mongodb\\driver\\exception\\runtimeexception")) {
+    if ex.is_null()
+        || !crate::zend::obj::instanceof(
+            (*ex).ce,
+            lookup(c"mongodb\\driver\\exception\\runtimeexception"),
+        )
+    {
         return;
     }
     let labels = crate::zend::hash::new(0);
@@ -210,18 +242,21 @@ unsafe fn add_error_labels(ex: *mut sys::zend_object, reply: &[u8]) {
         add(&a);
     }
     if let Some(w) = find(reply, b"writeConcernError")
-        && let Some(a) = find(&w, b"errorLabels") {
-            add(&a);
-        }
+        && let Some(a) = find(&w, b"errorLabels")
+    {
+        add(&a);
+    }
     if let Some(ws) = find(reply, b"writeConcernErrors")
-        && let Some(mut it) = Iter::new(&ws) {
-            while it.next() {
-                if let Value::Document(w) = it.value()
-                    && let Some(a) = find(w, b"errorLabels") {
-                        add(&a);
-                    }
+        && let Some(mut it) = Iter::new(&ws)
+    {
+        while it.next() {
+            if let Value::Document(w) = it.value()
+                && let Some(a) = find(w, b"errorLabels")
+            {
+                add(&a);
             }
         }
+    }
     let mut z = zval::arr(labels);
     if n > 0 {
         update_prop(ex, b"errorLabels", &mut z);
@@ -231,7 +266,12 @@ unsafe fn add_error_labels(ex: *mut sys::zend_object, reply: &[u8]) {
 /// PHONGO_BSON_INIT_DEBUG_STATE's type map: arrays everywhere.
 pub fn debug_typemap() -> crate::bson::decode::TypeMap {
     use crate::bson::decode::TM;
-    crate::bson::decode::TypeMap { document: TM::Array, array: TM::Array, root: TM::Array, ..Default::default() }
+    crate::bson::decode::TypeMap {
+        document: TM::Array,
+        array: TM::Array,
+        root: TM::Array,
+        ..Default::default()
+    }
 }
 
 /// Decodes `doc` with `tm` (None: an exception was thrown).
@@ -248,7 +288,10 @@ pub unsafe fn to_zval_no_odm(doc: &[u8]) -> Option<sys::zval> {
     crate::bson::decode::to_zval(doc, &st)
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_CommandException_getResultDocument(ex: call::Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Exception_CommandException_getResultDocument(
+    ex: call::Ex,
+    rv: *mut sys::zval,
+) {
     if !call::none(ex) {
         return;
     }
@@ -273,10 +316,14 @@ pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
     // phongo_bson_value_to_zval: an int64 is always an Int64 object
     if let Some(mut it) = mongo_core::bson::iter::Iter::new(doc)
         && it.next()
-            && let mongo_core::bson::iter::Value::Int64(v) = it.value() {
-                return Some(crate::bson::types::new_int64(v));
-            }
-    let tm = crate::bson::decode::TypeMap { root: crate::bson::decode::TM::Array, ..Default::default() };
+        && let mongo_core::bson::iter::Value::Int64(v) = it.value()
+    {
+        return Some(crate::bson::types::new_int64(v));
+    }
+    let tm = crate::bson::decode::TypeMap {
+        root: crate::bson::decode::TM::Array,
+        ..Default::default()
+    };
     let z = to_zval(doc, &tm)?;
     let mut r = None;
     if zval::is(&z, sys::IS_ARRAY) {
@@ -289,24 +336,47 @@ pub unsafe fn legacy_value(doc: &[u8]) -> Option<sys::zval> {
 }
 
 /// phongo_parse_session: the "session" option (a MongoDB\Driver\Session of this client).
-#[allow(clippy::result_unit_err, reason = "Err: a PHP exception was thrown, which carries the error")]
-pub unsafe fn parse_session(options: *mut sys::zval, client: &ClientRef) -> Result<Option<*mut sys::zval>, ()> {
+#[allow(
+    clippy::result_unit_err,
+    reason = "Err: a PHP exception was thrown, which carries the error"
+)]
+pub unsafe fn parse_session(
+    options: *mut sys::zval,
+    client: &ClientRef,
+) -> Result<Option<*mut sys::zval>, ()> {
     if options.is_null() {
         return Ok(None);
     }
     if !zval::is(options, sys::IS_ARRAY) {
-        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+        crate::bson::throw(
+            crate::bson::E::InvalidArgument,
+            format!(
+                "Expected options to be array, {} given",
+                zval::type_name(options)
+            ),
+        );
         return Err(());
     }
-    let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"session") else { return Ok(None) };
+    let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"session") else {
+        return Ok(None);
+    };
     let z = zval::deref(z);
     let ce = lookup(c"mongodb\\driver\\session");
     if !zval::is(z, sys::IS_OBJECT) || !crate::zend::obj::instanceof((*(*z).value.obj).ce, ce) {
-        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected \"session\" option to be MongoDB\\Driver\\Session, {} given", zval::type_name(z)));
+        crate::bson::throw(
+            crate::bson::E::InvalidArgument,
+            format!(
+                "Expected \"session\" option to be MongoDB\\Driver\\Session, {} given",
+                zval::type_name(z)
+            ),
+        );
         return Err(());
     }
     if !session_belongs_to(z, client) {
-        crate::bson::throw(crate::bson::E::InvalidArgument, "Cannot use Session started from a different Manager");
+        crate::bson::throw(
+            crate::bson::E::InvalidArgument,
+            "Cannot use Session started from a different Manager",
+        );
         return Err(());
     }
     Ok(Some(z))
@@ -314,7 +384,10 @@ pub unsafe fn parse_session(options: *mut sys::zval, client: &ClientRef) -> Resu
 
 /// Whether the Session object `z` was started from `client`.
 unsafe fn session_belongs_to(z: *mut sys::zval, client: &ClientRef) -> bool {
-    session::of(z).client.as_ref().is_some_and(|c| Rc::ptr_eq(c, client))
+    session::of(z)
+        .client
+        .as_ref()
+        .is_some_and(|c| Rc::ptr_eq(c, client))
 }
 
 /// The server the operation's Session is pinned to (0: none, or no Session). None: the
@@ -333,42 +406,74 @@ pub unsafe fn session_rc(z: *mut sys::zval) -> Rc<RefCell<mongo_core::session::C
 
 /// Runs `f` with the client session of the Session object `z`. None: the session is in use
 /// by another fiber (the LogicException is thrown, `f` not run).
-pub unsafe fn with_session<R>(z: *mut sys::zval, f: impl FnOnce(&mut mongo_core::session::ClientSession) -> R) -> Option<R> {
+pub unsafe fn with_session<R>(
+    z: *mut sys::zval,
+    f: impl FnOnce(&mut mongo_core::session::ClientSession) -> R,
+) -> Option<R> {
     let cs = session::of(z).cs.clone().unwrap_or_default();
     let mut b = aio::lock_or_throw(&cs)?;
     Some(f(&mut b))
 }
 
 /// phongo_parse_write_concern: the "writeConcern" option.
-#[allow(clippy::result_unit_err, reason = "Err: a PHP exception was thrown, which carries the error")]
-pub unsafe fn parse_write_concern(options: *mut sys::zval) -> Result<Option<writeconcern::WriteConcern>, ()> {
+#[allow(
+    clippy::result_unit_err,
+    reason = "Err: a PHP exception was thrown, which carries the error"
+)]
+pub unsafe fn parse_write_concern(
+    options: *mut sys::zval,
+) -> Result<Option<writeconcern::WriteConcern>, ()> {
     if options.is_null() {
         return Ok(None);
     }
     if !zval::is(options, sys::IS_ARRAY) {
-        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+        crate::bson::throw(
+            crate::bson::E::InvalidArgument,
+            format!(
+                "Expected options to be array, {} given",
+                zval::type_name(options)
+            ),
+        );
         return Err(());
     }
-    let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"writeConcern") else { return Ok(None) };
+    let Some(z) = crate::zend::hash::sym_find((*options).value.arr, b"writeConcern") else {
+        return Ok(None);
+    };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !crate::zend::obj::instanceof((*(*z).value.obj).ce, writeconcern::CE.get()) {
-        crate::bson::throw(crate::bson::E::InvalidArgument, format!("Expected \"writeConcern\" option to be MongoDB\\Driver\\WriteConcern, {} given", zval::type_name(z)));
+    if !zval::is(z, sys::IS_OBJECT)
+        || !crate::zend::obj::instanceof((*(*z).value.obj).ce, writeconcern::CE.get())
+    {
+        crate::bson::throw(
+            crate::bson::E::InvalidArgument,
+            format!(
+                "Expected \"writeConcern\" option to be MongoDB\\Driver\\WriteConcern, {} given",
+                zval::type_name(z)
+            ),
+        );
         return Err(());
     }
-    Ok(Some(crate::zend::obj::data::<writeconcern::WriteConcern>((*z).value.obj).clone()))
+    Ok(Some(
+        crate::zend::obj::data::<writeconcern::WriteConcern>((*z).value.obj).clone(),
+    ))
 }
 
 /// phongo_split_namespace (after phongo_validate_namespace)
 pub unsafe fn split_namespace(ns: &[u8]) -> Option<(String, String)> {
     if ns.contains(&0) {
-        crate::bson::throw(crate::bson::E::InvalidArgument, "Invalid namespace provided: namespaces may not contain a null byte");
+        crate::bson::throw(
+            crate::bson::E::InvalidArgument,
+            "Invalid namespace provided: namespaces may not contain a null byte",
+        );
         return None;
     }
     let s = String::from_utf8_lossy(ns);
     match s.split_once('.') {
         Some((d, c)) => Some((d.to_owned(), c.to_owned())),
         None => {
-            crate::bson::throw(crate::bson::E::InvalidArgument, format!("Invalid namespace provided: {s}"));
+            crate::bson::throw(
+                crate::bson::E::InvalidArgument,
+                format!("Invalid namespace provided: {s}"),
+            );
             None
         }
     }

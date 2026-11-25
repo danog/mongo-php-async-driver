@@ -1,10 +1,10 @@
 //! MongoDB\Driver\Query (src/MongoDB/Query.c) and phongo_execute_query.
 
 use super::readconcern::ReadConcern;
-use crate::bson::types::{cls, Cls, Props};
-use crate::bson::{encode, throw, E};
+use crate::bson::types::{Cls, Props, cls};
+use crate::bson::{E, encode, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval, ClassEntry};
+use crate::zend::{ClassEntry, hash, obj, sys, zval};
 use mongo_core::bson::writer::Writer;
 use std::ptr::null_mut;
 
@@ -39,7 +39,11 @@ impl Cls for Query {
             }
         }
         match &self.read_concern {
-            Some(rc) => hash::str_update(ht, b"readConcern", super::readconcern::new_readconcern(rc.clone())),
+            Some(rc) => hash::str_update(
+                ht,
+                b"readConcern",
+                super::readconcern::new_readconcern(rc.clone()),
+            ),
             None => hash::str_update(ht, b"readConcern", zval::null()),
         }
         true
@@ -70,10 +74,15 @@ fn has_empty_keys(d: &[u8]) -> bool {
 
 unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
     q.max_await_time_ms = 0;
-    let Some(f) = encode::to_bson(filter, encode::NONE) else { return };
+    let Some(f) = encode::to_bson(filter, encode::NONE) else {
+        return;
+    };
     if has_empty_keys(&f) {
         q.filter = Some(f);
-        throw(E::InvalidArgument, "Cannot use empty keys in filter document");
+        throw(
+            E::InvalidArgument,
+            "Cannot use empty keys in filter document",
+        );
         return;
     }
     q.filter = Some(f);
@@ -140,7 +149,14 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
         if zval::is(v, sys::IS_STRING) {
             let hint = zval::str_bytes(v);
             if hint.len() > i32::MAX as usize {
-                throw(E::InvalidArgument, format!("Expected \"hint\" option to be <= {} bytes, {} given", i32::MAX, hint.len()));
+                throw(
+                    E::InvalidArgument,
+                    format!(
+                        "Expected \"hint\" option to be <= {} bytes, {} given",
+                        i32::MAX,
+                        hint.len()
+                    ),
+                );
                 done(q, w);
                 return;
             }
@@ -151,7 +167,13 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
                 return;
             }
         } else {
-            throw(E::InvalidArgument, format!("Expected \"hint\" option to be string, array, or object, {} given", super::type_by_const(v)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"hint\" option to be string, array, or object, {} given",
+                    super::type_by_const(v)
+                ),
+            );
             done(q, w);
             return;
         }
@@ -159,8 +181,16 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
     done(q, w);
     if let Some(v) = hash::sym_find(o, b"readConcern") {
         let v = zval::deref(v);
-        if !zval::is(v, sys::IS_OBJECT) || !obj::instanceof((*(*v).value.obj).ce, super::readconcern::CE.get()) {
-            throw(E::InvalidArgument, format!("Expected \"readConcern\" option to be MongoDB\\Driver\\ReadConcern, {} given", zval::type_name(v)));
+        if !zval::is(v, sys::IS_OBJECT)
+            || !obj::instanceof((*(*v).value.obj).ce, super::readconcern::CE.get())
+        {
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"readConcern\" option to be MongoDB\\Driver\\ReadConcern, {} given",
+                    zval::type_name(v)
+                ),
+            );
             return;
         }
         q.read_concern = Some(obj::data::<ReadConcern>((*v).value.obj).clone());
@@ -168,11 +198,20 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
     if let Some(v) = hash::sym_find(o, b"maxAwaitTimeMS") {
         let m = sys::zval_get_long_func(v, false);
         if m < 0 {
-            throw(E::InvalidArgument, format!("Expected \"maxAwaitTimeMS\" option to be >= 0, {m} given"));
+            throw(
+                E::InvalidArgument,
+                format!("Expected \"maxAwaitTimeMS\" option to be >= 0, {m} given"),
+            );
             return;
         }
         if m > u32::MAX as i64 {
-            throw(E::InvalidArgument, format!("Expected \"maxAwaitTimeMS\" option to be <= {}, {m} given", u32::MAX));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"maxAwaitTimeMS\" option to be <= {}, {m} given",
+                    u32::MAX
+                ),
+            );
             return;
         }
         q.max_await_time_ms = m as u32;
@@ -183,12 +222,23 @@ unsafe fn init(q: &mut Query, filter: *mut sys::zval, options: *mut sys::zval) {
 unsafe fn doc_opt(w: &mut Writer, k: &str, v: *mut sys::zval) -> bool {
     let v = zval::deref(v);
     if !zval::is(v, sys::IS_OBJECT) && !zval::is(v, sys::IS_ARRAY) {
-        throw(E::InvalidArgument, format!("Expected \"{k}\" option to be array or object, {} given", zval::type_name(v)));
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected \"{k}\" option to be array or object, {} given",
+                zval::type_name(v)
+            ),
+        );
         return false;
     }
-    let Some(d) = encode::to_bson(v, encode::NONE) else { return false };
+    let Some(d) = encode::to_bson(v, encode::NONE) else {
+        return false;
+    };
     if has_empty_keys(&d) {
-        throw(E::InvalidArgument, format!("Cannot use empty keys in \"{k}\" option"));
+        throw(
+            E::InvalidArgument,
+            format!("Cannot use empty keys in \"{k}\" option"),
+        );
         return false;
     }
     w.document(k.as_bytes(), &d);
@@ -197,7 +247,13 @@ unsafe fn doc_opt(w: &mut Writer, k: &str, v: *mut sys::zval) -> bool {
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Query___construct(ex: Ex, _rv: *mut sys::zval) {
     let (mut filter, mut options): (*mut sys::zval, *mut sys::zval) = (null_mut(), null_mut());
-    if sys::zend_parse_parameters(call::num_args(ex), c"A|a!".as_ptr(), &mut filter, &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"A|a!".as_ptr(),
+        &mut filter,
+        &mut options,
+    ) != 0
+    {
         return;
     }
     init(obj::data::<Query>(call::this(ex)), filter, options);

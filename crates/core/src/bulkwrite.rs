@@ -4,11 +4,11 @@
 //! own `nsInfo` sequence, and reads the per-operation results from the reply cursor.
 
 use crate::bson::iter::{Iter, Value};
-use crate::bson::writer::{index_key, itoa_buf, Writer};
+use crate::bson::writer::{Writer, index_key, itoa_buf};
 use crate::client::Client;
 use crate::cmdparts::{Cmd, Failure, Parts};
 use crate::concern::WriteConcern;
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 use crate::session::ClientSession;
 use crate::topology::OpType;
 use std::collections::HashMap;
@@ -76,7 +76,13 @@ pub struct BulkWriteResult {
 impl BulkWriteResult {
     /// The insert, update and delete results, keyed by model index (None without verboseResults).
     pub fn verbose_results(&self) -> Option<[Vec<u8>; 3]> {
-        self.verbose_results.then(|| [self.insert_results.buf_as_doc(), self.update_results.buf_as_doc(), self.delete_results.buf_as_doc()])
+        self.verbose_results.then(|| {
+            [
+                self.insert_results.buf_as_doc(),
+                self.update_results.buf_as_doc(),
+                self.delete_results.buf_as_doc(),
+            ]
+        })
     }
 }
 
@@ -157,18 +163,28 @@ fn validate_update(update: &[u8]) -> Result<bool, Error> {
         return Ok(true);
     }
     if let Some(mut it) = Iter::new(update)
-        && it.next() && it.key().first() != Some(&b'$') {
-            return Err(invalid_arg(format!("Invalid key '{}': update only works with $ operators and pipelines", String::from_utf8_lossy(it.key()))));
-        }
+        && it.next()
+        && it.key().first() != Some(&b'$')
+    {
+        return Err(invalid_arg(format!(
+            "Invalid key '{}': update only works with $ operators and pipelines",
+            String::from_utf8_lossy(it.key())
+        )));
+    }
     Ok(false)
 }
 
 /// validate_replace
 fn validate_replace(doc: &[u8]) -> Result<(), Error> {
     if let Some(mut it) = Iter::new(doc)
-        && it.next() && it.key().first() == Some(&b'$') {
-            return Err(invalid_arg(format!("Invalid key '{}': replace prohibits $ operators", String::from_utf8_lossy(it.key()))));
-        }
+        && it.next()
+        && it.key().first() == Some(&b'$')
+    {
+        return Err(invalid_arg(format!(
+            "Invalid key '{}': replace prohibits $ operators",
+            String::from_utf8_lossy(it.key())
+        )));
+    }
     Ok(())
 }
 
@@ -195,7 +211,11 @@ impl BulkWrite {
 
     fn push(&mut self, op: Op, ns: &str, w: Writer, id: Option<Vec<u8>>) {
         self.ops.extend_from_slice(&w.finish());
-        self.models.push(Model { op, ns: ns.to_owned(), id });
+        self.models.push(Model {
+            op,
+            ns: ns.to_owned(),
+            id,
+        });
     }
 
     /// mongoc_bulkwrite_append_insertone (`doc` already has an _id when it comes from the
@@ -215,18 +235,18 @@ impl BulkWrite {
         self.max_insert_len = self.max_insert_len.max(inserted.len() as u32);
         let mut id = Writer::with_capacity(32);
         if let Some(mut it) = Iter::new(&inserted)
-            && it.find(b"_id") {
-                id.element_from(None, &it);
-            }
+            && it.find(b"_id")
+        {
+            id.element_from(None, &it);
+        }
         self.push(Op::Insert, ns, w, Some(id.finish()));
         Ok(())
     }
 
     fn append_opts(w: &mut Writer, o: &ModelOpts, with_array_filters: bool, with_sort: bool) {
-        if with_array_filters
-            && let Some(a) = &o.array_filters {
-                w.array(b"arrayFilters", a);
-            }
+        if with_array_filters && let Some(a) = &o.array_filters {
+            w.array(b"arrayFilters", a);
+        }
         if let Some(c) = &o.collation {
             w.document(b"collation", c);
         }
@@ -236,14 +256,20 @@ impl BulkWrite {
         if let Some(u) = o.upsert {
             w.bool(b"upsert", u);
         }
-        if with_sort
-            && let Some(s) = &o.sort {
-                w.document(b"sort", s);
-            }
+        if with_sort && let Some(s) = &o.sort {
+            w.document(b"sort", s);
+        }
     }
 
     /// mongoc_bulkwrite_append_updateone / _updatemany (`sort` is ignored for many)
-    pub fn append_update(&mut self, ns: &str, filter: &[u8], update: &[u8], o: &ModelOpts, multi: bool) -> Result<(), Error> {
+    pub fn append_update(
+        &mut self,
+        ns: &str,
+        filter: &[u8],
+        update: &[u8],
+        o: &ModelOpts,
+        multi: bool,
+    ) -> Result<(), Error> {
         self.check_not_executed()?;
         let is_pipeline = validate_update(update)?;
         let mut w = Writer::with_capacity(filter.len() + update.len() + 64);
@@ -264,7 +290,13 @@ impl BulkWrite {
     }
 
     /// mongoc_bulkwrite_append_replaceone
-    pub fn append_replace_one(&mut self, ns: &str, filter: &[u8], replacement: &[u8], o: &ModelOpts) -> Result<(), Error> {
+    pub fn append_replace_one(
+        &mut self,
+        ns: &str,
+        filter: &[u8],
+        replacement: &[u8],
+        o: &ModelOpts,
+    ) -> Result<(), Error> {
         self.check_not_executed()?;
         validate_replace(replacement)?;
         let mut w = Writer::with_capacity(filter.len() + replacement.len() + 64);
@@ -279,7 +311,13 @@ impl BulkWrite {
     }
 
     /// mongoc_bulkwrite_append_deleteone / _deletemany (collation and hint only)
-    pub fn append_delete(&mut self, ns: &str, filter: &[u8], o: &ModelOpts, multi: bool) -> Result<(), Error> {
+    pub fn append_delete(
+        &mut self,
+        ns: &str,
+        filter: &[u8],
+        o: &ModelOpts,
+        multi: bool,
+    ) -> Result<(), Error> {
         self.check_not_executed()?;
         let mut w = Writer::with_capacity(filter.len() + 64);
         w.int32(b"delete", -1);
@@ -309,13 +347,20 @@ impl BulkWrite {
     }
 
     /// mongoc_bulkwrite_execute
-    pub fn execute(&mut self, client: &mut Client, opts: &ExecOpts, session: Option<&mut ClientSession>) -> BulkWriteReturn {
+    pub fn execute(
+        &mut self,
+        client: &mut Client,
+        opts: &ExecOpts,
+        session: Option<&mut ClientSession>,
+    ) -> BulkWriteReturn {
         self.set_client(client);
         let mut res = BulkWriteResult::default();
         let mut exc = BulkWriteException::default();
         let is_ordered = opts.ordered.unwrap_or(true);
         let mut sid = None;
-        self.run(client, opts, session, is_ordered, &mut res, &mut exc, &mut sid);
+        self.run(
+            client, opts, session, is_ordered, &mut res, &mut exc, &mut sid,
+        );
         // whether some writes succeeded
         let mut has_successful_results = false;
         if res.parsed_some_results {
@@ -342,7 +387,16 @@ impl BulkWrite {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn run(&mut self, client: &mut Client, opts: &ExecOpts, mut session: Option<&mut ClientSession>, is_ordered: bool, res: &mut BulkWriteResult, exc: &mut BulkWriteException, sid_out: &mut Option<u32>) {
+    fn run(
+        &mut self,
+        client: &mut Client,
+        opts: &ExecOpts,
+        mut session: Option<&mut ClientSession>,
+        is_ordered: bool,
+        res: &mut BulkWriteResult,
+        exc: &mut BulkWriteException,
+        sid_out: &mut Option<u32>,
+    ) {
         if self.executed {
             return exc.set_error(invalid_arg("bulk write already executed"));
         }
@@ -360,9 +414,13 @@ impl BulkWrite {
                 }
                 return exc.set_error(f.error);
             }
-            client.check_server_for_session(opts.server_id, session.as_deref_mut()).map(|_| opts.server_id)
+            client
+                .check_server_for_session(opts.server_id, session.as_deref_mut())
+                .map(|_| opts.server_id)
         } else {
-            client.select_for_optype(OpType::Write, None, session.as_deref_mut(), &[]).map(|r| r.0)
+            client
+                .select_for_optype(OpType::Write, None, session.as_deref_mut(), &[])
+                .map(|r| r.0)
         };
         let mut sid = match sel {
             Ok(s) => s,
@@ -371,7 +429,9 @@ impl BulkWrite {
         *sid_out = Some(sid);
         let verbose = opts.verbose_results.unwrap_or(false);
         res.verbose_results = verbose;
-        let max_bson = client.with_stream_description(sid, |d| d.max_bson_obj_size).unwrap_or(16 * 1024 * 1024);
+        let max_bson = client
+            .with_stream_description(sid, |d| d.max_bson_obj_size)
+            .unwrap_or(16 * 1024 * 1024);
         // payload 0
         let mut body = Writer::with_capacity(128);
         body.int32(b"bulkWrite", 1);
@@ -391,7 +451,9 @@ impl BulkWrite {
         let wc = match &opts.write_concern {
             Some(w) if in_txn => {
                 let _ = w;
-                return exc.set_error(invalid_arg("Cannot set write concern after starting a transaction."));
+                return exc.set_error(invalid_arg(
+                    "Cannot set write concern after starting a transaction.",
+                ));
             }
             Some(w) => w.clone(),
             None => WriteConcern::from_uri(&client.uri),
@@ -402,10 +464,14 @@ impl BulkWrite {
         }
         self.is_acknowledged = Some(acked);
         if verbose && !acked {
-            return exc.set_error(invalid_arg("Cannot request unacknowledged write concern and verbose results."));
+            return exc.set_error(invalid_arg(
+                "Cannot request unacknowledged write concern and verbose results.",
+            ));
         }
         if is_ordered && !acked {
-            return exc.set_error(invalid_arg("Cannot request unacknowledged write concern and ordered writes."));
+            return exc.set_error(invalid_arg(
+                "Cannot request unacknowledged write concern and ordered writes.",
+            ));
         }
         let mut parts = Parts::new("admin", &body);
         parts.is_write = true;
@@ -418,7 +484,9 @@ impl BulkWrite {
             Err(e) => return exc.set_error(e),
         };
         cmd.operation_id = self.operation_id;
-        let (max_batch, max_msg) = client.with_stream_description(sid, |d| (d.max_write_batch_size, d.max_msg_size)).unwrap_or((100_000, 48_000_000));
+        let (max_batch, max_msg) = client
+            .with_stream_description(sid, |d| (d.max_write_batch_size, d.max_msg_size))
+            .unwrap_or((100_000, 48_000_000));
         // a server reporting no batch size must not stall the loop: at least one op per batch
         let max_batch = max_batch.max(0) as usize;
         let max_msg = if client.auto_crypt_applies() {
@@ -434,13 +502,14 @@ impl BulkWrite {
             if byte_offset == self.ops.len() {
                 break;
             }
-            let (byte_len, doc_len, nsinfo) = match self.fill_batch(byte_offset, doc_offset, max_batch, max_msg, overhead) {
-                Ok(b) => b,
-                Err(e) => {
-                    exc.set_error(e);
-                    break;
-                }
-            };
+            let (byte_len, doc_len, nsinfo) =
+                match self.fill_batch(byte_offset, doc_offset, max_batch, max_msg, overhead) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        exc.set_error(e);
+                        break;
+                    }
+                };
             // a previous retry may have invalidated the stream: select again (without the session)
             if client.stream_for_server(cmd.server_id, false).is_err() {
                 match client.select_for_optype(OpType::Write, None, None, &[]) {
@@ -453,7 +522,8 @@ impl BulkWrite {
             }
             let ops = &self.ops[byte_offset..byte_offset + byte_len];
             let payloads: [(&str, &[u8]); 2] = [("nsInfo", &nsinfo.payload), ("ops", ops)];
-            let (r, retry) = client.run_retryable_write(&mut cmd, &payloads, session.as_deref_mut());
+            let (r, retry) =
+                client.run_retryable_write(&mut cmd, &payloads, session.as_deref_mut());
             if let Some(s) = retry {
                 cmd.server_id = s;
             }
@@ -474,7 +544,14 @@ impl BulkWrite {
                 if !apply_reply(res, exc, &reply) {
                     break;
                 }
-                let r = read_cursor(client, &cmd, session.as_deref_mut(), &reply, doc_len, |result| apply_result(res, exc, result, doc_offset, &self.models));
+                let r = read_cursor(
+                    client,
+                    &cmd,
+                    session.as_deref_mut(),
+                    &reply,
+                    doc_len,
+                    |result| apply_result(res, exc, result, doc_offset, &self.models),
+                );
                 if let Err(f) = r {
                     if let Some(f) = f {
                         exc.set_error(f.error);
@@ -500,7 +577,14 @@ impl BulkWrite {
     /// The next batch from `byte_offset` (model `doc_offset`): its byte and document counts and
     /// its nsInfo, the ops' placeholders set to their nsInfo indexes. At least one operation per
     /// batch, whatever maxWriteBatchSize the server reports (0 would stall libmongoc's loop).
-    fn fill_batch(&mut self, byte_offset: usize, doc_offset: usize, max_batch: usize, max_msg: usize, overhead: usize) -> Result<(usize, usize, NsInfo), Error> {
+    fn fill_batch(
+        &mut self,
+        byte_offset: usize,
+        doc_offset: usize,
+        max_batch: usize,
+        max_msg: usize,
+        overhead: usize,
+    ) -> Result<(usize, usize, NsInfo), Error> {
         let max_batch = max_batch.max(1);
         let (mut byte_len, mut doc_len) = (0usize, 0usize);
         let mut nsinfo = NsInfo::default();
@@ -509,10 +593,16 @@ impl BulkWrite {
             let len = crate::bson::iter::rd_u32(&self.ops, at) as usize;
             let md = &self.models[doc_offset + doc_len];
             let ns_index = nsinfo.find(&md.ns);
-            let ns_size = if ns_index.is_none() { NsInfo::bson_size(&md.ns) } else { 0 };
+            let ns_size = if ns_index.is_none() {
+                NsInfo::bson_size(&md.ns)
+            } else {
+                0
+            };
             if overhead + byte_len + len + ns_size > max_msg {
                 if byte_len == 0 {
-                    return Err(invalid_arg(format!("unable to send document at index {doc_len}. Sending would exceed maxMessageSizeBytes={max_msg}")));
+                    return Err(invalid_arg(format!(
+                        "unable to send document at index {doc_len}. Sending would exceed maxMessageSizeBytes={max_msg}"
+                    )));
                 }
                 break;
             }
@@ -520,7 +610,8 @@ impl BulkWrite {
                 Some(i) => i,
                 None => nsinfo.append(&md.ns)?,
             };
-            self.ops[at + OP_INDEX_OFFSET..at + OP_INDEX_OFFSET + 4].copy_from_slice(&idx.to_le_bytes());
+            self.ops[at + OP_INDEX_OFFSET..at + OP_INDEX_OFFSET + 4]
+                .copy_from_slice(&idx.to_le_bytes());
             byte_len += len;
             doc_len += 1;
         }
@@ -548,7 +639,10 @@ impl NsInfo {
     fn append(&mut self, ns: &str) -> Result<i32, Error> {
         let i = self.index.len();
         if i >= i32::MAX as usize {
-            return Err(invalid_arg(format!("Only {} distinct collections may be used", i32::MAX)));
+            return Err(invalid_arg(format!(
+                "Only {} distinct collections may be used",
+                i32::MAX
+            )));
         }
         self.index.insert(ns.to_owned(), i as i32);
         let mut w = Writer::with_capacity(ns.len() + 16);
@@ -566,7 +660,12 @@ fn lookup_err(exc: &mut BulkWriteException, what: &str, key: &str, source: Optio
     exc.set_error(invalid_arg(m));
 }
 
-fn lookup_int32(doc: &[u8], key: &str, source: Option<&str>, exc: &mut BulkWriteException) -> Option<i32> {
+fn lookup_int32(
+    doc: &[u8],
+    key: &str,
+    source: Option<&str>,
+    exc: &mut BulkWriteException,
+) -> Option<i32> {
     match find(doc, key.as_bytes()) {
         Some(Value::Int32(v)) => Some(v),
         _ => {
@@ -577,7 +676,12 @@ fn lookup_int32(doc: &[u8], key: &str, source: Option<&str>, exc: &mut BulkWrite
 }
 
 /// lookup_as_int64: int32, int64 or double (truncated)
-fn lookup_as_int64(doc: &[u8], key: &str, source: Option<&str>, exc: &mut BulkWriteException) -> Option<i64> {
+fn lookup_as_int64(
+    doc: &[u8],
+    key: &str,
+    source: Option<&str>,
+    exc: &mut BulkWriteException,
+) -> Option<i64> {
     match find(doc, key.as_bytes()) {
         Some(Value::Int32(v)) => Some(v as i64),
         Some(Value::Int64(v)) => Some(v),
@@ -589,7 +693,12 @@ fn lookup_as_int64(doc: &[u8], key: &str, source: Option<&str>, exc: &mut BulkWr
     }
 }
 
-fn lookup_string<'a>(doc: &'a [u8], key: &str, source: Option<&str>, exc: &mut BulkWriteException) -> Option<&'a [u8]> {
+fn lookup_string<'a>(
+    doc: &'a [u8],
+    key: &str,
+    source: Option<&str>,
+    exc: &mut BulkWriteException,
+) -> Option<&'a [u8]> {
     match find(doc, key.as_bytes()) {
         Some(Value::Utf8(s)) => Some(c_part(s)),
         _ => {
@@ -604,7 +713,11 @@ fn document_as_bson<'a>(v: Option<Value<'a>>, key: &str) -> Result<Option<&'a [u
     match v {
         None => Ok(None),
         Some(Value::Document(d)) => Ok(Some(d)),
-        Some(_) => Err(Error::new(domain::BSON, code::BSON_INVALID, format!("expected '{key}' to be a document"))),
+        Some(_) => Err(Error::new(
+            domain::BSON,
+            code::BSON_INVALID,
+            format!("expected '{key}' to be a document"),
+        )),
     }
 }
 
@@ -622,7 +735,17 @@ const EMPTY: [u8; 5] = [5, 0, 0, 0, 0];
 /// _bulkwritereturn_apply_reply: the counts and the write concern error of a reply.
 fn apply_reply(res: &mut BulkWriteResult, exc: &mut BulkWriteException, reply: &[u8]) -> bool {
     let mut counts = [0i64; 6];
-    for (i, k) in ["nInserted", "nMatched", "nModified", "nDeleted", "nUpserted", "nErrors"].iter().enumerate() {
+    for (i, k) in [
+        "nInserted",
+        "nMatched",
+        "nModified",
+        "nDeleted",
+        "nUpserted",
+        "nErrors",
+    ]
+    .iter()
+    .enumerate()
+    {
         match lookup_as_int64(reply, k, None, exc) {
             Some(v) => counts[i] = v,
             None => return false,
@@ -641,8 +764,12 @@ fn apply_reply(res: &mut BulkWriteResult, exc: &mut BulkWriteException, reply: &
             return false;
         }
         Ok(Some(wce)) => {
-            let Some(code) = lookup_int32(wce, "code", Some("writeConcernError"), exc) else { return false };
-            let Some(errmsg) = lookup_string(wce, "errmsg", Some("writeConcernError"), exc) else { return false };
+            let Some(code) = lookup_int32(wce, "code", Some("writeConcernError"), exc) else {
+                return false;
+            };
+            let Some(errmsg) = lookup_string(wce, "errmsg", Some("writeConcernError"), exc) else {
+                return false;
+            };
             let info = match document_as_bson(find(wce, b"errInfo"), "errInfo") {
                 Ok(i) => i.unwrap_or(&EMPTY),
                 Err(e) => {
@@ -664,10 +791,23 @@ fn apply_reply(res: &mut BulkWriteResult, exc: &mut BulkWriteException, reply: &
 }
 
 /// _bulkwritereturn_apply_result: one result document of the reply cursor.
-fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result: &[u8], doc_offset: usize, models: &[Model]) -> bool {
-    let Some(ok) = lookup_as_int64(result, "ok", Some("result"), exc) else { return false };
-    let Some(idx) = lookup_as_int64(result, "idx", Some("result"), exc) else { return false };
-    let models_idx = usize::try_from(idx).ok().and_then(|i| i.checked_add(doc_offset)).filter(|&i| i < models.len());
+fn apply_result(
+    res: &mut BulkWriteResult,
+    exc: &mut BulkWriteException,
+    result: &[u8],
+    doc_offset: usize,
+    models: &[Model],
+) -> bool {
+    let Some(ok) = lookup_as_int64(result, "ok", Some("result"), exc) else {
+        return false;
+    };
+    let Some(idx) = lookup_as_int64(result, "idx", Some("result"), exc) else {
+        return false;
+    };
+    let models_idx = usize::try_from(idx)
+        .ok()
+        .and_then(|i| i.checked_add(doc_offset))
+        .filter(|&i| i < models.len());
     let Some(models_idx) = models_idx else {
         exc.set_error(invalid_arg(format!("bulk write result index {idx} with offset {doc_offset} is out of range for {} operations", models.len())));
         return false;
@@ -678,8 +818,12 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
         if res.first_error_index.is_none() {
             res.first_error_index = Some(idx);
         }
-        let Some(code) = lookup_int32(result, "code", Some("result"), exc) else { return false };
-        let Some(errmsg) = lookup_string(result, "errmsg", Some("result"), exc) else { return false };
+        let Some(code) = lookup_int32(result, "code", Some("result"), exc) else {
+            return false;
+        };
+        let Some(errmsg) = lookup_string(result, "errmsg", Some("result"), exc) else {
+            return false;
+        };
         let info = match document_as_bson(find(result, b"errInfo"), "errInfo") {
             Ok(i) => i.unwrap_or(&EMPTY),
             Err(e) => {
@@ -694,7 +838,9 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
     // a successful result (only reported with verboseResults)
     match models[models_idx].op {
         Op::Update => {
-            let Some(n) = lookup_as_int64(result, "n", Some("result"), exc) else { return false };
+            let Some(n) = lookup_as_int64(result, "n", Some("result"), exc) else {
+                return false;
+            };
             // nModified may be missing (SERVER-113026): 0 then
             let n_modified = if find(result, b"nModified").is_none() {
                 0
@@ -710,11 +856,12 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
                     Some(Value::Document(u)) => {
                         let mut found = None;
                         if let Some(mut it) = Iter::new(u)
-                            && it.find(b"_id") {
-                                let mut w = Writer::with_capacity(32);
-                                w.element_from(Some(b"upsertedId"), &it);
-                                found = Some(w.finish());
-                            }
+                            && it.find(b"_id")
+                        {
+                            let mut w = Writer::with_capacity(32);
+                            w.element_from(Some(b"upsertedId"), &it);
+                            found = Some(w.finish());
+                        }
                         found
                     }
                     _ => None,
@@ -735,7 +882,9 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
             w.end(d);
         }
         Op::Delete => {
-            let Some(n) = lookup_as_int64(result, "n", Some("result"), exc) else { return false };
+            let Some(n) = lookup_as_int64(result, "n", Some("result"), exc) else {
+                return false;
+            };
             let w = &mut res.delete_results;
             let d = w.begin(3, &key);
             w.int64(b"deletedCount", n);
@@ -746,9 +895,10 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
             let d = w.begin(3, &key);
             if let Some(id) = &models[models_idx].id
                 && let Some(mut it) = Iter::new(id)
-                    && it.next() {
-                        w.element_from(Some(b"insertedId"), &it);
-                    }
+                && it.next()
+            {
+                w.element_from(Some(b"insertedId"), &it);
+            }
             w.end(d);
         }
     }
@@ -759,12 +909,33 @@ fn apply_result(res: &mut BulkWriteResult, exc: &mut BulkWriteException, result:
 /// batch's server and session): every result goes to `each` (false: stop, the error is set).
 /// Err(None): `each` failed; Err(Some): a cursor error. A cursor left open is killed.
 /// At most `ops` results and `ops` getMore round trips are accepted (one result per operation).
-fn read_cursor(client: &mut Client, cmd: &Cmd, mut session: Option<&mut ClientSession>, reply: &[u8], ops: usize, mut each: impl FnMut(&[u8]) -> bool) -> Result<(), Option<Failure>> {
-    let invalid = || Failure::from(Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply to bulkWrite command."));
-    let Some(Value::Document(c)) = find(reply, b"cursor") else { return Err(Some(invalid())) };
-    let (Some(id), Some(Value::Utf8(ns)), Some(Value::Array(first))) = (cursor_id(c), find(c, b"ns"), find(c, b"firstBatch")) else { return Err(Some(invalid())) };
+fn read_cursor(
+    client: &mut Client,
+    cmd: &Cmd,
+    mut session: Option<&mut ClientSession>,
+    reply: &[u8],
+    ops: usize,
+    mut each: impl FnMut(&[u8]) -> bool,
+) -> Result<(), Option<Failure>> {
+    let invalid = || {
+        Failure::from(Error::new(
+            domain::PROTOCOL,
+            code::PROTOCOL_INVALID_REPLY,
+            "Invalid reply to bulkWrite command.",
+        ))
+    };
+    let Some(Value::Document(c)) = find(reply, b"cursor") else {
+        return Err(Some(invalid()));
+    };
+    let (Some(id), Some(Value::Utf8(ns)), Some(Value::Array(first))) =
+        (cursor_id(c), find(c, b"ns"), find(c, b"firstBatch"))
+    else {
+        return Err(Some(invalid()));
+    };
     let ns = String::from_utf8_lossy(c_part(ns)).into_owned();
-    let (db, coll) = ns.split_once('.').map_or((ns.as_str(), ""), |(d, c)| (d, c));
+    let (db, coll) = ns
+        .split_once('.')
+        .map_or((ns.as_str(), ""), |(d, c)| (d, c));
     let (db, coll) = (db.to_owned(), coll.to_owned());
     let mut id = id;
     let mut batch = first.to_vec();
@@ -776,7 +947,9 @@ fn read_cursor(client: &mut Client, cmd: &Cmd, mut session: Option<&mut ClientSe
         let mut each_failed = false;
         if let Some(mut it) = Iter::new(&batch) {
             while it.next() {
-                let Value::Document(d) = it.value() else { continue };
+                let Value::Document(d) = it.value() else {
+                    continue;
+                };
                 seen += 1;
                 if seen > ops {
                     break;
@@ -791,29 +964,49 @@ fn read_cursor(client: &mut Client, cmd: &Cmd, mut session: Option<&mut ClientSe
             break Err(None);
         }
         if seen > ops {
-            break Err(Some(Failure::from(invalid_arg(format!("bulk write returned more than {ops} results for {ops} operations")))));
+            break Err(Some(Failure::from(invalid_arg(format!(
+                "bulk write returned more than {ops} results for {ops} operations"
+            )))));
         }
         if id == 0 {
             break Ok(());
         }
         round_trips += 1;
         if round_trips > ops {
-            break Err(Some(Failure::from(invalid_arg(format!("bulk write results cursor needed more than {ops} getMore commands for {ops} operations")))));
+            break Err(Some(Failure::from(invalid_arg(format!(
+                "bulk write results cursor needed more than {ops} getMore commands for {ops} operations"
+            )))));
         }
         let mut w = Writer::with_capacity(64 + coll.len());
         w.int64(b"getMore", id);
         w.utf8(b"collection", coll.as_bytes());
         match run_on_cursor(client, cmd, session.as_deref_mut(), &db, w.finish()) {
             Ok(r) => {
-                let next = find(&r, b"cursor").and_then(|v| if let Value::Document(c) = v { Some(c.to_vec()) } else { None });
-                match next.as_deref().and_then(|c| Some((cursor_id(c)?, find(c, b"nextBatch")?))) {
+                let next = find(&r, b"cursor").and_then(|v| {
+                    if let Value::Document(c) = v {
+                        Some(c.to_vec())
+                    } else {
+                        None
+                    }
+                });
+                match next
+                    .as_deref()
+                    .and_then(|c| Some((cursor_id(c)?, find(c, b"nextBatch")?)))
+                {
                     Some((i, Value::Array(b))) => {
                         id = i;
                         batch = b.to_vec();
                     }
                     _ => {
                         id = 0;
-                        break Err(Some(Failure { reply: r.clone(), ..Failure::from(Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply to getMore command.")) }));
+                        break Err(Some(Failure {
+                            reply: r.clone(),
+                            ..Failure::from(Error::new(
+                                domain::PROTOCOL,
+                                code::PROTOCOL_INVALID_REPLY,
+                                "Invalid reply to getMore command.",
+                            ))
+                        }));
                     }
                 }
             }
@@ -841,16 +1034,21 @@ fn cursor_id(c: &[u8]) -> Option<i64> {
 }
 
 /// A getMore or killCursors of the reply cursor: same server and session as the batch.
-fn run_on_cursor(client: &mut Client, cmd: &Cmd, session: Option<&mut ClientSession>, db: &str, body: Vec<u8>) -> Result<Vec<u8>, Failure> {
+fn run_on_cursor(
+    client: &mut Client,
+    cmd: &Cmd,
+    session: Option<&mut ClientSession>,
+    db: &str,
+    body: Vec<u8>,
+) -> Result<Vec<u8>, Failure> {
     let mut b = body;
     let implicit = session.is_none();
-    if implicit
-        && let Some(t) = &cmd.temp_session {
-            let mut w = Writer::with_capacity(b.len() + t.lsid.len() + 16);
-            w.concat(&b);
-            w.document(b"lsid", &t.lsid);
-            b = w.finish();
-        }
+    if implicit && let Some(t) = &cmd.temp_session {
+        let mut w = Writer::with_capacity(b.len() + t.lsid.len() + 16);
+        w.concat(&b);
+        w.document(b"lsid", &t.lsid);
+        b = w.finish();
+    }
     let mut parts = Parts::new(db, &b);
     parts.is_read = true;
     if implicit {
@@ -875,7 +1073,13 @@ mod tests {
     }
 
     fn models(n: usize) -> Vec<Model> {
-        (0..n).map(|_| Model { op: Op::Delete, ns: "db.c".into(), id: None }).collect()
+        (0..n)
+            .map(|_| Model {
+                op: Op::Delete,
+                ns: "db.c".into(),
+                id: None,
+            })
+            .collect()
     }
 
     #[test]
@@ -888,7 +1092,13 @@ mod tests {
                 w.int32(b"n", 1);
             });
             assert!(!apply_result(&mut res, &mut exc, &r, 1, &models(3)));
-            assert!(exc.error.message.contains("is out of range for 3 operations"), "{}", exc.error.message);
+            assert!(
+                exc.error
+                    .message
+                    .contains("is out of range for 3 operations"),
+                "{}",
+                exc.error.message
+            );
         }
         let (mut res, mut exc) = (BulkWriteResult::default(), BulkWriteException::default());
         let r = doc(|w| {
@@ -907,18 +1117,29 @@ mod tests {
             w.utf8(b"errmsg", b"waiting");
         });
         let r = doc(|w| {
-            for k in ["nInserted", "nMatched", "nModified", "nDeleted", "nUpserted", "nErrors"] {
+            for k in [
+                "nInserted",
+                "nMatched",
+                "nModified",
+                "nDeleted",
+                "nUpserted",
+                "nErrors",
+            ] {
                 w.int32(k.as_bytes(), 2);
             }
             w.document(b"writeConcernError", &wce);
         });
         assert!(apply_reply(&mut res, &mut exc, &r));
         assert_eq!((res.inserted_count, res.errors_count), (2, 2));
-        let first = Iter::new(&exc.write_concern_errors()).and_then(|mut it| it.next().then(|| it.key().to_vec()));
+        let first = Iter::new(&exc.write_concern_errors())
+            .and_then(|mut it| it.next().then(|| it.key().to_vec()));
         assert_eq!(first.as_deref(), Some(&b"0"[..]));
         let missing = doc(|w| w.int32(b"nInserted", 1));
         assert!(!apply_reply(&mut res, &mut exc, &missing));
-        assert_eq!(exc.error.message, "expected to find int32, int64, or double `nMatched`, but did not");
+        assert_eq!(
+            exc.error.message,
+            "expected to find int32, int64, or double `nMatched`, but did not"
+        );
     }
 
     #[test]
@@ -926,16 +1147,35 @@ mod tests {
         let mut bw = BulkWrite::new();
         let filter = doc(|_| {});
         let bad = doc(|w| w.int32(b"x", 1));
-        let e = bw.append_update("db.c", &filter, &bad, &ModelOpts::default(), false).unwrap_err();
-        assert_eq!(e.message, "Invalid key 'x': update only works with $ operators and pipelines");
+        let e = bw
+            .append_update("db.c", &filter, &bad, &ModelOpts::default(), false)
+            .unwrap_err();
+        assert_eq!(
+            e.message,
+            "Invalid key 'x': update only works with $ operators and pipelines"
+        );
         let bad = doc(|w| w.int32(b"$set", 1));
-        let e = bw.append_replace_one("db.c", &filter, &bad, &ModelOpts::default()).unwrap_err();
-        assert_eq!(e.message, "Invalid key '$set': replace prohibits $ operators");
-        bw.append_insert_one("db.c", &doc(|w| w.int32(b"a", 1))).unwrap();
+        let e = bw
+            .append_replace_one("db.c", &filter, &bad, &ModelOpts::default())
+            .unwrap_err();
+        assert_eq!(
+            e.message,
+            "Invalid key '$set': replace prohibits $ operators"
+        );
+        bw.append_insert_one("db.c", &doc(|w| w.int32(b"a", 1)))
+            .unwrap();
         // the placeholder nsInfo index sits where execute overwrites it
-        assert_eq!(&bw.ops[OP_INDEX_OFFSET..OP_INDEX_OFFSET + 4], &(-1i32).to_le_bytes());
+        assert_eq!(
+            &bw.ops[OP_INDEX_OFFSET..OP_INDEX_OFFSET + 4],
+            &(-1i32).to_le_bytes()
+        );
         assert_eq!(&bw.ops[5..12], b"insert\0");
-        assert!(bw.models[0].id.as_ref().is_some_and(|d| find(d, b"_id").is_some()));
+        assert!(
+            bw.models[0]
+                .id
+                .as_ref()
+                .is_some_and(|d| find(d, b"_id").is_some())
+        );
     }
 
     /// A server reporting maxWriteBatchSize 0 still gets one operation per batch.
@@ -943,7 +1183,8 @@ mod tests {
     fn batch_progress_with_zero_max_batch() {
         let mut bw = BulkWrite::new();
         for ns in ["db.a", "db.b", "db.a"] {
-            bw.append_delete(ns, &doc(|_| {}), &ModelOpts::default(), false).unwrap();
+            bw.append_delete(ns, &doc(|_| {}), &ModelOpts::default(), false)
+                .unwrap();
         }
         let (bytes, docs, ns) = bw.fill_batch(0, 0, 0, 48_000_000, 1000).unwrap();
         assert_eq!(docs, 1);
@@ -953,9 +1194,15 @@ mod tests {
         assert_eq!((docs, ns.index.len()), (3, 2));
         // the third op reuses nsInfo entry 0
         let third = 2 * crate::bson::iter::rd_u32(&bw.ops, 0) as usize;
-        assert_eq!(&bw.ops[third + OP_INDEX_OFFSET..third + OP_INDEX_OFFSET + 4], &0i32.to_le_bytes());
+        assert_eq!(
+            &bw.ops[third + OP_INDEX_OFFSET..third + OP_INDEX_OFFSET + 4],
+            &0i32.to_le_bytes()
+        );
         let e = bw.fill_batch(0, 0, 100_000, 1000, 1000).unwrap_err();
-        assert_eq!(e.message, "unable to send document at index 0. Sending would exceed maxMessageSizeBytes=1000");
+        assert_eq!(
+            e.message,
+            "unable to send document at index 0. Sending would exceed maxMessageSizeBytes=1000"
+        );
     }
 
     #[test]
@@ -973,7 +1220,20 @@ mod tests {
         let uri = crate::uri::Uri::parse("mongodb://127.0.0.1:1/").unwrap();
         let settings = crate::client::Settings::from_uri(&uri);
         let mut client = Client::new(uri, settings).unwrap();
-        let cmd = Cmd { name: "bulkWrite".into(), db: "admin".into(), body: Vec::new(), is_acknowledged: true, is_retryable_write: false, is_retryable_read: false, is_txn_finish: false, server_id: 1, temp_session: None, operation_id: 0, read_prefs: None, stream: (0, false) };
+        let cmd = Cmd {
+            name: "bulkWrite".into(),
+            db: "admin".into(),
+            body: Vec::new(),
+            is_acknowledged: true,
+            is_retryable_write: false,
+            is_retryable_read: false,
+            is_txn_finish: false,
+            server_id: 1,
+            temp_session: None,
+            operation_id: 0,
+            read_prefs: None,
+            stream: (0, false),
+        };
         let result = doc(|w| w.int32(b"ok", 1));
         let first = doc(|w| {
             for i in 0..3 {
@@ -993,13 +1253,18 @@ mod tests {
         });
         assert_eq!(seen, 2);
         let e = r.unwrap_err().unwrap().error;
-        assert_eq!(e.message, "bulk write returned more than 2 results for 2 operations");
+        assert_eq!(
+            e.message,
+            "bulk write returned more than 2 results for 2 operations"
+        );
         let mut seen = 0;
-        assert!(read_cursor(&mut client, &cmd, None, &reply, 3, |_| {
-            seen += 1;
-            true
-        })
-        .is_ok());
+        assert!(
+            read_cursor(&mut client, &cmd, None, &reply, 3, |_| {
+                seen += 1;
+                true
+            })
+            .is_ok()
+        );
         assert_eq!(seen, 3);
     }
 }

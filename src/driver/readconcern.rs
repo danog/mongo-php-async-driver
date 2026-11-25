@@ -1,8 +1,8 @@
 //! MongoDB\Driver\ReadConcern (src/MongoDB/ReadConcern.c over mongoc_read_concern_t).
 
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zval, ClassEntry, EngineCell};
+use crate::zend::{ClassEntry, EngineCell, class, hash, obj, sys, zval};
 use std::ptr::null_mut;
 
 pub use mongo_core::concern::ReadConcern;
@@ -65,7 +65,13 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
         if zval::is(l, sys::IS_STRING) {
             rc.level = Some(crate::zend::zstr::c_part(zval::str_bytes(l)).to_vec());
         } else if !zval::is(l, sys::IS_NULL) {
-            throw(E::InvalidArgument, format!("{} initialization requires \"level\" string field", class::name(CE.get())));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "{} initialization requires \"level\" string field",
+                    class::name(CE.get())
+                ),
+            );
             return false;
         }
     }
@@ -93,13 +99,22 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern___unserialize(ex: Ex, _r
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_getLevel(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        zval::write(rv, obj::data::<ReadConcern>(call::this(ex)).level.as_ref().map_or_else(zval::null, |l| zval::string(l)));
+        zval::write(
+            rv,
+            obj::data::<ReadConcern>(call::this(ex))
+                .level
+                .as_ref()
+                .map_or_else(zval::null, |l| zval::string(l)),
+        );
     }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_isDefault(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex) {
-        zval::write(rv, zval::bool(obj::data::<ReadConcern>(call::this(ex)).is_default()));
+        zval::write(
+            rv,
+            zval::bool(obj::data::<ReadConcern>(call::this(ex)).is_default()),
+        );
     }
 }
 
@@ -113,9 +128,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ReadConcern_bsonSerialize(ex: Ex, rv
     let mut buf = String::new();
     hash::each(props, true, |k, v| {
         if let hash::Key::Str(_) = k
-            && !zval::is(v, sys::IS_NULL) {
-                hash::str_update(ht, hash::key_bytes(k, &mut buf), zval::copy(v));
-            }
+            && !zval::is(v, sys::IS_NULL)
+        {
+            hash::str_update(ht, hash::key_bytes(k, &mut buf), zval::copy(v));
+        }
         true
     });
     let mut z = zval::arr(ht);

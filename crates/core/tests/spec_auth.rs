@@ -22,7 +22,10 @@ const DIVERGENCES: &[&str] = &[
 
 #[test]
 fn auth_connection_string() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/spec/source/auth/tests/legacy/connection-string.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/spec/source/auth/tests/legacy/connection-string.json"
+    );
     let j: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let mut failures = Vec::new();
     let tests = j["tests"].as_array().unwrap();
@@ -45,23 +48,30 @@ fn auth_connection_string() {
         let c = &t["credential"];
         if c.is_null() {
             if u.username.is_some() || u.auth_mechanism().is_some() {
-                failures.push(format!("{desc}: credential {:?}/{:?}", u.username, u.auth_mechanism()));
+                failures.push(format!(
+                    "{desc}: credential {:?}/{:?}",
+                    u.username,
+                    u.auth_mechanism()
+                ));
             }
             continue;
         }
         let s = |v: &Value| v.as_str().map(str::to_owned);
         if let Some(x) = c["username"].as_str()
-            && u.username.as_deref() != Some(x) {
-                failures.push(format!("{desc}: username {:?}", u.username));
-            }
+            && u.username.as_deref() != Some(x)
+        {
+            failures.push(format!("{desc}: username {:?}", u.username));
+        }
         if let Some(x) = c["password"].as_str()
-            && u.password.as_deref() != Some(x) {
-                failures.push(format!("{desc}: password differs"));
-            }
+            && u.password.as_deref() != Some(x)
+        {
+            failures.push(format!("{desc}: password differs"));
+        }
         if let Some(x) = c["source"].as_str()
-            && u.auth_source() != x {
-                failures.push(format!("{desc}: source {:?}", u.auth_source()));
-            }
+            && u.auth_source() != x
+        {
+            failures.push(format!("{desc}: source {:?}", u.auth_source()));
+        }
         if s(&c["mechanism"]).as_deref() != u.auth_mechanism() {
             failures.push(format!("{desc}: mechanism {:?}", u.auth_mechanism()));
         }
@@ -73,13 +83,20 @@ fn auth_connection_string() {
                     Value::String(x) => x.clone(),
                     v => v.to_string(),
                 };
-                if !got.iter().any(|(gk, gv)| gk.eq_ignore_ascii_case(k) && *gv == want) {
+                if !got
+                    .iter()
+                    .any(|(gk, gv)| gk.eq_ignore_ascii_case(k) && *gv == want)
+                {
                     failures.push(format!("{desc}: property {k}={want} not in {got:?}"));
                 }
             }
         }
     }
     failures.retain(|f| !DIVERGENCES.iter().any(|d| f.starts_with(d)));
-    eprintln!("auth connection-string: {} cases, {} failures", tests.len(), failures.len());
+    eprintln!(
+        "auth connection-string: {} cases, {} failures",
+        tests.len(),
+        failures.len()
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

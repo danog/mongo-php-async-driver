@@ -9,10 +9,10 @@ use std::cell::{Cell, RefCell, RefMut};
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 use crate::handshake::{self, HelloOpts, Metadata};
 use crate::net::{Conn, NetError};
-use crate::sdam::{monotonic_usec, ServerDescription, ServerType, RTT_UNSET};
+use crate::sdam::{RTT_UNSET, ServerDescription, ServerType, monotonic_usec};
 use crate::topology::{self as tp, AppError, OpType, ReadPrefs, TopologyDescription, TopologyType};
 use crate::uri::Uri;
 
@@ -48,12 +48,18 @@ impl Settings {
         Settings {
             connect_timeout_ms: i("connecttimeoutms", tp::DEFAULT_CONNECT_TIMEOUT_MS),
             socket_timeout_ms: i("sockettimeoutms", DEFAULT_SOCKET_TIMEOUT_MS),
-            server_selection_timeout_ms: i("serverselectiontimeoutms", tp::SERVER_SELECTION_TIMEOUT_MS),
+            server_selection_timeout_ms: i(
+                "serverselectiontimeoutms",
+                tp::SERVER_SELECTION_TIMEOUT_MS,
+            ),
             server_selection_try_once: uri.get_bool("serverselectiontryonce", true),
             local_threshold_ms: i("localthresholdms", tp::LOCAL_THRESHOLD_MS),
             min_heartbeat_ms: tp::MIN_HEARTBEAT_FREQUENCY_MS,
             socket_check_interval_ms: i("socketcheckintervalms", SOCKET_CHECK_INTERVAL_MS),
-            metadata: Metadata { appname: uri.options.str("appname").map(str::to_owned), ..Default::default() },
+            metadata: Metadata {
+                appname: uri.options.str("appname").map(str::to_owned),
+                ..Default::default()
+            },
             hello: HelloOpts {
                 load_balanced: uri.get_bool("loadbalanced", false),
                 compressors: uri.compressors.clone(),
@@ -191,7 +197,13 @@ impl Shared {
                         self.crypt_waiters.borrow_mut().retain(|w| *w != id);
                     }
                     match r {
-                        Ok(crate::aio::Parked::Blocking) => return Err(Error::new(domain::CLIENT, code::CLIENT_SESSION_IN_USE, "Automatic encryption is in use by another fiber")),
+                        Ok(crate::aio::Parked::Blocking) => {
+                            return Err(Error::new(
+                                domain::CLIENT,
+                                code::CLIENT_SESSION_IN_USE,
+                                "Automatic encryption is in use by another fiber",
+                            ));
+                        }
                         Ok(_) => {}
                         Err(_) => return Err(interrupted_error()),
                     }
@@ -265,7 +277,11 @@ impl std::ops::Deref for Client {
 pub const MAX_DISCOVERED_PER_SCAN: usize = 100;
 
 fn addr_lc(nodes: &[Node], id: u32) -> String {
-    nodes.iter().find(|n| n.id == id).map(|n| n.addr.to_ascii_lowercase()).unwrap_or_default()
+    nodes
+        .iter()
+        .find(|n| n.id == id)
+        .map(|n| n.addr.to_ascii_lowercase())
+        .unwrap_or_default()
 }
 
 /// _mongoc_server_selection_error
@@ -279,7 +295,10 @@ fn selection_error(msg: &str, scanner: Option<&Error>) -> Error {
 
 pub fn split_host_port(addr: &str) -> (String, u16) {
     match addr.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => (h.trim_start_matches('[').trim_end_matches(']').to_owned(), p.parse().unwrap_or(27017)),
+        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => (
+            h.trim_start_matches('[').trim_end_matches(']').to_owned(),
+            p.parse().unwrap_or(27017),
+        ),
         _ => (addr.to_owned(), 27017),
     }
 }
@@ -320,7 +339,16 @@ impl Client {
 
     /// Another cluster of the client whose shared state is `shared` (no connections yet).
     pub fn cluster(shared: Rc<Shared>) -> Self {
-        let mut c = Client { shared, nodes: Vec::new(), interrupted: false, fail: None, mode: ScanMode::Own, connect_error: None, connect_overloaded: false, stream_reply: Vec::new() };
+        let mut c = Client {
+            shared,
+            nodes: Vec::new(),
+            interrupted: false,
+            fail: None,
+            mode: ScanMode::Own,
+            connect_error: None,
+            connect_overloaded: false,
+            stream_reply: Vec::new(),
+        };
         c.reconcile_nodes();
         c
     }
@@ -343,7 +371,11 @@ impl Client {
 
     /// The fd of the connection to `server_id` (tests).
     pub fn conn_fd(&self, server_id: u32) -> Option<crate::os::RawSock> {
-        self.nodes.iter().find(|n| n.id == server_id).and_then(|n| n.conn.as_ref()).map(Conn::raw_fd)
+        self.nodes
+            .iter()
+            .find(|n| n.id == server_id)
+            .and_then(|n| n.conn.as_ref())
+            .map(Conn::raw_fd)
     }
 
     /// The APM events not yet handed to the subscribers, in the order they happened.
@@ -368,11 +400,24 @@ impl Client {
     /// ids of the nodes added.
     fn reconcile_nodes(&mut self) -> Vec<u32> {
         let td = self.shared.td.borrow();
-        self.nodes.retain(|n| td.servers.iter().any(|s| s.id == n.id));
+        self.nodes
+            .retain(|n| td.servers.iter().any(|s| s.id == n.id));
         let mut added = Vec::new();
         for s in &td.servers {
             if !self.nodes.iter().any(|n| n.id == s.id) {
-                self.nodes.push(Node { id: s.id, addr: s.addr.clone(), conn: None, handshake: None, last_failed: -1, last_error: None, last_used: -1, auth: NodeAuth::default(), mechs: None, dns: None, successful: None });
+                self.nodes.push(Node {
+                    id: s.id,
+                    addr: s.addr.clone(),
+                    conn: None,
+                    handshake: None,
+                    last_failed: -1,
+                    last_error: None,
+                    last_used: -1,
+                    auth: NodeAuth::default(),
+                    mechs: None,
+                    dns: None,
+                    successful: None,
+                });
                 added.push(s.id);
             }
         }
@@ -386,7 +431,9 @@ impl Client {
         }
         if let Some(n) = self.nodes.iter().find(|n| n.id == id) {
             let addr = n.addr.clone();
-            self.td().events.push(|| crate::apm::Event::HeartbeatStarted { addr });
+            self.td()
+                .events
+                .push(|| crate::apm::Event::HeartbeatStarted { addr });
         }
     }
 
@@ -406,7 +453,10 @@ impl Client {
     /// The monitoring hello on an established connection (not a handshake).
     fn check_command(&self, hello_ok: bool) -> Vec<u8> {
         let mut w = crate::bson::writer::Writer::with_capacity(64);
-        if hello_ok || self.settings.hello.api_version.is_some() || self.settings.hello.load_balanced {
+        if hello_ok
+            || self.settings.hello.api_version.is_some()
+            || self.settings.hello.load_balanced
+        {
             w.int32(b"hello", 1);
         } else {
             w.int32(b"isMaster", 1);
@@ -423,7 +473,9 @@ impl Client {
     /// resolution and UNIX-socket connect errors fail the check at once.
     fn node_setup(&mut self, id: u32, run: &mut ScanRun) {
         use crate::scan::Probe;
-        let Some(i) = self.nodes.iter().position(|n| n.id == id) else { return };
+        let Some(i) = self.nodes.iter().position(|n| n.id == id) else {
+            return;
+        };
         self.heartbeat_started(id);
         let t0 = std::time::Instant::now();
         let timeout = ms(self.settings.connect_timeout_ms);
@@ -449,27 +501,61 @@ impl Client {
         // (pooled monitors do not authenticate: _server_monitor_setup_connection)
         let monitor = self.mode == ScanMode::Monitor;
         let negotiate = !monitor && self.nodes[i].mechs.is_none();
-        let speculative = if monitor { None } else { crate::auth::speculative_start(&self.uri) };
-        let with_spec = handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, speculative.as_ref().map(|s| &s.0[..]));
-        let plain = if speculative.is_some() { handshake::hello_command_auth(&self.settings.metadata, &self.settings.hello, false, negotiate, None) } else { Vec::new() };
-        self.nodes[i].auth = NodeAuth { has_auth: false, speculative: Vec::new(), scram: speculative.and_then(|s| s.1) };
+        let speculative = if monitor {
+            None
+        } else {
+            crate::auth::speculative_start(&self.uri)
+        };
+        let with_spec = handshake::hello_command_auth(
+            &self.settings.metadata,
+            &self.settings.hello,
+            false,
+            negotiate,
+            speculative.as_ref().map(|s| &s.0[..]),
+        );
+        let plain = if speculative.is_some() {
+            handshake::hello_command_auth(
+                &self.settings.metadata,
+                &self.settings.hello,
+                false,
+                negotiate,
+                None,
+            )
+        } else {
+            Vec::new()
+        };
+        self.nodes[i].auth = NodeAuth {
+            has_auth: false,
+            speculative: Vec::new(),
+            scram: speculative.and_then(|s| s.1),
+        };
         let addr = self.nodes[i].addr.clone();
         let unix = addr.contains('/') && addr.contains(".sock");
-        let host = if unix { addr.clone() } else { split_host_port(&addr).0 };
+        let host = if unix {
+            addr.clone()
+        } else {
+            split_host_port(&addr).0
+        };
         let tls: crate::scan::TlsSetup = match &self.tls {
             None => None,
             Some(Err(e)) => Some(Err(e.clone())),
             Some(Ok(cfg)) => Some(crate::tls::server_name(&host).map(|n| (cfg.clone(), n))),
         };
         let msg = |first: bool| {
-            let body = if first || plain.is_empty() { &with_spec } else { &plain };
+            let body = if first || plain.is_empty() {
+                &with_spec
+            } else {
+                &plain
+            };
             crate::handshake::build_msg(None, body, &[], false)
         };
         if unix {
             // the host parser's AF_UNIX rule (a '/' and ".sock"): a blocking connect at setup
             match Conn::connect_unix(&addr) {
                 Ok(conn) => match msg(true) {
-                    Ok(m) => run.probes.push(pool(Probe::with_stream(id, conn, m, timeout, true, tls))),
+                    Ok(m) => run
+                        .probes
+                        .push(pool(Probe::with_stream(id, conn, m, timeout, true, tls))),
                     Err(e) => self.setup_failed(id, net_check_error(e), t0),
                 },
                 Err(e) => self.setup_failed(id, net_check_error(e), t0),
@@ -478,7 +564,10 @@ impl Client {
         }
         let now = monotonic_usec();
         let n = &mut self.nodes[i];
-        if n.dns.as_ref().is_some_and(|(_, at)| now - at > DNS_CACHE_TIMEOUT_MS * 1000) {
+        if n.dns
+            .as_ref()
+            .is_some_and(|(_, at)| now - at > DNS_CACHE_TIMEOUT_MS * 1000)
+        {
             n.dns = None;
             n.successful = None;
         }
@@ -488,7 +577,11 @@ impl Client {
                 Ok(a) => n.dns = Some((a, now)),
                 Err(_) => {
                     // the scanner quotes the host, mongoc_client_connect_tcp (pooled) does not
-                    let m = if pooled.is_some() { format!("Failed to resolve {h}") } else { format!("Failed to resolve '{h}'") };
+                    let m = if pooled.is_some() {
+                        format!("Failed to resolve {h}")
+                    } else {
+                        format!("Failed to resolve '{h}'")
+                    };
                     let e = Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, m);
                     return self.setup_failed(id, e, t0);
                 }
@@ -500,7 +593,15 @@ impl Client {
         };
         for (k, sa) in targets.into_iter().enumerate() {
             match msg(k == 0) {
-                Ok(m) => run.probes.push(pool(Probe::connect(id, &addr, sa, crate::scan::HAPPY_EYEBALLS_DELAY * k as u32, m, timeout, tls.clone()))),
+                Ok(m) => run.probes.push(pool(Probe::connect(
+                    id,
+                    &addr,
+                    sa,
+                    crate::scan::HAPPY_EYEBALLS_DELAY * k as u32,
+                    m,
+                    timeout,
+                    tls.clone(),
+                ))),
                 Err(e) => return self.setup_failed(id, net_check_error(e), t0),
             }
         }
@@ -514,7 +615,9 @@ impl Client {
             // server and clears its pool (not in load-balanced mode)
             if let Some(n) = self.nodes.iter().find(|n| n.id == id) {
                 let addr = n.addr.clone();
-                log::warning(log::CLUSTER, || format!("Failed connection to {addr} ({})", e.message));
+                log::warning(log::CLUSTER, || {
+                    format!("Failed connection to {addr} ({})", e.message)
+                });
             }
             let dns = e.domain == domain::STREAM && e.code == code::STREAM_NAME_RESOLUTION;
             if dns && self.td().ty != TopologyType::LoadBalanced {
@@ -526,12 +629,20 @@ impl Client {
             self.connect_error = Some(e);
             return;
         }
-        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
+        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else {
+            return;
+        };
         n.last_error = Some(e.clone());
         let addr = n.addr.clone();
         let duration_us = t0.elapsed().as_micros() as i64;
         let error = e.clone();
-        self.td().events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error });
+        self.td()
+            .events
+            .push(|| crate::apm::Event::HeartbeatFailed {
+                addr,
+                duration_us,
+                error,
+            });
         if self.td().ty != TopologyType::LoadBalanced {
             self.td().handle_hello(id, None, RTT_UNSET, Some(&e));
         }
@@ -552,7 +663,9 @@ impl Client {
             fds.clear();
             polled.clear();
             let mut timer: Option<std::time::Instant> = None;
-            let soonest = |t: &mut Option<std::time::Instant>, at: std::time::Instant| *t = Some(t.map_or(at, |x| x.min(at)));
+            let soonest = |t: &mut Option<std::time::Instant>, at: std::time::Instant| {
+                *t = Some(t.map_or(at, |x| x.min(at)))
+            };
             let now = std::time::Instant::now();
             let mut i = 0;
             while i < run.probes.len() {
@@ -567,13 +680,14 @@ impl Client {
                 }
                 let p = &run.probes[i];
                 if !p.done
-                    && let Some(fd) = p.fd() {
-                        fds.push(crate::os::pollfd(fd, p.events));
-                        polled.push(i);
-                        if let Some(d) = p.deadline() {
-                            soonest(&mut timer, d);
-                        }
+                    && let Some(fd) = p.fd()
+                {
+                    fds.push(crate::os::pollfd(fd, p.events));
+                    polled.push(i);
+                    if let Some(d) = p.deadline() {
+                        soonest(&mut timer, d);
                     }
+                }
                 i += 1;
             }
             if run.probes.iter().all(|p| p.done) {
@@ -581,23 +695,31 @@ impl Client {
             }
             let waited = if fds.is_empty() {
                 match timer {
-                    Some(t) => crate::aio::sleep(t.saturating_duration_since(std::time::Instant::now())).map(|()| 0),
+                    Some(t) => {
+                        crate::aio::sleep(t.saturating_duration_since(std::time::Instant::now()))
+                            .map(|()| 0)
+                    }
                     None => Ok(0),
                 }
             } else {
                 crate::aio::poll(&mut fds, timer)
             };
             if let Err(e) = &waited
-                && crate::aio::is_interrupted(e) {
-                    // the scan is abandoned: its connections close, nothing more is learnt
-                    run.probes.clear();
-                    self.interrupted = true;
-                    return;
-                }
+                && crate::aio::is_interrupted(e)
+            {
+                // the scan is abandoned: its connections close, nothing more is learnt
+                run.probes.clear();
+                self.interrupted = true;
+                return;
+            }
             if let Err(e) = waited {
                 // no readiness can be learnt: every polled check fails
                 for &i in &polled {
-                    run.probes[i].error = Some(Error::new(domain::STREAM, code::STREAM_SOCKET, e.to_string()));
+                    run.probes[i].error = Some(Error::new(
+                        domain::STREAM,
+                        code::STREAM_SOCKET,
+                        e.to_string(),
+                    ));
                     run.probes[i].state = State::Error;
                 }
             }
@@ -608,7 +730,8 @@ impl Client {
                 }
                 // a hang-up with data still to read (macOS reports a peer's close so, Linux
                 // does not) is read first: the reply, or the TLS alert, says more
-                let failed = rev & crate::os::POLLERR != 0 || (rev & crate::os::POLLHUP != 0 && rev & crate::os::POLLIN == 0);
+                let failed = rev & crate::os::POLLERR != 0
+                    || (rev & crate::os::POLLHUP != 0 && rev & crate::os::POLLIN == 0);
                 if !failed && rev & run.probes[i].events != 0 {
                     run.probes[i].connected = true;
                 }
@@ -678,12 +801,20 @@ impl Client {
         p.done = true;
         let elapsed = p.start.elapsed();
         let (id, fresh) = (p.node, p.fresh);
-        let Some(mut conn) = p.conn.take() else { return };
+        let Some(mut conn) = p.conn.take() else {
+            return;
+        };
         // a server removed during the scan: its connection is closed
-        let Some(ni) = self.nodes.iter().position(|n| n.id == id) else { return };
+        let Some(ni) = self.nodes.iter().position(|n| n.id == id) else {
+            return;
+        };
         let duration_us = elapsed.as_micros() as i64;
         let rtt = elapsed.as_millis() as i64;
-        let speculative_reply = if fresh { crate::auth::speculative_reply(&reply) } else { Vec::new() };
+        let speculative_reply = if fresh {
+            crate::auth::speculative_reply(&reply)
+        } else {
+            Vec::new()
+        };
         // the speculativeAuthenticate reply is seen by the authentication only
         let reply = crate::auth::redact_hello(&reply).into_owned();
         let n = &mut self.nodes[ni];
@@ -693,7 +824,13 @@ impl Client {
         if self.mode == ScanMode::Connect {
             return self.connected_pooled(ni, conn, &reply, speculative_reply, rtt);
         }
-        self.td().events.push(|| crate::apm::Event::HeartbeatSucceeded { addr, duration_us, reply: reply.clone() });
+        self.td()
+            .events
+            .push(|| crate::apm::Event::HeartbeatSucceeded {
+                addr,
+                duration_us,
+                reply: reply.clone(),
+            });
         let n = &mut self.nodes[ni];
         if fresh {
             if n.mechs.is_none() && self.shared.settings.hello.sasl_user.is_some() {
@@ -724,18 +861,32 @@ impl Client {
         let in_hello = p.in_hello;
         let error = p.error.take();
         drop(p.conn.take());
-        let Some(ni) = self.nodes.iter().position(|n| n.id == id) else { return };
+        let Some(ni) = self.nodes.iter().position(|n| n.id == id) else {
+            return;
+        };
         let now = monotonic_usec();
         self.nodes[ni].last_used = now;
-        let siblings = run.probes.iter().filter(|q| q.node == id && !q.done).count();
+        let siblings = run
+            .probes
+            .iter()
+            .filter(|q| q.node == id && !q.done)
+            .count();
         if self.mode == ScanMode::Connect && siblings == 0 {
             // _cluster_add_node: the stream's or the hello's error as it is, with the
             // backpressure labels; the topology is left alone (an application error labelled
             // SystemOverloadedError is ignored). A failure to connect is logged.
             let addr = self.nodes[ni].addr.clone();
-            let e = error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, format!("Failed to connect to target host: {addr}")));
+            let e = error.unwrap_or_else(|| {
+                Error::new(
+                    domain::STREAM,
+                    code::STREAM_CONNECT,
+                    format!("Failed to connect to target host: {addr}"),
+                )
+            });
             if !in_hello {
-                log::warning(log::CLUSTER, || format!("Failed connection to {addr} ({})", e.message));
+                log::warning(log::CLUSTER, || {
+                    format!("Failed connection to {addr} ({})", e.message)
+                });
             }
             self.connect_overloaded = true;
             self.connect_error = Some(e);
@@ -753,19 +904,33 @@ impl Client {
         n.dns = None;
         n.successful = None;
         n.handshake = None;
-        let raw = error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, default_msg));
-        let last = Error::new(domain::CLIENT, code::STREAM_CONNECT, format!("{} calling hello on '{}'", raw.message, n.addr));
+        let raw =
+            error.unwrap_or_else(|| Error::new(domain::STREAM, code::STREAM_CONNECT, default_msg));
+        let last = Error::new(
+            domain::CLIENT,
+            code::STREAM_CONNECT,
+            format!("{} calling hello on '{}'", raw.message, n.addr),
+        );
         n.last_error = Some(last.clone());
         let addr = n.addr.clone();
         let duration_us = elapsed.as_micros() as i64;
-        self.td().events.push(|| crate::apm::Event::HeartbeatFailed { addr, duration_us, error: last });
+        self.td()
+            .events
+            .push(|| crate::apm::Event::HeartbeatFailed {
+                addr,
+                duration_us,
+                error: last,
+            });
         if self.td().ty == TopologyType::LoadBalanced {
             return;
         }
         // a failed check clears the pool; a known server becomes Unknown and is checked once
         // more in this scan (_mongoc_topology_scanner_cb)
         self.td().clear_connection_pool(id, &crate::sdam::ZERO_OID);
-        let known = self.td().server(id).is_some_and(|s| s.ty != ServerType::Unknown);
+        let known = self
+            .td()
+            .server(id)
+            .is_some_and(|s| s.ty != ServerType::Unknown);
         self.td().handle_hello(id, None, RTT_UNSET, Some(&raw));
         if known && run.retried.insert(addr_lc(&self.nodes, id)) {
             self.node_setup(id, run);
@@ -835,7 +1000,8 @@ impl Client {
     /// cannot suspend, and did not wait.
     fn wait_for_scan(&mut self) -> bool {
         let shared = self.shared.clone();
-        let deadline = std::time::Instant::now() + Duration::from_millis(shared.settings.server_selection_timeout_ms.max(0) as u64);
+        let deadline = std::time::Instant::now()
+            + Duration::from_millis(shared.settings.server_selection_timeout_ms.max(0) as u64);
         let mut my_id = None;
         let r = crate::aio::park(
             &mut |id| {
@@ -861,7 +1027,10 @@ impl Client {
     fn scan_nodes(&mut self, obey_cooldown: bool) {
         // mongoc_topology_should_rescan_srv / mongoc_topology_rescan_srv: before the scan
         if let Some(mut p) = self.srv.get() {
-            let (ty, heartbeat) = { let td = self.td(); (td.ty, td.heartbeat_msec) };
+            let (ty, heartbeat) = {
+                let td = self.td();
+                (td.ty, td.heartbeat_msec)
+            };
             if matches!(ty, TopologyType::Sharded | TopologyType::Unknown) {
                 if let Some(hosts) = crate::srv::rescan(&self.uri, &mut p, heartbeat) {
                     let mut td = self.td();
@@ -873,9 +1042,25 @@ impl Client {
         }
         self.reconcile_nodes();
         let now = monotonic_usec();
-        let ids: Vec<u32> = self.nodes.iter().filter(|n| !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))).map(|n| n.id).collect();
-        let seen = ids.iter().filter_map(|id| self.nodes.iter().find(|n| n.id == *id)).map(|n| n.addr.to_ascii_lowercase()).collect();
-        let mut run = ScanRun { probes: Vec::new(), seen, retried: Default::default(), discovered: 0 };
+        let ids: Vec<u32> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                !(obey_cooldown && !self.bypass_cooldown() && Self::node_in_cooldown(n, now))
+            })
+            .map(|n| n.id)
+            .collect();
+        let seen = ids
+            .iter()
+            .filter_map(|id| self.nodes.iter().find(|n| n.id == *id))
+            .map(|n| n.addr.to_ascii_lowercase())
+            .collect();
+        let mut run = ScanRun {
+            probes: Vec::new(),
+            seen,
+            retried: Default::default(),
+            discovered: 0,
+        };
         for id in ids {
             self.node_setup(id, &mut run);
         }
@@ -910,8 +1095,12 @@ impl Client {
         if self.shared.pooled.get() {
             return true;
         }
-        let Some(n) = self.nodes.iter().find(|n| n.id == server_id) else { return false };
-        let Some(conn) = n.conn.as_ref() else { return false };
+        let Some(n) = self.nodes.iter().find(|n| n.id == server_id) else {
+            return false;
+        };
+        let Some(conn) = n.conn.as_ref() else {
+            return false;
+        };
         let now = monotonic_usec();
         let idle_from = n.last_used;
         if idle_from + 1000 * CHECK_CLOSED_DURATION_MS < now && conn.check_closed() {
@@ -924,9 +1113,14 @@ impl Client {
             let mut w = crate::bson::writer::Writer::with_capacity(16);
             w.int32(b"ping", 1);
             let body = w.finish();
-            let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new("admin", &body) };
+            let parts = crate::cmdparts::Parts {
+                prohibit_lsid: true,
+                ..crate::cmdparts::Parts::new("admin", &body)
+            };
             let r = self.assemble(parts, server_id, false).and_then(|cmd| {
-                let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?.unwrap_or_default();
+                let reply = self
+                    .exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?
+                    .unwrap_or_default();
                 self.td().update_cluster_time(&reply);
                 crate::cmd::check_ok(&reply).map_err(|e| e.into_error())
             });
@@ -966,21 +1160,36 @@ impl Client {
 
     /// mongoc_topology_select_server_id (single-threaded): a server-selection error ends with
     /// the topology type the selection started with.
-    pub fn select_server_id(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
+    pub fn select_server_id(
+        &mut self,
+        optype: OpType,
+        rp: Option<&ReadPrefs>,
+        deprioritized: &[u32],
+    ) -> Result<(u32, bool), Error> {
         let topology_type = self.td().ty;
-        self.select_server_id_inner(optype, rp, deprioritized).map_err(|mut e| {
-            if e.domain == domain::SERVER_SELECTION {
-                e.append(&format!(". Topology type: {}", topology_type.name()));
-            }
-            e
-        })
+        self.select_server_id_inner(optype, rp, deprioritized)
+            .map_err(|mut e| {
+                if e.domain == domain::SERVER_SELECTION {
+                    e.append(&format!(". Topology type: {}", topology_type.name()));
+                }
+                e
+            })
     }
 
-    fn select_server_id_inner(&mut self, optype: OpType, rp: Option<&ReadPrefs>, deprioritized: &[u32]) -> Result<(u32, bool), Error> {
+    fn select_server_id_inner(
+        &mut self,
+        optype: OpType,
+        rp: Option<&ReadPrefs>,
+        deprioritized: &[u32],
+    ) -> Result<(u32, bool), Error> {
         const TIMEOUT_MSG: &str = "No suitable servers found: `serverSelectionTimeoutMS` expired";
         self.check_entry()?;
         if let Some(e) = &self.invalid {
-            return Err(Error::new(domain::SERVER_SELECTION, code::SERVER_SELECTION_FAILURE, e.message.clone()));
+            return Err(Error::new(
+                domain::SERVER_SELECTION,
+                code::SERVER_SELECTION_FAILURE,
+                e.message.clone(),
+            ));
         }
         if self.td().ty == TopologyType::LoadBalanced {
             return self.select_loadbalanced();
@@ -999,14 +1208,21 @@ impl Client {
             if self.stale.get() {
                 let scan_ready = self.last_scan.get() + self.settings.min_heartbeat_ms * 1000;
                 if scan_ready > expire_at && !try_once {
-                    return Err(selection_error(TIMEOUT_MSG, self.scan_error.borrow().as_ref()));
+                    return Err(selection_error(
+                        TIMEOUT_MSG,
+                        self.scan_error.borrow().as_ref(),
+                    ));
                 }
                 let sleep = scan_ready - loop_end;
                 if sleep > 0 {
                     if try_once && self.scanner_in_cooldown(scan_ready) {
-                        return Err(selection_error("No servers yet eligible for rescan", self.scan_error.borrow().as_ref()));
+                        return Err(selection_error(
+                            "No servers yet eligible for rescan",
+                            self.scan_error.borrow().as_ref(),
+                        ));
                     }
-                    crate::aio::sleep(Duration::from_micros(sleep as u64)).map_err(|_| interrupted_error())?;
+                    crate::aio::sleep(Duration::from_micros(sleep as u64))
+                        .map_err(|_| interrupted_error())?;
                 }
                 self.scan_once(true);
                 self.take_interrupted()?;
@@ -1014,13 +1230,19 @@ impl Client {
                 tried_once = true;
             }
             self.td().compatible(rp)?;
-            let (sel, must) = self.td().select(optype, rp, deprioritized, self.settings.local_threshold_ms);
+            let (sel, must) =
+                self.td()
+                    .select(optype, rp, deprioritized, self.settings.local_threshold_ms);
             if let Some(id) = sel {
                 if self.td().cluster_time.is_none() {
                     let mut td = self.td();
                     // runs on every selection while no $clusterTime is known (always on a
                     // standalone): only a hello that has one is read, moved out and back
-                    if let Some(h) = td.server_mut(id).filter(|s| s.hello_cluster_time).map(|s| std::mem::take(&mut s.hello)) {
+                    if let Some(h) = td
+                        .server_mut(id)
+                        .filter(|s| s.hello_cluster_time)
+                        .map(|s| std::mem::take(&mut s.hello))
+                    {
                         td.update_cluster_time(&h);
                         if let Some(s) = td.server_mut(id) {
                             s.hello = h;
@@ -1032,12 +1254,18 @@ impl Client {
             self.stale.set(true);
             if try_once {
                 if tried_once {
-                    return Err(selection_error("No suitable servers found (`serverSelectionTryOnce` set)", self.scan_error.borrow().as_ref()));
+                    return Err(selection_error(
+                        "No suitable servers found (`serverSelectionTryOnce` set)",
+                        self.scan_error.borrow().as_ref(),
+                    ));
                 }
             } else {
                 loop_end = monotonic_usec();
                 if loop_end > expire_at {
-                    return Err(selection_error(TIMEOUT_MSG, self.scan_error.borrow().as_ref()));
+                    return Err(selection_error(
+                        TIMEOUT_MSG,
+                        self.scan_error.borrow().as_ref(),
+                    ));
                 }
             }
         }
@@ -1047,16 +1275,27 @@ impl Client {
     fn select_loadbalanced(&mut self) -> Result<(u32, bool), Error> {
         self.td().open();
         let (sel, _) = self.td().select(OpType::Write, None, &[], 0);
-        let Some(id) = sel else { return Err(selection_error("No suitable server found in load balanced deployment", None)) };
+        let Some(id) = sel else {
+            return Err(selection_error(
+                "No suitable server found in load balanced deployment",
+                None,
+            ));
+        };
         let has_conn = |c: &Self| c.nodes.iter().any(|n| n.id == id && n.conn.is_some());
         if !has_conn(self) {
             self.scan_once(true);
             self.take_interrupted()?;
         }
         if !has_conn(self) {
-            let addr = self.td().server(id).map(|s| s.addr.clone()).unwrap_or_default();
+            let addr = self
+                .td()
+                .server(id)
+                .map(|s| s.addr.clone())
+                .unwrap_or_default();
             let m = match &*self.scan_error.borrow() {
-                Some(e) if e.code != 0 => format!("Could not establish stream for node {addr}: {}", e.message),
+                Some(e) if e.code != 0 => {
+                    format!("Could not establish stream for node {addr}: {}", e.message)
+                }
                 _ => format!("Could not establish stream for node {addr}"),
             };
             return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, m));
@@ -1066,7 +1305,11 @@ impl Client {
 
     /// _cluster_fetch_stream_single: the connection to `server_id` (reconnecting through a
     /// blocking scan when allowed).
-    pub fn stream_for_server(&mut self, server_id: u32, reconnect_ok: bool) -> Result<&mut Conn, Error> {
+    pub fn stream_for_server(
+        &mut self,
+        server_id: u32,
+        reconnect_ok: bool,
+    ) -> Result<&mut Conn, Error> {
         self.stream_reply.clear();
         self.check_entry()?;
         let pooled = self.shared.pooled.get();
@@ -1075,7 +1318,11 @@ impl Client {
             self.reconcile_nodes();
         }
         let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else {
-            return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, format!("Could not find server with id: {server_id}")));
+            return Err(Error::new(
+                domain::COMMAND,
+                code::COMMAND_INVALID_ARG,
+                format!("Could not find server with id: {server_id}"),
+            ));
         };
         if pooled && self.nodes[i].conn.is_some() && self.stale_generation(i) {
             // _cluster_fetch_stream_pooled: the pool was cleared since the connection was made
@@ -1084,7 +1331,11 @@ impl Client {
         if self.nodes[i].conn.is_none() {
             let addr = self.nodes[i].addr.clone();
             if !reconnect_ok {
-                return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {addr}")));
+                return Err(Error::new(
+                    domain::STREAM,
+                    code::STREAM_NOT_ESTABLISHED,
+                    format!("Could not find stream for node {addr}"),
+                ));
             }
             if pooled {
                 self.connect_pooled(server_id)?;
@@ -1095,45 +1346,82 @@ impl Client {
             if let Some(e) = self.scan_error.borrow().as_ref().filter(|e| e.code != 0) {
                 return Err(e.clone());
             }
-            if !self.nodes.iter().any(|n| n.id == server_id && n.conn.is_some()) {
-                return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {addr}")));
+            if !self
+                .nodes
+                .iter()
+                .any(|n| n.id == server_id && n.conn.is_some())
+            {
+                return Err(Error::new(
+                    domain::STREAM,
+                    code::STREAM_NOT_ESTABLISHED,
+                    format!("Could not find stream for node {addr}"),
+                ));
             }
         }
-        let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
+        let n = self
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == server_id)
+            .expect("checked above");
         if let Some(h) = &n.handshake
-            && h.ty == ServerType::Unknown {
-                return Err(h.error.clone().unwrap_or_default());
-            }
+            && h.ty == ServerType::Unknown
+        {
+            return Err(h.error.clone().unwrap_or_default());
+        }
         // stream open but not authenticated: first use since connecting. A connection that
         // should be authenticated is never used unauthenticated.
-        if crate::auth::requires_auth(&self.shared.uri) && !n.auth.has_auth
-            && let Err(e) = self.authenticate_node(server_id) {
-                if pooled {
-                    // _cluster_add_node: the new connection is closed
-                    if let Some(n) = self.nodes.iter().find(|n| n.id == server_id) {
-                        let addr = n.addr.clone();
-                        log::warning(log::CLUSTER, || format!("Failed authentication to {addr} ({})", e.message));
-                    }
-                    self.disconnect_node(server_id);
+        if crate::auth::requires_auth(&self.shared.uri)
+            && !n.auth.has_auth
+            && let Err(e) = self.authenticate_node(server_id)
+        {
+            if pooled {
+                // _cluster_add_node: the new connection is closed
+                if let Some(n) = self.nodes.iter().find(|n| n.id == server_id) {
+                    let addr = n.addr.clone();
+                    log::warning(log::CLUSTER, || {
+                        format!("Failed authentication to {addr} ({})", e.message)
+                    });
                 }
-                return Err(e);
+                self.disconnect_node(server_id);
             }
+            return Err(e);
+        }
         let lb = self.td().ty == TopologyType::LoadBalanced;
-        let n = self.nodes.iter_mut().find(|n| n.id == server_id).expect("checked above");
+        let n = self
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == server_id)
+            .expect("checked above");
         // a load-balanced topology needs a server that reports a serviceId: else disconnect
-        if lb && n.handshake.as_ref().is_none_or(|h| h.service_id == crate::sdam::ZERO_OID) {
+        if lb
+            && n.handshake
+                .as_ref()
+                .is_none_or(|h| h.service_id == crate::sdam::ZERO_OID)
+        {
             n.conn = None;
             n.handshake = None;
-            return Err(Error::new(domain::CLIENT, code::CLIENT_INVALID_LOAD_BALANCER, "Driver attempted to initialize in load balancing mode, but the server does not support this mode."));
+            return Err(Error::new(
+                domain::CLIENT,
+                code::CLIENT_INVALID_LOAD_BALANCER,
+                "Driver attempted to initialize in load balancing mode, but the server does not support this mode.",
+            ));
         }
-        n.conn.as_mut().ok_or_else(|| Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for node {}", n.addr)))
+        n.conn.as_mut().ok_or_else(|| {
+            Error::new(
+                domain::STREAM,
+                code::STREAM_NOT_ESTABLISHED,
+                format!("Could not find stream for node {}", n.addr),
+            )
+        })
     }
 
     /// Whether node `i`'s connection predates a clear of its server's pool (or the server left
     /// the topology).
     fn stale_generation(&self, i: usize) -> bool {
         let n = &self.nodes[i];
-        let (Some(conn), Some(h)) = (n.conn.as_ref(), n.handshake.as_ref()) else { return false };
+        let (Some(conn), Some(h)) = (n.conn.as_ref(), n.handshake.as_ref()) else {
+            return false;
+        };
         let td = self.shared.td.borrow();
         match td.server(n.id) {
             Some(s) => (conn.generation as u32) < s.generation(&h.service_id),
@@ -1148,7 +1436,12 @@ impl Client {
         self.connect_error = None;
         self.connect_overloaded = false;
         // nothing joins this check: discovered servers are the monitors' business
-        let mut run = ScanRun { probes: Vec::new(), seen: Default::default(), retried: Default::default(), discovered: MAX_DISCOVERED_PER_SCAN };
+        let mut run = ScanRun {
+            probes: Vec::new(),
+            seen: Default::default(),
+            retried: Default::default(),
+            discovered: MAX_DISCOVERED_PER_SCAN,
+        };
         self.node_setup(server_id, &mut run);
         self.run_scan(&mut run);
         self.mode = ScanMode::Own;
@@ -1156,7 +1449,10 @@ impl Client {
         match self.connect_error.take() {
             Some(e) => {
                 if self.connect_overloaded {
-                    crate::cmdparts::add_error_label(&mut self.stream_reply, "SystemOverloadedError");
+                    crate::cmdparts::add_error_label(
+                        &mut self.stream_reply,
+                        "SystemOverloadedError",
+                    );
                     crate::cmdparts::add_error_label(&mut self.stream_reply, "RetryableError");
                 }
                 Err(e)
@@ -1168,12 +1464,22 @@ impl Client {
     /// A failed stream_for_server as an operation's failure: the error with the stream's reply
     /// (pooled mode's backpressure labels).
     pub fn stream_failure(&mut self, error: Error) -> crate::cmdparts::Failure {
-        crate::cmdparts::Failure { error, reply: std::mem::take(&mut self.stream_reply) }
+        crate::cmdparts::Failure {
+            error,
+            reply: std::mem::take(&mut self.stream_reply),
+        }
     }
 
     /// The success of connect_pooled's check: the node gets the connection and its handshake
     /// description; _mongoc_topology_update_from_handshake.
-    fn connected_pooled(&mut self, ni: usize, mut conn: Conn, reply: &[u8], speculative: Vec<u8>, rtt: i64) {
+    fn connected_pooled(
+        &mut self,
+        ni: usize,
+        mut conn: Conn,
+        reply: &[u8],
+        speculative: Vec<u8>,
+        rtt: i64,
+    ) {
         let n = &mut self.nodes[ni];
         let id = n.id;
         if n.mechs.is_none() && self.shared.settings.hello.sasl_user.is_some() {
@@ -1189,7 +1495,11 @@ impl Client {
             td.handle_hello(id, Some(reply), rtt, None);
             if td.server(id).is_none() {
                 drop(td);
-                self.connect_error = Some(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("\"{addr}\" removed from topology")));
+                self.connect_error = Some(Error::new(
+                    domain::STREAM,
+                    code::STREAM_NOT_ESTABLISHED,
+                    format!("\"{addr}\" removed from topology"),
+                ));
                 return;
             }
         }
@@ -1204,13 +1514,19 @@ impl Client {
     /// speculative conversation, else authenticates explicitly.
     fn authenticate_node(&mut self, server_id: u32) -> Result<(), Error> {
         let uri = self.uri.clone();
-        let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else { return Ok(()) };
+        let Some(i) = self.nodes.iter().position(|n| n.id == server_id) else {
+            return Ok(());
+        };
         let mut st = std::mem::take(&mut self.nodes[i].auth);
         let mechs = self.nodes[i].mechs.unwrap_or_default();
         let mut run = |db: &str, body: &[u8]| self.auth_command(server_id, db, body);
-        let speculative = crate::auth::finish_speculative(&uri, &st.speculative, st.scram.as_mut(), &mut run);
+        let speculative =
+            crate::auth::finish_speculative(&uri, &st.speculative, st.scram.as_mut(), &mut run);
         drop(st);
-        let connected = self.nodes.iter().any(|n| n.id == server_id && n.conn.is_some());
+        let connected = self
+            .nodes
+            .iter()
+            .any(|n| n.id == server_id && n.conn.is_some());
         match speculative {
             Ok(true) => {}
             Err(e) if !connected => return Err(e),
@@ -1229,9 +1545,14 @@ impl Client {
     /// _x509 (before their error conversion): an authentication command on the connection being
     /// authenticated, with the given $db, no lsid.
     fn auth_command(&mut self, server_id: u32, db: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
-        let parts = crate::cmdparts::Parts { prohibit_lsid: true, ..crate::cmdparts::Parts::new(db, body) };
+        let parts = crate::cmdparts::Parts {
+            prohibit_lsid: true,
+            ..crate::cmdparts::Parts::new(db, body)
+        };
         let cmd = self.assemble(parts, server_id, false)?;
-        let reply = self.exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?.unwrap_or_default();
+        let reply = self
+            .exchange(server_id, &cmd.name, &cmd.db, &cmd.body, &[], true)?
+            .unwrap_or_default();
         self.td().update_cluster_time(&reply);
         crate::cmd::check_ok(&reply).map_err(|e| e.into_error())?;
         Ok(reply)
@@ -1240,13 +1561,29 @@ impl Client {
     /// Runs `body` (a command with $db) on `server_id`: the reply document, or the error as
     /// mongoc-cluster.c reports it ("Failed to send ..." for network errors, which also
     /// invalidate the server and drop its connection).
-    pub fn run_command(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8]) -> Result<Vec<u8>, Error> {
-        Ok(self.run_command_payload(server_id, cmd_name, db, body, &[], true)?.unwrap_or_default())
+    pub fn run_command(
+        &mut self,
+        server_id: u32,
+        cmd_name: &str,
+        db: &str,
+        body: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .run_command_payload(server_id, cmd_name, db, body, &[], true)?
+            .unwrap_or_default())
     }
 
     /// `run_command` with an optional document sequence; unacknowledged commands are sent with
     /// moreToCome and yield no reply (None).
-    pub fn run_command_payload(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: crate::wire::Payloads<'_>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
+    pub fn run_command_payload(
+        &mut self,
+        server_id: u32,
+        cmd_name: &str,
+        db: &str,
+        body: &[u8],
+        payload: crate::wire::Payloads<'_>,
+        acknowledged: bool,
+    ) -> Result<Option<Vec<u8>>, Error> {
         self.stream_for_server(server_id, true)?;
         self.exchange(server_id, cmd_name, db, body, payload, acknowledged)
     }
@@ -1254,19 +1591,50 @@ impl Client {
     /// Sends a command on the connection to `server_id` as it is (connected, and authenticated
     /// unless this is the authentication): the reply, or the network error as mongoc-cluster.c
     /// reports it.
-    fn exchange(&mut self, server_id: u32, cmd_name: &str, db: &str, body: &[u8], payload: crate::wire::Payloads<'_>, acknowledged: bool) -> Result<Option<Vec<u8>>, Error> {
+    fn exchange(
+        &mut self,
+        server_id: u32,
+        cmd_name: &str,
+        db: &str,
+        body: &[u8],
+        payload: crate::wire::Payloads<'_>,
+        acknowledged: bool,
+    ) -> Result<Option<Vec<u8>>, Error> {
         let socket_timeout = ms(self.settings.socket_timeout_ms);
-        let Some(conn) = self.nodes.iter_mut().find(|n| n.id == server_id).and_then(|n| n.conn.as_mut()) else {
-            return Err(Error::new(domain::STREAM, code::STREAM_NOT_ESTABLISHED, format!("Could not find stream for server id: {server_id}")));
+        let Some(conn) = self
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == server_id)
+            .and_then(|n| n.conn.as_mut())
+        else {
+            return Err(Error::new(
+                domain::STREAM,
+                code::STREAM_NOT_ESTABLISHED,
+                format!("Could not find stream for server id: {server_id}"),
+            ));
         };
         let conn_generation = conn.generation as u32;
         // OP_MSG lengths are int32: a larger message would wrap them and the server would read
         // the rest of the bytes as further messages. Refused before anything is sent (libbson
         // refuses appends past INT32_MAX; strings appended directly by the driver are not
         // bounded otherwise)
-        let len = crate::wire::HEADER_LEN + 4 + 1 + body.len() + payload.iter().map(|(id, docs)| 1 + 4 + id.len() + 1 + docs.len()).sum::<usize>();
+        let len = crate::wire::HEADER_LEN
+            + 4
+            + 1
+            + body.len()
+            + payload
+                .iter()
+                .map(|(id, docs)| 1 + 4 + id.len() + 1 + docs.len())
+                .sum::<usize>();
         if len > i32::MAX as usize {
-            return Err(Error::new(domain::CLIENT, code::CLIENT_TOO_BIG, format!("attempted to send a \"{cmd_name}\" command of {len} bytes, which exceeds the maximum message size of {} bytes", i32::MAX)));
+            return Err(Error::new(
+                domain::CLIENT,
+                code::CLIENT_TOO_BIG,
+                format!(
+                    "attempted to send a \"{cmd_name}\" command of {len} bytes, which exceeds the maximum message size of {} bytes",
+                    i32::MAX
+                ),
+            ));
         }
         match handshake::run_msg(conn, body, payload, !acknowledged, socket_timeout) {
             Ok(r) => {
@@ -1287,10 +1655,19 @@ impl Client {
                 let generation = if self.shared.pooled.get() {
                     conn_generation
                 } else {
-                    let sid = self.handshake_description(server_id).map_or(crate::sdam::ZERO_OID, |h| h.service_id);
-                    self.td().server(server_id).map_or(0, |s| s.generation(&sid))
+                    let sid = self
+                        .handshake_description(server_id)
+                        .map_or(crate::sdam::ZERO_OID, |h| h.service_id);
+                    self.td()
+                        .server(server_id)
+                        .map_or(0, |s| s.generation(&sid))
                 };
-                self.handle_network_error(server_id, generation, &err, matches!(e, NetError::Timeout));
+                self.handle_network_error(
+                    server_id,
+                    generation,
+                    &err,
+                    matches!(e, NetError::Timeout),
+                );
                 Err(err)
             }
         }
@@ -1303,7 +1680,11 @@ impl Client {
 
     /// `f` of the connection-time description of `server_id` (else the topology's).
     #[inline]
-    pub fn with_stream_description<R>(&self, server_id: u32, f: impl FnOnce(&ServerDescription) -> R) -> Option<R> {
+    pub fn with_stream_description<R>(
+        &self,
+        server_id: u32,
+        f: impl FnOnce(&ServerDescription) -> R,
+    ) -> Option<R> {
         if let Some(h) = self.handshake_description(server_id) {
             return Some(f(h));
         }
@@ -1311,10 +1692,31 @@ impl Client {
     }
 
     /// _handle_network_error: SDAM error handling and disconnecting the node.
-    fn handle_network_error(&mut self, server_id: u32, generation: u32, err: &Error, timeout: bool) {
-        let kind = if timeout { AppError::Timeout } else { AppError::Network };
-        let sid = self.td().server(server_id).map_or(crate::sdam::ZERO_OID, |s| s.service_id);
-        self.td().handle_app_error(server_id, true, kind, &[5, 0, 0, 0, 0], err, generation, &sid);
+    fn handle_network_error(
+        &mut self,
+        server_id: u32,
+        generation: u32,
+        err: &Error,
+        timeout: bool,
+    ) {
+        let kind = if timeout {
+            AppError::Timeout
+        } else {
+            AppError::Network
+        };
+        let sid = self
+            .td()
+            .server(server_id)
+            .map_or(crate::sdam::ZERO_OID, |s| s.service_id);
+        self.td().handle_app_error(
+            server_id,
+            true,
+            kind,
+            &[5, 0, 0, 0, 0],
+            err,
+            generation,
+            &sid,
+        );
         if let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
             n.conn = None;
             n.handshake = None;
@@ -1323,17 +1725,32 @@ impl Client {
 
     /// Command-error SDAM handling (_mongoc_topology_handle_app_error with a reply).
     pub fn handle_command_error(&mut self, server_id: u32, reply: &[u8]) {
-        let sid = self.td().server(server_id).map_or(crate::sdam::ZERO_OID, |s| s.service_id);
-        let generation = self.td().server(server_id).map_or(0, |s| s.generation(&sid));
-        let out = self.td().handle_app_error(server_id, true, AppError::Command, reply, &Error::default(), generation, &sid);
+        let sid = self
+            .td()
+            .server(server_id)
+            .map_or(crate::sdam::ZERO_OID, |s| s.service_id);
+        let generation = self
+            .td()
+            .server(server_id)
+            .map_or(0, |s| s.generation(&sid));
+        let out = self.td().handle_app_error(
+            server_id,
+            true,
+            AppError::Command,
+            reply,
+            &Error::default(),
+            generation,
+            &sid,
+        );
         if out.stale {
             self.stale.set(true);
         }
         if out.pool_cleared
-            && let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id) {
-                n.conn = None;
-                n.handshake = None;
-            }
+            && let Some(n) = self.nodes.iter_mut().find(|n| n.id == server_id)
+        {
+            n.conn = None;
+            n.handshake = None;
+        }
     }
 
     /// Drops every connection (mongoc_client_reset / after fork).
@@ -1346,20 +1763,29 @@ impl Client {
 
     /// The connection-time server description of `server_id` (handshake_sd).
     pub fn handshake_description(&self, server_id: u32) -> Option<&ServerDescription> {
-        self.nodes.iter().find(|n| n.id == server_id).and_then(|n| n.handshake.as_ref())
+        self.nodes
+            .iter()
+            .find(|n| n.id == server_id)
+            .and_then(|n| n.handshake.as_ref())
     }
 }
 
 /// The error of an operation whose wait was interrupted (crate::aio::Interrupted).
 pub fn interrupted_error() -> Error {
-    Error::new(domain::STREAM, code::STREAM_SOCKET, crate::aio::Interrupted.to_string())
+    Error::new(
+        domain::STREAM,
+        code::STREAM_SOCKET,
+        crate::aio::Interrupted.to_string(),
+    )
 }
 
 /// A command's network error as mongoc-cluster.c reports it (RUN_CMD_ERR_DECORATE).
 pub(crate) fn command_network_error(cmd_name: &str, db: &str, e: &NetError) -> Error {
     let detail = match e {
         NetError::Closed | NetError::Timeout => {
-            log::debug(log::CLUSTER, || "could not read message length, stream probably closed or timed out".to_owned());
+            log::debug(log::CLUSTER, || {
+                "could not read message length, stream probably closed or timed out".to_owned()
+            });
             "Failed to read 4 bytes: socket error or timeout".to_owned()
         }
         NetError::Protocol(m) => m.to_string(),
@@ -1368,7 +1794,11 @@ pub(crate) fn command_network_error(cmd_name: &str, db: &str, e: &NetError) -> E
     if matches!(e, NetError::Protocol(m) if *m == crate::wire::DECOMPRESS_ERROR) {
         Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, detail)
     } else {
-        Error::new(domain::STREAM, code::STREAM_SOCKET, format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"))
+        Error::new(
+            domain::STREAM,
+            code::STREAM_SOCKET,
+            format!("Failed to send \"{cmd_name}\" command with database \"{db}\": {detail}"),
+        )
     }
 }
 
@@ -1376,14 +1806,38 @@ pub(crate) fn command_network_error(cmd_name: &str, db: &str, e: &NetError) -> E
 fn net_check_error(e: NetError) -> Error {
     match e {
         NetError::Resolve(m) => Error::new(domain::STREAM, code::STREAM_NAME_RESOLUTION, m),
-        NetError::Connect(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => Error::new(domain::STREAM, code::STREAM_CONNECT, "connection refused"),
-        NetError::Connect(e) if e.kind() == std::io::ErrorKind::TimedOut => Error::new(domain::STREAM, code::STREAM_CONNECT, "connection timeout"),
-        NetError::Connect(_) => Error::new(domain::STREAM, code::STREAM_CONNECT, "unknown connection error"),
+        NetError::Connect(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+            Error::new(domain::STREAM, code::STREAM_CONNECT, "connection refused")
+        }
+        NetError::Connect(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+            Error::new(domain::STREAM, code::STREAM_CONNECT, "connection timeout")
+        }
+        NetError::Connect(_) => Error::new(
+            domain::STREAM,
+            code::STREAM_CONNECT,
+            "unknown connection error",
+        ),
         NetError::Timeout => Error::new(domain::STREAM, code::STREAM_CONNECT, "connection timeout"),
-        NetError::Closed => Error::new(domain::STREAM, code::STREAM_SOCKET, "Server closed connection."),
-        NetError::Io(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Failed to write rpc bytes."),
-        NetError::Protocol(_) => Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply from server."),
-        NetError::Tls(m) => Error::new(domain::STREAM, code::STREAM_SOCKET, format!("TLS handshake failed: {m}")),
+        NetError::Closed => Error::new(
+            domain::STREAM,
+            code::STREAM_SOCKET,
+            "Server closed connection.",
+        ),
+        NetError::Io(_) => Error::new(
+            domain::STREAM,
+            code::STREAM_SOCKET,
+            "Failed to write rpc bytes.",
+        ),
+        NetError::Protocol(_) => Error::new(
+            domain::PROTOCOL,
+            code::PROTOCOL_INVALID_REPLY,
+            "Invalid reply from server.",
+        ),
+        NetError::Tls(m) => Error::new(
+            domain::STREAM,
+            code::STREAM_SOCKET,
+            format!("TLS handshake failed: {m}"),
+        ),
         NetError::Unix(c, m) => Error::new(domain::STREAM, c, m),
         NetError::Interrupted => interrupted_error(),
     }
@@ -1433,7 +1887,10 @@ pub fn detect_nongenuine_hosts(uri: &Uri) {
 pub struct ClientPool {
     shared: Rc<Shared>,
     /// boxed: a checkout moves a pointer
-    #[allow(clippy::vec_box, reason = "a checkout and a checkin move a pointer, not a Client")]
+    #[allow(
+        clippy::vec_box,
+        reason = "a checkout and a checkin move a pointer, not a Client"
+    )]
     idle: RefCell<Vec<Box<Client>>>,
     /// clusters checked out
     leased: Cell<usize>,
@@ -1475,12 +1932,24 @@ impl ClientPool {
         let max = if client.settings.hello.load_balanced {
             1
         } else {
-            match client.uri.get_int32("maxpoolsize", DEFAULT_MAX_POOL_SIZE as i32) {
+            match client
+                .uri
+                .get_int32("maxpoolsize", DEFAULT_MAX_POOL_SIZE as i32)
+            {
                 n if n > 0 => n as usize,
                 _ => DEFAULT_MAX_POOL_SIZE,
             }
         };
-        ClientPool { shared: client.shared.clone(), idle: RefCell::new(vec![Box::new(client)]), leased: Cell::new(0), total: Cell::new(1), max, waiters: Default::default(), handed: Default::default(), spare: RefCell::new(None) }
+        ClientPool {
+            shared: client.shared.clone(),
+            idle: RefCell::new(vec![Box::new(client)]),
+            leased: Cell::new(0),
+            total: Cell::new(1),
+            max,
+            waiters: Default::default(),
+            handed: Default::default(),
+            spare: RefCell::new(None),
+        }
     }
 
     /// The shared state (no connection is used through it).
@@ -1498,7 +1967,11 @@ impl ClientPool {
     #[inline]
     fn lease(&self, c: Box<Client>, kind: Kind) -> Lease<'_> {
         self.leased.set(self.leased.get() + 1);
-        Lease { pool: self, client: std::mem::ManuallyDrop::new(c), kind }
+        Lease {
+            pool: self,
+            client: std::mem::ManuallyDrop::new(c),
+            kind,
+        }
     }
 
     /// A cluster for one operation: an idle one, else a new one; at maxPoolSize (only possible
@@ -1525,7 +1998,8 @@ impl ClientPool {
             self.total.set(self.total.get() + 1);
             return self.lease(Box::new(Client::cluster(self.shared.clone())), Kind::Pool);
         }
-        let deadline = std::time::Instant::now() + Duration::from_millis(self.shared.settings.server_selection_timeout_ms.max(0) as u64);
+        let deadline = std::time::Instant::now()
+            + Duration::from_millis(self.shared.settings.server_selection_timeout_ms.max(0) as u64);
         let mut my_id = None;
         let r = crate::aio::park(
             &mut |id| {
@@ -1539,13 +2013,18 @@ impl ClientPool {
             // cannot wait for one; the spare (a new one while a re-entrant call has it), kept
             // for such calls only, so that fibers still use at most maxPoolSize
             let c = self.spare.borrow_mut().take();
-            return self.lease(c.unwrap_or_else(|| Box::new(Client::cluster(self.shared.clone()))), Kind::Spare);
+            return self.lease(
+                c.unwrap_or_else(|| Box::new(Client::cluster(self.shared.clone()))),
+                Kind::Spare,
+            );
         }
         let id = my_id.unwrap_or(u64::MAX);
         self.waiters.borrow_mut().retain(|w| *w != id);
         let handed = {
             let mut h = self.handed.borrow_mut();
-            h.iter().position(|(w, _)| *w == id).map(|i| h.swap_remove(i).1)
+            h.iter()
+                .position(|(w, _)| *w == id)
+                .map(|i| h.swap_remove(i).1)
         };
         match (handed, r) {
             (Some(c), Ok(_)) => self.lease(c, Kind::Pool),
@@ -1557,7 +2036,11 @@ impl ClientPool {
                 let mut t = Box::new(Client::cluster(self.shared.clone()));
                 t.fail = Some(match r {
                     Err(_) => interrupted_error(),
-                    Ok(_) => Error::new(domain::STREAM, code::STREAM_SOCKET, "Timed out while checking out a connection from connection pool"),
+                    Ok(_) => Error::new(
+                        domain::STREAM,
+                        code::STREAM_SOCKET,
+                        "Timed out while checking out a connection from connection pool",
+                    ),
                 });
                 self.lease(t, Kind::Transient)
             }
@@ -1577,15 +2060,29 @@ impl ClientPool {
     }
 
     /// mongoc_client_start_session: a cluster is used only to learn session support.
-    pub fn start_session(&self, causal_consistency: bool, snapshot: bool) -> Result<crate::session::ClientSession, Error> {
+    pub fn start_session(
+        &self,
+        causal_consistency: bool,
+        snapshot: bool,
+    ) -> Result<crate::session::ClientSession, Error> {
         self.start_session_with(causal_consistency, snapshot, None)
     }
 
     /// `start_session` with default transaction options.
-    pub fn start_session_with(&self, causal_consistency: bool, snapshot: bool, default_txn: Option<&crate::session::TxnOpts>) -> Result<crate::session::ClientSession, Error> {
-        match self.shared.session_start(causal_consistency, snapshot, default_txn, true) {
+    pub fn start_session_with(
+        &self,
+        causal_consistency: bool,
+        snapshot: bool,
+        default_txn: Option<&crate::session::TxnOpts>,
+    ) -> Result<crate::session::ClientSession, Error> {
+        match self
+            .shared
+            .session_start(causal_consistency, snapshot, default_txn, true)
+        {
             Some(r) => r,
-            None => self.checkout().start_session_with(causal_consistency, snapshot, default_txn),
+            None => self
+                .checkout()
+                .start_session_with(causal_consistency, snapshot, default_txn),
         }
     }
 

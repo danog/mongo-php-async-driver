@@ -3,8 +3,10 @@
 //! then the prohibited-output, unassigned and bidirectional checks on the mapped code points
 //! (libmongoc checks before normalization: NFKC never creates a character that fails them).
 
-use super::tables::{LCAT, MAPPED_TO_NOTHING, NON_ASCII_SPACE, PROHIBITED_OUTPUT, RANDALCAT, UNASSIGNED};
-use crate::error::{code, domain, Error};
+use super::tables::{
+    LCAT, MAPPED_TO_NOTHING, NON_ASCII_SPACE, PROHIBITED_OUTPUT, RANDALCAT, UNASSIGNED,
+};
+use crate::error::{Error, code, domain};
 use unicode_normalization::UnicodeNormalization;
 
 fn in_table(c: u32, t: &[(u32, u32)]) -> bool {
@@ -36,16 +38,23 @@ pub fn prep_impl(name: &str, s: &str) -> Result<String, Error> {
     // b. normalize
     let out: String = mapped.iter().copied().nfkc().collect();
     // c. prohibit
-    if mapped.iter().any(|&c| in_table(c as u32, PROHIBITED_OUTPUT) || in_table(c as u32, UNASSIGNED)) {
+    if mapped
+        .iter()
+        .any(|&c| in_table(c as u32, PROHIBITED_OUTPUT) || in_table(c as u32, UNASSIGNED))
+    {
         return Err(err(format!("prohibited character included in {name}")));
     }
     // d. bidi: a string with a RandALCat character has no LCat character, and starts and ends
     // with a RandALCat character
     let rand_al = |c: &char| in_table(*c as u32, RANDALCAT);
     if mapped.iter().any(rand_al)
-        && (mapped.iter().any(|&c| in_table(c as u32, LCAT)) || !mapped.first().is_some_and(rand_al) || !mapped.last().is_some_and(rand_al))
+        && (mapped.iter().any(|&c| in_table(c as u32, LCAT))
+            || !mapped.first().is_some_and(rand_al)
+            || !mapped.last().is_some_and(rand_al))
     {
-        return Err(err(format!("{name} does not meet bidirectional requirements")));
+        return Err(err(format!(
+            "{name} does not meet bidirectional requirements"
+        )));
     }
     Ok(out)
 }
@@ -87,12 +96,22 @@ mod tests {
             assert_eq!(required(i), req, "{i:?}");
             match (prep(i), o) {
                 (Ok(v), Some(o)) => assert_eq!(v, o, "{i:?}"),
-                (Err(e), None) => assert_eq!((e.domain, e.code), (domain::SCRAM, code::SCRAM_PROTOCOL_ERROR), "{i:?}"),
+                (Err(e), None) => assert_eq!(
+                    (e.domain, e.code),
+                    (domain::SCRAM, code::SCRAM_PROTOCOL_ERROR),
+                    "{i:?}"
+                ),
                 (r, _) => panic!("{i:?}: {r:?}"),
             }
         }
-        assert_eq!(prep("\u{0627}1").unwrap_err().message, "password does not meet bidirectional requirements");
-        assert_eq!(prep("a\u{0007}").unwrap_err().message, "prohibited character included in password");
+        assert_eq!(
+            prep("\u{0627}1").unwrap_err().message,
+            "password does not meet bidirectional requirements"
+        );
+        assert_eq!(
+            prep("a\u{0007}").unwrap_err().message,
+            "prohibited character included in password"
+        );
         assert!(required("del\u{7f}"));
     }
 }

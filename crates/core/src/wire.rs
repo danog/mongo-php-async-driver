@@ -111,7 +111,11 @@ pub fn parse_reply(m: &[u8]) -> Result<Reply<'_>, &'static str> {
         return Err("unexpected reply opcode");
     }
     let flags = u32::from_le_bytes(m[16..20].try_into().unwrap());
-    let end = if flags & FLAG_CHECKSUM_PRESENT != 0 { m.len() - 4 } else { m.len() };
+    let end = if flags & FLAG_CHECKSUM_PRESENT != 0 {
+        m.len() - 4
+    } else {
+        m.len()
+    };
     let mut at = 20;
     let mut body = None;
     let mut sequences = Vec::new();
@@ -135,22 +139,32 @@ pub fn parse_reply(m: &[u8]) -> Result<Reply<'_>, &'static str> {
             }
             1 => {
                 let s = &m[at + 4..at + n];
-                let Some(z) = s.iter().position(|&c| c == 0) else { return Err("unterminated sequence identifier") };
+                let Some(z) = s.iter().position(|&c| c == 0) else {
+                    return Err("unterminated sequence identifier");
+                };
                 sequences.push((&s[..z], &s[z + 1..]));
             }
             _ => return Err("unknown section kind"),
         }
         at += n;
     }
-    let Some(body) = body else { return Err("missing body section") };
-    Ok(Reply { request_id: rd_i32(m, 4), response_to: rd_i32(m, 8), flags, body, sequences })
+    let Some(body) = body else {
+        return Err("missing body section");
+    };
+    Ok(Reply {
+        request_id: rd_i32(m, 4),
+        response_to: rd_i32(m, 8),
+        flags,
+        body,
+        sequences,
+    })
 }
-
 
 /// The OP_COMPRESSED form of a complete message (requestID kept, responseTo 0).
 pub fn compress_message(msg: &[u8], id: u8, zlib_level: i32) -> Result<Vec<u8>, String> {
     let data = crate::compress::compress(id, zlib_level, &msg[HEADER_LEN..])?;
-    let len = i32::try_from(HEADER_LEN + 9 + data.len()).map_err(|_| "message too large".to_owned())?;
+    let len =
+        i32::try_from(HEADER_LEN + 9 + data.len()).map_err(|_| "message too large".to_owned())?;
     let mut out = Vec::with_capacity(len as usize);
     out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(&msg[4..8]);
@@ -178,7 +192,8 @@ pub fn decompress_message(m: &[u8], max: usize) -> Result<Vec<u8>, &'static str>
     if size < 0 || HEADER_LEN + size as usize > max {
         return Err(DECOMPRESS_ERROR);
     }
-    let body = crate::compress::decompress(m[24], &m[25..], size as usize).map_err(|_| DECOMPRESS_ERROR)?;
+    let body = crate::compress::decompress(m[24], &m[25..], size as usize)
+        .map_err(|_| DECOMPRESS_ERROR)?;
     let mut out = Vec::with_capacity(HEADER_LEN + body.len());
     out.extend_from_slice(&((HEADER_LEN + body.len()) as i32).to_le_bytes());
     out.extend_from_slice(&m[4..12]);
@@ -207,6 +222,9 @@ mod tests {
         let r = parse_reply(&m).unwrap();
         assert_eq!(r.request_id, 7);
         assert_eq!(r.body, &body[..]);
-        assert_eq!(r.sequences, vec![(&b"documents"[..], &[&d[..], &d[..]].concat()[..])]);
+        assert_eq!(
+            r.sequences,
+            vec![(&b"documents"[..], &[&d[..], &d[..]].concat()[..])]
+        );
     }
 }

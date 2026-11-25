@@ -20,11 +20,22 @@ pub const MAX_DEPTH: u32 = 200;
 /// The document (or, with `is_array`, the array) as Extended JSON; None when the BSON is corrupt.
 pub fn to_json(doc: &[u8], mode: Mode, is_array: bool) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(doc.len() * 2);
-    let ok = if is_array { append_array(&mut out, doc, mode, MAX_DEPTH) } else { append_document(&mut out, doc, mode, MAX_DEPTH) };
+    let ok = if is_array {
+        append_array(&mut out, doc, mode, MAX_DEPTH)
+    } else {
+        append_document(&mut out, doc, mode, MAX_DEPTH)
+    };
     ok.then_some(out)
 }
 
-fn append_container(out: &mut Vec<u8>, doc: &[u8], mode: Mode, depth: u32, has_keys: bool, delim: (&str, &str, &str, &str)) -> bool {
+fn append_container(
+    out: &mut Vec<u8>,
+    doc: &[u8],
+    mode: Mode,
+    depth: u32,
+    has_keys: bool,
+    delim: (&str, &str, &str, &str),
+) -> bool {
     if iter::is_empty(doc) {
         out.extend_from_slice(delim.0.as_bytes());
         true
@@ -57,8 +68,17 @@ struct State<'o> {
 }
 
 fn append_values(out: &mut Vec<u8>, doc: &[u8], mode: Mode, has_keys: bool, depth: u32) -> bool {
-    let Some(mut it) = Iter::new(doc) else { return false };
-    let mut st = State { out, mode, depth, has_keys, not_first: false, corrupt: false };
+    let Some(mut it) = Iter::new(doc) else {
+        return false;
+    };
+    let mut st = State {
+        out,
+        mode,
+        depth,
+        has_keys,
+        not_first: false,
+        corrupt: false,
+    };
     iter::visit_all(&mut it, &mut st);
     it.err_off == 0 && !st.corrupt
 }
@@ -154,11 +174,19 @@ impl<'a> Visitor<'a> for State<'_> {
                 }
             }
             Value::Regex(p, opts) => {
-                o.extend_from_slice(if ext { b"{ \"$regularExpression\" : { \"pattern\" : \"" as &[u8] } else { b"{ \"$regex\" : \"" });
+                o.extend_from_slice(if ext {
+                    b"{ \"$regularExpression\" : { \"pattern\" : \"" as &[u8]
+                } else {
+                    b"{ \"$regex\" : \""
+                });
                 if !escape(o, p, false) {
                     return true;
                 }
-                o.extend_from_slice(if ext { b"\", \"options\" : \"" as &[u8] } else { b"\", \"$options\" : \"" });
+                o.extend_from_slice(if ext {
+                    b"\", \"options\" : \"" as &[u8]
+                } else {
+                    b"\", \"$options\" : \""
+                });
                 for &c in b"ilmsux" {
                     if opts.contains(&c) {
                         o.push(c);
@@ -174,7 +202,11 @@ impl<'a> Visitor<'a> for State<'_> {
                 o.extend_from_slice(b" } }");
             }
             Value::DbPointer(c, id) => {
-                o.extend_from_slice(if ext { b"{ \"$dbPointer\" : { \"$ref\" : \"" as &[u8] } else { b"{ \"$ref\" : \"" });
+                o.extend_from_slice(if ext {
+                    b"{ \"$dbPointer\" : { \"$ref\" : \"" as &[u8]
+                } else {
+                    b"{ \"$ref\" : \""
+                });
                 if !escape(o, c, false) {
                     return true;
                 }
@@ -256,7 +288,11 @@ pub fn append_double(o: &mut Vec<u8>, v: f64, mode: Mode) {
     if !legacy && v.is_nan() {
         o.extend_from_slice(b"NaN");
     } else if !legacy && v.is_infinite() {
-        o.extend_from_slice(if v > 0.0 { b"Infinity" as &[u8] } else { b"-Infinity" });
+        o.extend_from_slice(if v > 0.0 {
+            b"Infinity" as &[u8]
+        } else {
+            b"-Infinity"
+        });
     } else {
         let start = o.len();
         fmt::fmt_g_into(o, v, 20);
@@ -283,7 +319,12 @@ pub fn escape(o: &mut Vec<u8>, s: &[u8], allow_nul: bool) -> bool {
         // eight bytes at a time over runs without a byte to escape
         while i + 8 <= n {
             let w = swar::load(s, i);
-            if swar::lt_bytes(w, 0x20) | swar::eq_bytes(w, b'"') | swar::eq_bytes(w, b'\\') | swar::eq_bytes(w, 0xc0) != 0 {
+            if swar::lt_bytes(w, 0x20)
+                | swar::eq_bytes(w, b'"')
+                | swar::eq_bytes(w, b'\\')
+                | swar::eq_bytes(w, 0xc0)
+                != 0
+            {
                 break;
             }
             i += 8;

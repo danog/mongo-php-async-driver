@@ -25,7 +25,12 @@ impl ServerSession {
         id[8] = 0x80 | (id[8] & 0x3f);
         let mut w = Writer::with_capacity(40);
         w.binary(b"id", 4, &id);
-        ServerSession { lsid: w.finish(), last_used_usec: NEVER_USED, txn_number: 0, dirty: false }
+        ServerSession {
+            lsid: w.finish(),
+            last_used_usec: NEVER_USED,
+            txn_number: 0,
+            dirty: false,
+        }
     }
 
     /// _mongoc_server_session_timed_out: less than a minute left before the server forgets it.
@@ -82,7 +87,8 @@ impl Pool {
         }
         self.forget_if_forked();
         // drop the expired ones at the cold end
-        self.sessions.retain(|o| !o.timed_out(timeout_minutes, now_usec));
+        self.sessions
+            .retain(|o| !o.timed_out(timeout_minutes, now_usec));
         self.sessions.push(s);
     }
 
@@ -194,8 +200,12 @@ pub fn parse_cluster_time(t: &[u8]) -> Option<(u32, u32)> {
     });
     if r.is_none() {
         crate::log::error(crate::log::MONGOC, || {
-            let json = crate::bson::json::to_json(t, crate::bson::json::Mode::Relaxed, false).unwrap_or_default();
-            format!("Cannot parse cluster time from {}\n", String::from_utf8_lossy(&json))
+            let json = crate::bson::json::to_json(t, crate::bson::json::Mode::Relaxed, false)
+                .unwrap_or_default();
+            format!(
+                "Cannot parse cluster time from {}\n",
+                String::from_utf8_lossy(&json)
+            )
         });
     }
     r
@@ -204,12 +214,26 @@ pub fn parse_cluster_time(t: &[u8]) -> Option<(u32, u32)> {
 /// The write commands that carry readConcern.afterClusterTime in a causally consistent
 /// session (_mongoc_write_command_supports_after_cluster_time, DRIVERS-3274).
 fn write_supports_after_cluster_time(name: &str) -> bool {
-    matches!(name, "insert" | "update" | "findAndModify" | "delete" | "bulkWrite" | "create" | "createIndexes" | "drop" | "dropDatabase" | "dropIndexes")
+    matches!(
+        name,
+        "insert"
+            | "update"
+            | "findAndModify"
+            | "delete"
+            | "bulkWrite"
+            | "create"
+            | "createIndexes"
+            | "drop"
+            | "dropDatabase"
+            | "dropIndexes"
+    )
 }
 
 impl ClientSession {
     pub fn lsid(&self) -> &[u8] {
-        self.server_session.as_ref().map_or(&EMPTY_DOC[..], |s| s.lsid.as_slice())
+        self.server_session
+            .as_ref()
+            .map_or(&EMPTY_DOC[..], |s| s.lsid.as_slice())
     }
 
     /// _mongoc_client_session_in_txn
@@ -219,7 +243,10 @@ impl ClientSession {
 
     /// _mongoc_client_session_in_txn_or_ending
     pub fn in_txn_or_ending(&self) -> bool {
-        matches!(self.txn_state, TxnState::Starting | TxnState::InProgress | TxnState::Ending)
+        matches!(
+            self.txn_state,
+            TxnState::Starting | TxnState::InProgress | TxnState::Ending
+        )
     }
 
     /// The public transaction state (mongoc_client_session_get_transaction_state).
@@ -280,7 +307,9 @@ impl ClientSession {
     /// _mongoc_client_session_handle_reply
     pub fn handle_reply(&mut self, is_acknowledged: bool, cmd_name: &str, reply: &[u8]) {
         use crate::bson::iter::{Iter, Value};
-        let Some(mut it) = Iter::new(reply) else { return };
+        let Some(mut it) = Iter::new(reply) else {
+            return;
+        };
         if crate::cmd::has_label(reply, "TransientTransactionError") {
             self.unpin();
         }
@@ -288,7 +317,9 @@ impl ClientSession {
         while it.next() {
             match (it.key(), it.value()) {
                 (b"$clusterTime", Value::Document(d)) => self.advance_cluster_time(d),
-                (b"operationTime", Value::Timestamp(t, i)) if is_acknowledged => self.advance_operation_time(t, i),
+                (b"operationTime", Value::Timestamp(t, i)) if is_acknowledged => {
+                    self.advance_operation_time(t, i)
+                }
                 (b"atClusterTime", v) if fad && self.snapshot && self.snapshot_time.is_none() => {
                     let (t, i) = match v {
                         Value::Timestamp(t, i) => (t, i),
@@ -296,10 +327,14 @@ impl ClientSession {
                     };
                     self.snapshot_time = Some((t, i));
                 }
-                (b"cursor", Value::Document(c)) if fad && self.snapshot && self.snapshot_time.is_none() => {
+                (b"cursor", Value::Document(c))
+                    if fad && self.snapshot && self.snapshot_time.is_none() =>
+                {
                     if let Some(mut ci) = Iter::new(c) {
                         while ci.next() {
-                            if let (b"atClusterTime", Value::Timestamp(t, i)) = (ci.key(), ci.value()) {
+                            if let (b"atClusterTime", Value::Timestamp(t, i)) =
+                                (ci.key(), ci.value())
+                            {
                                 self.snapshot_time = Some((t, i));
                             }
                         }
@@ -311,14 +346,23 @@ impl ClientSession {
     }
 
     /// _mongoc_client_session_append_read_concern: appends "readConcern" to `out` when needed.
-    pub fn append_read_concern(&self, rc: &[u8], is_read: bool, is_write: bool, cmd_name: &str, out: &mut Writer) {
+    pub fn append_read_concern(
+        &self,
+        rc: &[u8],
+        is_read: bool,
+        is_write: bool,
+        cmd_name: &str,
+        out: &mut Writer,
+    ) {
         use crate::bson::iter::Iter;
         let state = self.txn_state;
         if state == TxnState::InProgress {
             return;
         }
         let after_ok = is_read || (is_write && write_supports_after_cluster_time(cmd_name));
-        let has_timestamp = (state == TxnState::Starting || after_ok) && self.causal_consistency && self.operation_time.0 != 0;
+        let has_timestamp = (state == TxnState::Starting || after_ok)
+            && self.causal_consistency
+            && self.operation_time.0 != 0;
         let user_level = Iter::new(rc).is_some_and(|mut it| it.find(b"level"));
         let txn_level = match (&self.txn.read_concern, state) {
             (Some(r), TxnState::Starting) if !r.is_default() => r.level.clone(),
@@ -330,14 +374,20 @@ impl ClientSession {
         let mut w = Writer::with_capacity(64);
         w.concat(rc);
         if let Some(l) = &txn_level
-            && !user_level && !self.snapshot {
-                w.utf8(b"level", l);
-            }
+            && !user_level
+            && !self.snapshot
+        {
+            w.utf8(b"level", l);
+        }
         if self.snapshot {
             w.utf8(b"level", b"snapshot");
         }
         if has_timestamp {
-            w.timestamp(b"afterClusterTime", self.operation_time.0, self.operation_time.1);
+            w.timestamp(
+                b"afterClusterTime",
+                self.operation_time.0,
+                self.operation_time.1,
+            );
         } else if let (true, Some((t, i))) = (self.snapshot, self.snapshot_time) {
             w.timestamp(b"atClusterTime", t, i);
         }
@@ -372,11 +422,20 @@ impl ClientSession {
     /// mongoc_client_session_start_transaction after server selection (`opts`: the
     /// transaction's own options).
     pub fn start_transaction(&mut self, opts: Option<&TxnOpts>) -> Result<(), Error> {
-        let bad = |m: &str| Err(Error::new(domain::TRANSACTION, code::TRANSACTION_INVALID_STATE, m));
+        let bad = |m: &str| {
+            Err(Error::new(
+                domain::TRANSACTION,
+                code::TRANSACTION_INVALID_STATE,
+                m,
+            ))
+        };
         if self.snapshot {
             return bad("Transactions are not supported in snapshot sessions");
         }
-        if matches!(self.txn_state, TxnState::Starting | TxnState::InProgress | TxnState::Ending) {
+        if matches!(
+            self.txn_state,
+            TxnState::Starting | TxnState::InProgress | TxnState::Ending
+        ) {
             return bad("Transaction already in progress");
         }
         if let Some(s) = self.server_session.as_mut() {
@@ -387,7 +446,12 @@ impl ClientSession {
         if let Some(o) = opts {
             self.txn.set(o);
         }
-        if self.txn.write_concern.as_ref().is_some_and(|w| !w.is_acknowledged()) {
+        if self
+            .txn
+            .write_concern
+            .as_ref()
+            .is_some_and(|w| !w.is_acknowledged())
+        {
             return bad("Transactions do not support unacknowledged write concern");
         }
         self.unpin();
@@ -398,4 +462,4 @@ impl ClientSession {
 }
 
 use crate::concern::{ReadConcern, WriteConcern};
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};

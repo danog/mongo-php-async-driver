@@ -1,9 +1,9 @@
 //! The module entry: registered as `mongodb`, with ext-mongodb's version, dependencies, INI
 //! settings and phpinfo() rows (phongo.c, phongo_ini.c).
 
-use crate::zend::{self, sys, EngineCell};
-use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOCRYPT_VERSION, LIBMONGOC_VERSION};
-use std::ffi::{c_char, c_int, c_void, CStr};
+use crate::zend::{self, EngineCell, sys};
+use mongo_core::{EXT_STABILITY, EXT_VERSION, LIBMONGOC_VERSION, LIBMONGOCRYPT_VERSION};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr::{addr_of, null, null_mut};
 
 const VERSION: &CStr = c"2.5.8";
@@ -12,7 +12,12 @@ const _: () = assert!(VERSION.to_bytes().len() == EXT_VERSION.len());
 const MODULE_DEP_REQUIRED: u8 = 1;
 
 const fn dep(name: &'static CStr) -> sys::zend_module_dep {
-    sys::zend_module_dep { name: name.as_ptr(), rel: null(), version: null(), type_: MODULE_DEP_REQUIRED }
+    sys::zend_module_dep {
+        name: name.as_ptr(),
+        rel: null(),
+        version: null(),
+        type_: MODULE_DEP_REQUIRED,
+    }
 }
 
 static DEPS: zend::Static<[sys::zend_module_dep; 5]> = zend::Static([
@@ -20,7 +25,12 @@ static DEPS: zend::Static<[sys::zend_module_dep; 5]> = zend::Static([
     dep(c"json"),
     dep(c"spl"),
     dep(c"standard"),
-    sys::zend_module_dep { name: null(), rel: null(), version: null(), type_: 0 },
+    sys::zend_module_dep {
+        name: null(),
+        rel: null(),
+        version: null(),
+        type_: 0,
+    },
 ]);
 
 unsafe extern "C" fn on_update_debug(
@@ -31,7 +41,11 @@ unsafe extern "C" fn on_update_debug(
     _a3: *mut c_void,
     _stage: c_int,
 ) -> sys::zend_result {
-    crate::driver::log::set_debug(if new_value.is_null() { None } else { Some(zend::zstr::bytes(new_value)) });
+    crate::driver::log::set_debug(if new_value.is_null() {
+        None
+    } else {
+        Some(zend::zstr::bytes(new_value))
+    });
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 
@@ -72,12 +86,24 @@ unsafe extern "C" fn minit(_type: c_int, module_number: c_int) -> sys::zend_resu
     sys::zend_register_ini_entries(INI.0.as_ptr(), module_number);
     crate::zend::obj::init_std();
     crate::r#gen::api::register_all();
-    sys::zend_register_string_constant(c"MONGODB_VERSION".as_ptr(), 15, VERSION.as_ptr(), CONST_PERSISTENT, module_number);
+    sys::zend_register_string_constant(
+        c"MONGODB_VERSION".as_ptr(),
+        15,
+        VERSION.as_ptr(),
+        CONST_PERSISTENT,
+        module_number,
+    );
     if !crate::driver::aio::minit(module_number) {
         // PHP reports "Unable to start mongodb module" and does not start
         return sys::ZEND_RESULT_CODE_FAILURE;
     }
-    sys::zend_register_string_constant(c"MONGODB_STABILITY".as_ptr(), 17, c"stable".as_ptr(), CONST_PERSISTENT, module_number);
+    sys::zend_register_string_constant(
+        c"MONGODB_STABILITY".as_ptr(),
+        17,
+        c"stable".as_ptr(),
+        CONST_PERSISTENT,
+        module_number,
+    );
     sys::ZEND_RESULT_CODE_SUCCESS
 }
 

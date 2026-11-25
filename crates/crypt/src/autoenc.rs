@@ -4,7 +4,7 @@
 //! their explicit payloads; `encryptionInformation` (and compaction/cleanup tokens) are added for
 //! Queryable Encryption collections. Messages are libmongocrypt's.
 
-use mongo_core::bson::iter::{Iter, Value, T_ARRAY, T_DOCUMENT};
+use mongo_core::bson::iter::{Iter, T_ARRAY, T_DOCUMENT, Value};
 use mongo_core::bson::writer::Writer;
 
 type Result<T> = std::result::Result<T, String>;
@@ -23,8 +23,12 @@ pub const SUPPORTS_PREFIX_PREVIEW: u32 = 1 << 5;
 pub const SUPPORTS_SUBSTRING: u32 = 1 << 6;
 pub const SUPPORTS_SUFFIX: u32 = 1 << 7;
 pub const SUPPORTS_PREFIX: u32 = 1 << 8;
-const TEXT_QUERIES: u32 =
-    SUPPORTS_SUBSTRING | SUPPORTS_SUFFIX | SUPPORTS_PREFIX | SUPPORTS_SUBSTRING_PREVIEW | SUPPORTS_SUFFIX_PREVIEW | SUPPORTS_PREFIX_PREVIEW;
+const TEXT_QUERIES: u32 = SUPPORTS_SUBSTRING
+    | SUPPORTS_SUFFIX
+    | SUPPORTS_PREFIX
+    | SUPPORTS_SUBSTRING_PREVIEW
+    | SUPPORTS_SUFFIX_PREVIEW
+    | SUPPORTS_PREFIX_PREVIEW;
 /// fields whose compaction needs encryptionInformation and an anchor padding token
 const RANGE_OR_TEXT: u32 = SUPPORTS_RANGE | TEXT_QUERIES;
 
@@ -67,13 +71,25 @@ fn query_type(s: &[u8]) -> Option<u32> {
 /// `_parse_supported_query_types`
 fn supported_query(v: &Value) -> Result<u32> {
     const P: &str = "When parsing supported query types: ";
-    let Value::Document(d) = v else { return Err(format!("{P}Expected type document, got: {}", v.type_code())) };
+    let Value::Document(d) = v else {
+        return Err(format!("{P}Expected type document, got: {}", v.type_code()));
+    };
     let mut it = Iter::new(d).ok_or("invalid BSON")?;
     if !it.find(b"queryType") {
         return Err(format!("{P}Unable to find 'queryType' in query document"));
     }
-    let Value::Utf8(q) = it.value() else { return Err(format!("{P}Expected 'queryType' to be type UTF-8, got: {}", it.value().type_code())) };
-    query_type(q).ok_or_else(|| format!("{P}Did not recognize query type '{}'", String::from_utf8_lossy(q)))
+    let Value::Utf8(q) = it.value() else {
+        return Err(format!(
+            "{P}Expected 'queryType' to be type UTF-8, got: {}",
+            it.value().type_code()
+        ));
+    };
+    query_type(q).ok_or_else(|| {
+        format!(
+            "{P}Did not recognize query type '{}'",
+            String::from_utf8_lossy(q)
+        )
+    })
 }
 
 fn get<'a>(doc: &'a [u8], key: &[u8]) -> Option<Value<'a>> {
@@ -92,19 +108,38 @@ fn parse_field(field: &[u8]) -> Result<Field> {
         return Err("only one of 'keyId' or 'keyAltName may be in 'field' document".into());
     }
     let key_id = match key_id {
-        Some(Value::Binary(4, b)) if b.len() == 16 => Some(<[u8; 16]>::try_from(b).expect("16 bytes")),
-        Some(Value::Binary(..)) => return Err("unable to parse uuid key from 'fields.keyId'".into()),
-        Some(v) => return Err(format!("expected 'fields.keyId' to be type binary, got: {}", type_name(v.type_code()))),
+        Some(Value::Binary(4, b)) if b.len() == 16 => {
+            Some(<[u8; 16]>::try_from(b).expect("16 bytes"))
+        }
+        Some(Value::Binary(..)) => {
+            return Err("unable to parse uuid key from 'fields.keyId'".into());
+        }
+        Some(v) => {
+            return Err(format!(
+                "expected 'fields.keyId' to be type binary, got: {}",
+                type_name(v.type_code())
+            ));
+        }
         None => None,
     };
     let key_alt_name = match alt {
         Some(Value::Utf8(s)) => Some(s.to_vec()),
-        Some(v) => return Err(format!("expected 'fields.keyAltName' to be type UTF-8, got: {}", v.type_code())),
+        Some(v) => {
+            return Err(format!(
+                "expected 'fields.keyAltName' to be type UTF-8, got: {}",
+                v.type_code()
+            ));
+        }
         None => None,
     };
     let path = match get(field, b"path") {
         Some(Value::Utf8(s)) => s.to_vec(),
-        Some(v) => return Err(format!("expected 'fields.path' to be type UTF-8, got: {}", v.type_code())),
+        Some(v) => {
+            return Err(format!(
+                "expected 'fields.path' to be type UTF-8, got: {}",
+                v.type_code()
+            ));
+        }
         None => return Err("unable to find 'path' in 'field' document".into()),
     };
     let mut queries = 0;
@@ -130,10 +165,17 @@ fn parse_field(field: &[u8]) -> Result<Field> {
         (SUPPORTS_SUBSTRING_PREVIEW, "substringPreview", "substring"),
     ] {
         if queries & flag != 0 {
-            return Err(format!("Cannot use field '{p}' with '{removed}' queries. '{removed}' is unsupported. Use '{repl}' instead."));
+            return Err(format!(
+                "Cannot use field '{p}' with '{removed}' queries. '{removed}' is unsupported. Use '{repl}' instead."
+            ));
         }
     }
-    Ok(Field { key_id, key_alt_name, path, queries })
+    Ok(Field {
+        key_id,
+        key_alt_name,
+        path,
+        queries,
+    })
 }
 
 impl Efc {
@@ -141,14 +183,22 @@ impl Efc {
     pub fn parse(doc: &[u8]) -> Result<Efc> {
         let fields = match get(doc, b"fields") {
             Some(Value::Array(a)) => a,
-            Some(v) => return Err(format!("expected 'fields' to be type array, got: {}", type_name(v.type_code()))),
+            Some(v) => {
+                return Err(format!(
+                    "expected 'fields' to be type array, got: {}",
+                    type_name(v.type_code())
+                ));
+            }
             None => return Err("unable to find 'fields' in encrypted_field_config".into()),
         };
         let mut efc = Efc::default();
         let mut all = 0;
-        let mut it = Iter::new(fields).ok_or("unable to recurse into encrypted_field_config 'fields'")?;
+        let mut it =
+            Iter::new(fields).ok_or("unable to recurse into encrypted_field_config 'fields'")?;
         while it.next() {
-            let Value::Document(f) = it.value() else { return Err("expected document".into()) };
+            let Value::Document(f) = it.value() else {
+                return Err("expected document".into());
+            };
             let field = parse_field(f)?;
             all |= field.queries;
             // prepended, as libmongocrypt's linked list
@@ -156,9 +206,15 @@ impl Efc {
         }
         for (i, a) in efc.fields.iter().enumerate() {
             if let Some(n) = &a.key_alt_name
-                && efc.fields[i + 1..].iter().any(|b| b.key_alt_name.as_ref() == Some(n)) {
-                    return Err(format!("duplicate keyAltName '{}' found in encrypted field config", String::from_utf8_lossy(n)));
-                }
+                && efc.fields[i + 1..]
+                    .iter()
+                    .any(|b| b.key_alt_name.as_ref() == Some(n))
+            {
+                return Err(format!(
+                    "duplicate keyAltName '{}' found in encrypted field config",
+                    String::from_utf8_lossy(n)
+                ));
+            }
         }
         efc.str_encode_version = match get(doc, b"strEncodeVersion") {
             None => {
@@ -174,7 +230,12 @@ impl Efc {
                 }
                 v as u8
             }
-            Some(v) => return Err(format!("expected 'strEncodeVersion' to be type int32, got: {}", type_name(v.type_code()))),
+            Some(v) => {
+                return Err(format!(
+                    "expected 'strEncodeVersion' to be type int32, got: {}",
+                    type_name(v.type_code())
+                ));
+            }
         };
         Ok(efc)
     }
@@ -214,16 +275,22 @@ impl SchemaBroker {
     /// `mc_schema_broker_request`
     pub fn request(&mut self, db: &str, coll: &[u8]) -> Result<()> {
         if let Some(d) = &self.db
-            && d != db {
-                return Err(format!("Cannot request schemas for different databases. Requested schemas for '{d}' and '{db}'."));
-            }
+            && d != db
+        {
+            return Err(format!(
+                "Cannot request schemas for different databases. Requested schemas for '{d}' and '{db}'."
+            ));
+        }
         if self.entries.iter().any(|e| e.coll == coll) {
             return Ok(());
         }
         if self.entries.is_empty() {
             self.db = Some(db.to_owned());
         }
-        self.entries.push(Entry { coll: coll.to_vec(), ..Default::default() });
+        self.entries.push(Entry {
+            coll: coll.to_vec(),
+            ..Default::default()
+        });
         Ok(())
     }
 
@@ -248,7 +315,12 @@ impl SchemaBroker {
         let un: Vec<&Entry> = self.entries.iter().filter(|e| !e.satisfied).collect();
         let mut w = Writer::with_capacity(64);
         match un.len() {
-            0 => return Err("Unexpected: attempting to create listCollections filter but no schemas needed".into()),
+            0 => {
+                return Err(
+                    "Unexpected: attempting to create listCollections filter but no schemas needed"
+                        .into(),
+                );
+            }
             1 => w.utf8(b"name", &un[0].coll),
             _ => {
                 let p = w.begin(T_DOCUMENT, b"name");
@@ -267,7 +339,9 @@ impl SchemaBroker {
     fn satisfy_entry(e: &mut Entry, collinfo: &[u8], db: &str) -> Result<()> {
         let n = ns(db, &e.coll);
         if e.satisfied {
-            return Err(format!("unexpected duplicate collinfo result for collection: {n}"));
+            return Err(format!(
+                "unexpected duplicate collinfo result for collection: {n}"
+            ));
         }
         if matches!(get(collinfo, b"type"), Some(Value::Utf8(b"view"))) {
             return Err(format!("cannot auto encrypt a view: {n}"));
@@ -278,19 +352,28 @@ impl SchemaBroker {
         };
         if let Some(ef) = options.and_then(|o| get(o, b"encryptedFields")) {
             let Value::Document(d) = ef else {
-                return Err(format!("expected document for `options.encryptedFields` but got {} for collection {n}", type_name(ef.type_code())));
+                return Err(format!(
+                    "expected document for `options.encryptedFields` but got {} for collection {n}",
+                    type_name(ef.type_code())
+                ));
             };
             e.encrypted_fields = Some((d.to_vec(), Efc::parse(d)?));
         }
         if let Some(Value::Document(v)) = options.and_then(|o| get(o, b"validator")) {
-            let mut it = Iter::new(v).ok_or_else(|| format!("failed to iterate `options.validator` for collection: {n}"))?;
+            let mut it = Iter::new(v).ok_or_else(|| {
+                format!("failed to iterate `options.validator` for collection: {n}")
+            })?;
             let mut found = false;
             while it.next() {
                 if it.key() == b"$jsonSchema" {
                     if found {
-                        return Err(format!("duplicate `$jsonSchema` fields found for collection: {n}"));
+                        return Err(format!(
+                            "duplicate `$jsonSchema` fields found for collection: {n}"
+                        ));
                     }
-                    let Value::Document(s) = it.value() else { return Err(format!("unable to copy `$jsonSchema` for collection: {n}")) };
+                    let Value::Document(s) = it.value() else {
+                        return Err(format!("unable to copy `$jsonSchema` for collection: {n}"));
+                    };
                     e.json_schema = Some((s.to_vec(), true));
                     found = true;
                 }
@@ -305,11 +388,24 @@ impl SchemaBroker {
         let db = self.db().to_owned();
         let coll = match get(collinfo, b"name") {
             Some(Value::Utf8(s)) => s.to_vec(),
-            _ => return Err(format!("failed to find 'name' in collinfo in database: {db}")),
+            _ => {
+                return Err(format!(
+                    "failed to find 'name' in collinfo in database: {db}"
+                ));
+            }
         };
         no_nul(&coll, "collection name in collinfo")?;
         cache.put(&ns(&db, &coll), collinfo);
-        let e = self.entries.iter_mut().find(|e| e.coll == coll).ok_or_else(|| format!("got unexpected collinfo result for collection: {}", ns(&db, &coll)))?;
+        let e = self
+            .entries
+            .iter_mut()
+            .find(|e| e.coll == coll)
+            .ok_or_else(|| {
+                format!(
+                    "got unexpected collinfo result for collection: {}",
+                    ns(&db, &coll)
+                )
+            })?;
         Self::satisfy_entry(e, collinfo, &db)
     }
 
@@ -318,10 +414,14 @@ impl SchemaBroker {
         let db = self.db().to_owned();
         for e in self.entries.iter_mut().filter(|e| !e.satisfied) {
             let n = ns(&db, &e.coll);
-            let Some(v) = get(map, n.as_bytes()) else { continue };
+            let Some(v) = get(map, n.as_bytes()) else {
+                continue;
+            };
             let Value::Document(d) = v else {
                 return Err(if ef {
-                    format!("failed to read encryptedFields from encryptedFields map for collection: {n}")
+                    format!(
+                        "failed to read encryptedFields from encryptedFields map for collection: {n}"
+                    )
                 } else {
                     format!("failed to read schema from schema map for collection: {n}")
                 });
@@ -365,21 +465,29 @@ impl SchemaBroker {
         if name != b"create" && name != b"collMod" {
             return Ok(());
         }
-        let Value::Utf8(coll) = it.value() else { return Err("Failed to get collection name from command".into()) };
+        let Value::Utf8(coll) = it.value() else {
+            return Err("Failed to get collection name from command".into());
+        };
         no_nul(coll, "collection name")?;
-        let Some(e) = self.entries.iter_mut().find(|e| e.coll == coll) else { return Ok(()) };
+        let Some(e) = self.entries.iter_mut().find(|e| e.coll == coll) else {
+            return Ok(());
+        };
         if e.satisfied {
             return Ok(());
         }
         if let Some(Value::Document(v)) = get(cmd, b"validator")
-            && let Some(Value::Document(s)) = get(v, b"$jsonSchema") {
-                e.json_schema = Some((s.to_vec(), true));
-                e.satisfied = true;
-                return Ok(());
-            }
+            && let Some(Value::Document(s)) = get(v, b"$jsonSchema")
+        {
+            e.json_schema = Some((s.to_vec(), true));
+            e.satisfied = true;
+            return Ok(());
+        }
         if let Some(v) = get(cmd, b"encryptedFields") {
             let Value::Document(d) = v else {
-                return Err(format!("failed to read encryptedFields from command: {}", String::from_utf8_lossy(&name)));
+                return Err(format!(
+                    "failed to read encryptedFields from command: {}",
+                    String::from_utf8_lossy(&name)
+                ));
             };
             e.encrypted_fields = Some((d.to_vec(), Efc::parse(d)?));
             e.satisfied = true;
@@ -400,18 +508,32 @@ impl SchemaBroker {
 
     /// `mc_schema_broker_maybe_get_encryptedFields`
     pub fn maybe_encrypted_fields(&self, coll: &[u8]) -> Option<&Efc> {
-        self.entries.iter().find(|e| e.coll == coll).and_then(|e| e.encrypted_fields.as_ref().map(|(_, c)| c))
+        self.entries
+            .iter()
+            .find(|e| e.coll == coll)
+            .and_then(|e| e.encrypted_fields.as_ref().map(|(_, c)| c))
     }
 
     /// `mc_schema_broker_get_encryptedFields`
     pub fn encrypted_fields(&self, coll: &[u8]) -> Result<&Efc> {
         let c = String::from_utf8_lossy(coll);
-        let e = self.entries.iter().find(|e| e.coll == coll).ok_or_else(|| format!("Expected encryptedFields for '{c}', but did not find entry"))?;
-        e.encrypted_fields.as_ref().map(|(_, c)| c).ok_or_else(|| format!("Expected encryptedFields for '{c}', but none set"))
+        let e = self
+            .entries
+            .iter()
+            .find(|e| e.coll == coll)
+            .ok_or_else(|| format!("Expected encryptedFields for '{c}', but did not find entry"))?;
+        e.encrypted_fields
+            .as_ref()
+            .map(|(_, c)| c)
+            .ok_or_else(|| format!("Expected encryptedFields for '{c}', but none set"))
     }
 
     /// `append_encryptionInformation`; `key_id_by_name` resolves keyAltName fields
-    fn append_encryption_information(&self, w: &mut Writer, key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>) -> Result<()> {
+    fn append_encryption_information(
+        &self,
+        w: &mut Writer,
+        key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>,
+    ) -> Result<()> {
         let ei = w.begin(T_DOCUMENT, b"encryptionInformation");
         w.int32(b"type", 1);
         let sc = w.begin(T_DOCUMENT, b"schema");
@@ -434,7 +556,11 @@ impl SchemaBroker {
     }
 
     /// `mc_schema_broker_add_schemas_to_cmd` for the server (MC_CMD_SCHEMAS_FOR_SERVER)
-    pub fn add_schemas_to_cmd(&self, cmd: &[u8], key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>) -> Result<Vec<u8>> {
+    pub fn add_schemas_to_cmd(
+        &self,
+        cmd: &[u8],
+        key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>,
+    ) -> Result<Vec<u8>> {
         let name = cmd_name(cmd)?;
         let mut with_ef = None;
         let mut with_js = None;
@@ -443,7 +569,12 @@ impl SchemaBroker {
                 with_ef = Some(&e.coll);
                 for f in &efc.fields {
                     if let (Some(a), None) = (&f.key_alt_name, f.key_id) {
-                        key_id_by_name(a).map_err(|_| format!("Could not find key by keyAltName: {}", String::from_utf8_lossy(a)))?;
+                        key_id_by_name(a).map_err(|_| {
+                            format!(
+                                "Could not find key by keyAltName: {}",
+                                String::from_utf8_lossy(a)
+                            )
+                        })?;
                     }
                 }
             } else if e.json_schema.is_some() {
@@ -464,7 +595,12 @@ impl SchemaBroker {
     }
 
     /// `insert_encryptionInformation`
-    fn insert_encryption_information(&self, name: &[u8], cmd: &[u8], key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>) -> Result<Vec<u8>> {
+    fn insert_encryption_information(
+        &self,
+        name: &[u8],
+        cmd: &[u8],
+        key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>,
+    ) -> Result<Vec<u8>> {
         let mut w = Writer::with_capacity(cmd.len() + 256);
         if name == b"bulkWrite" {
             let ns_info = bulk_write_ns_info(cmd)?;
@@ -481,8 +617,12 @@ impl SchemaBroker {
             return Ok(w.finish());
         }
         if name == b"explain" {
-            let Some(e) = get(cmd, b"explain") else { return Err("expected to find 'explain' field".into()) };
-            let Value::Document(e) = e else { return Err("expected 'explain' to be document".into()) };
+            let Some(e) = get(cmd, b"explain") else {
+                return Err("expected to find 'explain' field".into());
+            };
+            let Value::Document(e) = e else {
+                return Err("expected 'explain' to be document".into());
+            };
             let p = w.begin(T_DOCUMENT, b"explain");
             w.append_raw_elements(e);
             self.append_encryption_information(&mut w, key_id_by_name)?;
@@ -497,7 +637,13 @@ impl SchemaBroker {
 }
 
 /// `append_encryptedFields`: the fields' keyAltName become keyId; default state collections
-fn append_encrypted_fields(w: &mut Writer, ef: &[u8], coll: &[u8], default_sev: u8, key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>) -> Result<()> {
+fn append_encrypted_fields(
+    w: &mut Writer,
+    ef: &[u8],
+    coll: &[u8],
+    default_sev: u8,
+    key_id_by_name: &dyn Fn(&[u8]) -> Result<[u8; 16]>,
+) -> Result<()> {
     let (mut esc, mut ecoc, mut fields, mut sev) = (false, false, false, false);
     let mut it = Iter::new(ef).ok_or("[append_encryptedFields] statement failed: BSON failure")?;
     while it.next() {
@@ -564,8 +710,12 @@ fn cmd_name(cmd: &[u8]) -> Result<Vec<u8>> {
 
 /// The single `nsInfo.0` document of a bulkWrite
 fn bulk_write_ns_info(cmd: &[u8]) -> Result<&[u8]> {
-    let Some(Value::Array(a)) = get(cmd, b"nsInfo") else { return Err("expected one namespace in `bulkWrite`, but found zero.".into()) };
-    let Some(Value::Document(d)) = get(a, b"0") else { return Err("expected one namespace in `bulkWrite`, but found zero.".into()) };
+    let Some(Value::Array(a)) = get(cmd, b"nsInfo") else {
+        return Err("expected one namespace in `bulkWrite`, but found zero.".into());
+    };
+    let Some(Value::Document(d)) = get(a, b"0") else {
+        return Err("expected one namespace in `bulkWrite`, but found zero.".into());
+    };
     if get(a, b"1").is_some() {
         return Err("expected one namespace in `bulkWrite`, but found more than one. Only one namespace is supported.".into());
     }
@@ -583,7 +733,9 @@ pub fn check_cmd(cmd: &[u8]) -> Result<(bool, Option<Vec<u8>>)> {
     }
     let name = String::from_utf8_lossy(it.key()).into_owned();
     let target = if name == "explain" {
-        let Value::Document(e) = it.value() else { return Err("explain value is not a document".into()) };
+        let Value::Document(e) = it.value() else {
+            return Err("explain value is not a document".into());
+        };
         let mut ei = Iter::new(e).ok_or("malformed BSON for encrypt command")?;
         if !ei.next() {
             return Err("invalid empty BSON".into());
@@ -600,22 +752,68 @@ pub fn check_cmd(cmd: &[u8]) -> Result<(bool, Option<Vec<u8>>)> {
         _ => None,
     };
     const ELIGIBLE: &[&str] = &[
-        "aggregate", "count", "distinct", "delete", "find", "findAndModify", "insert", "update", "create", "createIndexes", "explain",
-        "compactStructuredEncryptionData", "cleanupStructuredEncryptionData", "collMod",
+        "aggregate",
+        "count",
+        "distinct",
+        "delete",
+        "find",
+        "findAndModify",
+        "insert",
+        "update",
+        "create",
+        "createIndexes",
+        "explain",
+        "compactStructuredEncryptionData",
+        "cleanupStructuredEncryptionData",
+        "collMod",
     ];
     const BYPASS: &[&str] = &[
-        "getMore", "authenticate", "getnonce", "logout", "abortTransaction", "commitTransaction", "endSessions", "startSession", "drop",
-        "dropDatabase", "dropIndexes", "killCursors", "listCollections", "listDatabases", "listIndexes", "renameCollection", "ping",
-        "saslStart", "saslContinue", "killAllSessions", "killSessions", "killAllSessionsByPattern", "refreshSessions", "hello", "buildInfo",
-        "buildinfo", "getCmdLineOpts", "getLog", "createSearchIndexes", "listSearchIndexes", "dropSearchIndex", "updateSearchIndex",
+        "getMore",
+        "authenticate",
+        "getnonce",
+        "logout",
+        "abortTransaction",
+        "commitTransaction",
+        "endSessions",
+        "startSession",
+        "drop",
+        "dropDatabase",
+        "dropIndexes",
+        "killCursors",
+        "listCollections",
+        "listDatabases",
+        "listIndexes",
+        "renameCollection",
+        "ping",
+        "saslStart",
+        "saslContinue",
+        "killAllSessions",
+        "killSessions",
+        "killAllSessionsByPattern",
+        "refreshSessions",
+        "hello",
+        "buildInfo",
+        "buildinfo",
+        "getCmdLineOpts",
+        "getLog",
+        "createSearchIndexes",
+        "listSearchIndexes",
+        "dropSearchIndex",
+        "updateSearchIndex",
         "serverStatus",
     ];
     let eligible = ELIGIBLE.contains(&name.as_str());
     let bypass = BYPASS.contains(&name.as_str()) || name.eq_ignore_ascii_case("ismaster");
     if eligible {
         match &coll {
-            None => return Err(format!("non-collection command not supported for auto encryption: {name}")),
-            Some(c) if c.is_empty() => return Err(format!("empty collection name on command: {name}")),
+            None => {
+                return Err(format!(
+                    "non-collection command not supported for auto encryption: {name}"
+                ));
+            }
+            Some(c) if c.is_empty() => {
+                return Err(format!("empty collection name on command: {name}"));
+            }
             _ => {}
         }
     }
@@ -636,29 +834,55 @@ pub fn check_bulk_write(cmd: &[u8]) -> Result<(String, Vec<u8>)> {
     };
     let ns = match ns {
         Some(Value::Utf8(s)) => s,
-        Some(v) => return Err(format!("expected namespace to be UTF8, got: {}", type_name(v.type_code()))),
+        Some(v) => {
+            return Err(format!(
+                "expected namespace to be UTF8, got: {}",
+                type_name(v.type_code())
+            ));
+        }
         None => return Err("failed to find namespace in `bulkWrite` command".into()),
     };
     no_nul(ns, "namespace in `bulkWrite` command")?;
-    let dot = ns.iter().position(|&c| c == b'.').ok_or_else(|| format!("expected namespace to contain dot, got: {}", String::from_utf8_lossy(ns)))?;
+    let dot = ns.iter().position(|&c| c == b'.').ok_or_else(|| {
+        format!(
+            "expected namespace to contain dot, got: {}",
+            String::from_utf8_lossy(ns)
+        )
+    })?;
     if let Some(Value::Array(a)) = get(cmd, b"nsInfo")
-        && get(a, b"1").is_some() {
-            return Err("expected one namespace in `bulkWrite`, but found more than one. Only one namespace is supported.".into());
-        }
-    Ok((String::from_utf8_lossy(&ns[..dot]).into_owned(), ns[dot + 1..].to_vec()))
+        && get(a, b"1").is_some()
+    {
+        return Err("expected one namespace in `bulkWrite`, but found more than one. Only one namespace is supported.".into());
+    }
+    Ok((
+        String::from_utf8_lossy(&ns[..dot]).into_owned(),
+        ns[dot + 1..].to_vec(),
+    ))
 }
 
 /// `find_collections_in_pipeline` (`$lookup.from`, `$unionWith.coll`, nested pipelines and `$facet`)
-fn collections_in_pipeline(sb: &mut SchemaBroker, pipeline: &Value, db: &str, path: &str, depth: u32) -> Result<()> {
-    let Value::Array(a) = pipeline else { return Err(format!("failed to recurse pipeline at path: {path}")) };
+fn collections_in_pipeline(
+    sb: &mut SchemaBroker,
+    pipeline: &Value,
+    db: &str,
+    path: &str,
+    depth: u32,
+) -> Result<()> {
+    let Value::Array(a) = pipeline else {
+        return Err(format!("failed to recurse pipeline at path: {path}"));
+    };
     if depth > 100 {
         return Err(format!("failed to recurse pipeline at path: {path}"));
     }
-    let mut it = Iter::new(a).ok_or_else(|| format!("failed to recurse pipeline at path: {path}"))?;
+    let mut it =
+        Iter::new(a).ok_or_else(|| format!("failed to recurse pipeline at path: {path}"))?;
     while it.next() {
         let key = String::from_utf8_lossy(it.key()).into_owned();
-        let Value::Document(stage) = it.value() else { return Err(format!("failed to recurse stage at path: {path}.{key}")) };
-        let mut si = Iter::new(stage).ok_or_else(|| format!("failed to recurse stage at path: {path}.{key}"))?;
+        let Value::Document(stage) = it.value() else {
+            return Err(format!("failed to recurse stage at path: {path}.{key}"));
+        };
+        let mut si = Iter::new(stage)
+            .ok_or_else(|| format!("failed to recurse stage at path: {path}.{key}"))?;
         if !si.next() {
             return Err(format!("failed to recurse stage at path: {path}.{key}"));
         }
@@ -667,8 +891,11 @@ fn collections_in_pipeline(sb: &mut SchemaBroker, pipeline: &Value, db: &str, pa
             b"$lookup" => (&b"from"[..], "$lookup"),
             b"$unionWith" => (&b"coll"[..], "$unionWith"),
             b"$facet" => {
-                let Value::Document(f) = si.value() else { return Err(format!("failed to recurse $facet at path: {path}.{key}")) };
-                let mut fi = Iter::new(f).ok_or_else(|| format!("failed to recurse $facet at path: {path}.{key}"))?;
+                let Value::Document(f) = si.value() else {
+                    return Err(format!("failed to recurse $facet at path: {path}.{key}"));
+                };
+                let mut fi = Iter::new(f)
+                    .ok_or_else(|| format!("failed to recurse $facet at path: {path}.{key}"))?;
                 while fi.next() {
                     let sub = format!("{path}.{key}.$facet.{}", String::from_utf8_lossy(fi.key()));
                     collections_in_pipeline(sb, &fi.value(), db, &sub, depth + 1)?;
@@ -677,23 +904,41 @@ fn collections_in_pipeline(sb: &mut SchemaBroker, pipeline: &Value, db: &str, pa
             }
             _ => continue,
         };
-        let Value::Document(d) = si.value() else { return Err(format!("failed to recurse {sub} at path: {path}.{key}")) };
-        let mut di = Iter::new(d).ok_or_else(|| format!("failed to recurse {sub} at path: {path}.{key}"))?;
+        let Value::Document(d) = si.value() else {
+            return Err(format!("failed to recurse {sub} at path: {path}.{key}"));
+        };
+        let mut di =
+            Iter::new(d).ok_or_else(|| format!("failed to recurse {sub} at path: {path}.{key}"))?;
         while di.next() {
             if di.key() == field {
                 let Value::Utf8(c) = di.value() else {
                     let fld = String::from_utf8_lossy(field);
                     return Err(if sub == "$lookup" {
-                        format!("expected string, but '{}' for '{fld}' field at path: {path}.{key}", type_name(di.value().type_code()))
+                        format!(
+                            "expected string, but '{}' for '{fld}' field at path: {path}.{key}",
+                            type_name(di.value().type_code())
+                        )
                     } else {
-                        format!("expected string, but got '{}' for '{fld}' field at path: {path}.{key}", type_name(di.value().type_code()))
+                        format!(
+                            "expected string, but got '{}' for '{fld}' field at path: {path}.{key}",
+                            type_name(di.value().type_code())
+                        )
                     });
                 };
-                no_nul(c, &format!("'{}' collection name", String::from_utf8_lossy(field)))?;
+                no_nul(
+                    c,
+                    &format!("'{}' collection name", String::from_utf8_lossy(field)),
+                )?;
                 sb.request(db, c)?;
             }
             if di.key() == b"pipeline" {
-                collections_in_pipeline(sb, &di.value(), db, &format!("{path}.{key}.{sub}.pipeline"), depth + 1)?;
+                collections_in_pipeline(
+                    sb,
+                    &di.value(),
+                    db,
+                    &format!("{path}.{key}.{sub}.pipeline"),
+                    depth + 1,
+                )?;
             }
         }
     }
@@ -709,12 +954,23 @@ pub fn collections_in_agg(sb: &mut SchemaBroker, cmd: &[u8], db: &str) -> Result
 }
 
 /// `must_omit_encryptionInformation`
-pub fn must_omit_encryption_information(name: &[u8], cmd: &[u8], efc: Option<&Efc>) -> Result<bool> {
+pub fn must_omit_encryption_information(
+    name: &[u8],
+    cmd: &[u8],
+    efc: Option<&Efc>,
+) -> Result<bool> {
     if name == b"compactStructuredEncryptionData" {
         let efc = efc.ok_or("expected to have encryptedFields for compactStructuredEncryptionData command but have none")?;
         return Ok(!efc.fields.iter().any(|f| f.queries & RANGE_OR_TEXT != 0));
     }
-    if [&b"cleanupStructuredEncryptionData"[..], b"create", b"collMod", b"createIndexes"].contains(&name) {
+    if [
+        &b"cleanupStructuredEncryptionData"[..],
+        b"create",
+        b"collMod",
+        b"createIndexes",
+    ]
+    .contains(&name)
+    {
         return Ok(true);
     }
     if ![&b"find"[..], b"aggregate", b"distinct", b"count", b"insert"].contains(&name) {
@@ -726,7 +982,14 @@ pub fn must_omit_encryption_information(name: &[u8], cmd: &[u8], efc: Option<&Ef
         if b.is_empty() {
             return Err("unexpected empty FLE payload".into());
         }
-        if [crate::fle2::SUBTYPE_IUP_V2, crate::fle2::SUBTYPE_FIND_EQUALITY_V2, crate::fle2::SUBTYPE_FIND_RANGE_V2, crate::text::SUBTYPE_FIND_TEXT].contains(&b[0]) {
+        if [
+            crate::fle2::SUBTYPE_IUP_V2,
+            crate::fle2::SUBTYPE_FIND_EQUALITY_V2,
+            crate::fle2::SUBTYPE_FIND_RANGE_V2,
+            crate::text::SUBTYPE_FIND_TEXT,
+        ]
+        .contains(&b[0])
+        {
             found = true;
         }
         Ok(())
@@ -748,7 +1011,9 @@ pub fn strip_encryption_information(name: &[u8], cmd: &[u8]) -> Result<Vec<u8>> 
         return Ok(w.finish());
     }
     if name == b"explain" {
-        let Some(Value::Document(e)) = get(cmd, b"explain") else { return Err("expected 'explain' to be document".into()) };
+        let Some(Value::Document(e)) = get(cmd, b"explain") else {
+            return Err("expected 'explain' to be document".into());
+        };
         let p = w.begin(T_DOCUMENT, b"explain");
         copy_excluding(e, &[b"encryptionInformation"], &mut w);
         w.end(p);
@@ -765,9 +1030,14 @@ pub fn fixup_str_encode_version(name: &[u8], cmd: &[u8], efc: Option<&Efc>) -> R
         return Ok(cmd.to_vec());
     }
     let efc = efc.ok_or("expected to have encryptedFields for create command but have none")?;
-    let Some(ef) = get(cmd, b"encryptedFields") else { return Ok(cmd.to_vec()) };
+    let Some(ef) = get(cmd, b"encryptedFields") else {
+        return Ok(cmd.to_vec());
+    };
     let Value::Document(ef) = ef else {
-        return Err(format!("_fle2_fixup_encryptedFields_strEncodeVersion: Expected encryptedFields to be type obj, got: {}", type_name(ef.type_code())));
+        return Err(format!(
+            "_fle2_fixup_encryptedFields_strEncodeVersion: Expected encryptedFields to be type obj, got: {}",
+            type_name(ef.type_code())
+        ));
     };
     match get(ef, b"strEncodeVersion") {
         None => {
@@ -791,21 +1061,41 @@ pub fn fixup_str_encode_version(name: &[u8], cmd: &[u8], efc: Option<&Efc>) -> R
             }
             Ok(cmd.to_vec())
         }
-        Some(v) => Err(format!("expected 'strEncodeVersion' to be type int32, got: {}", type_name(v.type_code()))),
+        Some(v) => Err(format!(
+            "expected 'strEncodeVersion' to be type int32, got: {}",
+            type_name(v.type_code())
+        )),
     }
 }
 
 /// `_fle2_append_compactionTokens`: compactionTokens / cleanupTokens per field (`key_by_id` gives
 /// the decrypted key)
-pub fn append_compaction_tokens(name: &[u8], efc: Option<&Efc>, cmd: &[u8], key_by_id: &dyn Fn(&[u8; 16]) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
+pub fn append_compaction_tokens(
+    name: &[u8],
+    efc: Option<&Efc>,
+    cmd: &[u8],
+    key_by_id: &dyn Fn(&[u8; 16]) -> Result<Vec<u8>>,
+) -> Result<Vec<u8>> {
     let cleanup = name == b"cleanupStructuredEncryptionData";
     if name != b"compactStructuredEncryptionData" && !cleanup {
         return Ok(cmd.to_vec());
     }
-    let efc = efc.ok_or_else(|| format!("expected to have encryptedFields for {} command but have none", String::from_utf8_lossy(name)))?;
+    let efc = efc.ok_or_else(|| {
+        format!(
+            "expected to have encryptedFields for {} command but have none",
+            String::from_utf8_lossy(name)
+        )
+    })?;
     let mut w = Writer::with_capacity(cmd.len() + 128 * efc.fields.len());
     w.append_raw_elements(cmd);
-    let p = w.begin(T_DOCUMENT, if cleanup { b"cleanupTokens" } else { b"compactionTokens" });
+    let p = w.begin(
+        T_DOCUMENT,
+        if cleanup {
+            b"cleanupTokens"
+        } else {
+            b"compactionTokens"
+        },
+    );
     for f in &efc.fields {
         let id = f.key_id.ok_or("could not find key")?;
         let key = key_by_id(&id)?;
@@ -845,7 +1135,9 @@ impl CollinfoCache {
     pub fn get(&self, ns: &str) -> Option<Vec<u8>> {
         let mut g = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         g.retain(|(_, _, t)| t.elapsed() < COLLINFO_EXPIRATION);
-        g.iter().find(|(n, _, _)| n == ns).map(|(_, d, _)| d.clone())
+        g.iter()
+            .find(|(n, _, _)| n == ns)
+            .map(|(_, d, _)| d.clone())
     }
 
     pub fn put(&self, ns: &str, doc: &[u8]) {

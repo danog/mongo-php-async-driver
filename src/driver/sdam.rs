@@ -2,10 +2,10 @@
 //! TopologyDescription.c): snapshots of the core SDAM descriptions, and Server::getServerDescription.
 
 use crate::bson::types::Props;
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval, ClassEntry, EngineCell};
-use mongo_core::sdam::{ServerDescription, RTT_UNSET};
+use crate::zend::{ClassEntry, EngineCell, hash, obj, sys, zval};
+use mongo_core::sdam::{RTT_UNSET, ServerDescription};
 use mongo_core::topology::{OpType, TopologyDescription};
 use std::ptr::null_mut;
 
@@ -38,7 +38,11 @@ unsafe extern "C" fn create_sd(c: *mut sys::zend_class_entry) -> *mut sys::zend_
 
 /// The hello response, decoded with the debug type map (arrays); None after throwing.
 unsafe fn hello_zval(sd: &ServerDescription) -> Option<sys::zval> {
-    let doc: &[u8] = if sd.hello.is_empty() { &EMPTY_DOC } else { &sd.hello };
+    let doc: &[u8] = if sd.hello.is_empty() {
+        &EMPTY_DOC
+    } else {
+        &sd.hello
+    };
     super::to_zval(doc, &super::debug_typemap())
 }
 
@@ -51,8 +55,20 @@ unsafe fn sd_fill(sd: Option<&ServerDescription>, ht: *mut sys::HashTable) {
     hash::str_update(ht, b"type", zval::string(sd.ty.name().as_bytes()));
     let Some(h) = hello_zval(sd) else { return };
     hash::str_update(ht, b"hello_response", h);
-    hash::str_update(ht, b"last_update_time", zval::long(sd.last_update_time_usec));
-    hash::str_update(ht, b"round_trip_time", if sd.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(sd.rtt_ms) });
+    hash::str_update(
+        ht,
+        b"last_update_time",
+        zval::long(sd.last_update_time_usec),
+    );
+    hash::str_update(
+        ht,
+        b"round_trip_time",
+        if sd.rtt_ms == RTT_UNSET {
+            zval::null()
+        } else {
+            zval::long(sd.rtt_ms)
+        },
+    );
 }
 
 unsafe extern "C" fn sd_get_properties(o: *mut sys::zend_object) -> *mut sys::HashTable {
@@ -62,7 +78,10 @@ unsafe extern "C" fn sd_get_properties(o: *mut sys::zend_object) -> *mut sys::Ha
     ht
 }
 
-unsafe extern "C" fn sd_get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn sd_get_debug_info(
+    o: *mut sys::zend_object,
+    is_temp: *mut i32,
+) -> *mut sys::HashTable {
     *is_temp = 1;
     let ht = hash::new(6);
     sd_fill(obj::data::<ServerDesc>(o).sd.as_ref(), ht);
@@ -79,7 +98,14 @@ pub unsafe fn init_MongoDB_Driver_ServerDescription(c: *mut sys::zend_class_entr
 
 /// phongo_serverdescription_init: a ServerDescription object holding a copy of `sd`.
 pub unsafe fn new_serverdescription(sd: ServerDescription) -> sys::zval {
-    zval::obj(obj::alloc(CE_SD.get(), ServerDesc { sd: Some(sd), props: Props::default() }, H_SD.get()))
+    zval::obj(obj::alloc(
+        CE_SD.get(),
+        ServerDesc {
+            sd: Some(sd),
+            props: Props::default(),
+        },
+        H_SD.get(),
+    ))
 }
 
 /// The description of `$this` (phongo dereferences NULL for an object not made by the driver;
@@ -87,16 +113,25 @@ pub unsafe fn new_serverdescription(sd: ServerDescription) -> sys::zval {
 unsafe fn this_sd<'a>(ex: Ex) -> Option<&'a ServerDescription> {
     let d = obj::data::<ServerDesc>(call::this(ex)).sd.as_ref();
     if d.is_none() {
-        throw(E::Logic, "MongoDB\\Driver\\ServerDescription is not initialized");
+        throw(
+            E::Logic,
+            "MongoDB\\Driver\\ServerDescription is not initialized",
+        );
     }
     d
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     throw(E::Runtime, "Accessing private constructor");
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHelloResponse(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHelloResponse(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if !call::none(ex) {
         return;
     }
@@ -108,40 +143,64 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHelloResponse(e
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getHost(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(sd) = this_sd(ex) {
-            zval::write(rv, zval::string(super::server::host_port(&sd.addr).0.as_bytes()));
-        }
+        && let Some(sd) = this_sd(ex)
+    {
+        zval::write(
+            rv,
+            zval::string(super::server::host_port(&sd.addr).0.as_bytes()),
+        );
+    }
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getLastUpdateTime(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getLastUpdateTime(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if call::none(ex)
-        && let Some(sd) = this_sd(ex) {
-            zval::write(rv, zval::long(sd.last_update_time_usec));
-        }
+        && let Some(sd) = this_sd(ex)
+    {
+        zval::write(rv, zval::long(sd.last_update_time_usec));
+    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getPort(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(sd) = this_sd(ex) {
-            zval::write(rv, zval::long(super::server::host_port(&sd.addr).1));
-        }
+        && let Some(sd) = this_sd(ex)
+    {
+        zval::write(rv, zval::long(super::server::host_port(&sd.addr).1));
+    }
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getRoundTripTime(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getRoundTripTime(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if call::none(ex)
-        && let Some(sd) = this_sd(ex) {
-            zval::write(rv, if sd.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(sd.rtt_ms) });
-        }
+        && let Some(sd) = this_sd(ex)
+    {
+        zval::write(
+            rv,
+            if sd.rtt_ms == RTT_UNSET {
+                zval::null()
+            } else {
+                zval::long(sd.rtt_ms)
+            },
+        );
+    }
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_ServerDescription_getType(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(sd) = this_sd(ex) {
-            zval::write(rv, zval::string(sd.ty.name().as_bytes()));
-        }
+        && let Some(sd) = this_sd(ex)
+    {
+        zval::write(rv, zval::string(sd.ty.name().as_bytes()));
+    }
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getServerDescription(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getServerDescription(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if !call::none(ex) {
         return;
     }
@@ -180,7 +239,10 @@ unsafe extern "C" fn td_get_properties(o: *mut sys::zend_object) -> *mut sys::Ha
     ht
 }
 
-unsafe extern "C" fn td_get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn td_get_debug_info(
+    o: *mut sys::zend_object,
+    is_temp: *mut i32,
+) -> *mut sys::HashTable {
     *is_temp = 1;
     let ht = hash::new(2);
     td_fill(obj::data::<TopologyDesc>(o).td.as_ref(), ht);
@@ -197,38 +259,63 @@ pub unsafe fn init_MongoDB_Driver_TopologyDescription(c: *mut sys::zend_class_en
 
 /// phongo_topologydescription_init: a TopologyDescription object holding a copy of `td`.
 pub unsafe fn new_topologydescription(td: TopologyDescription) -> sys::zval {
-    zval::obj(obj::alloc(CE_TD.get(), TopologyDesc { td: Some(td), props: Props::default() }, H_TD.get()))
+    zval::obj(obj::alloc(
+        CE_TD.get(),
+        TopologyDesc {
+            td: Some(td),
+            props: Props::default(),
+        },
+        H_TD.get(),
+    ))
 }
 
 unsafe fn this_td<'a>(ex: Ex) -> Option<&'a TopologyDescription> {
     let d = obj::data::<TopologyDesc>(call::this(ex)).td.as_ref();
     if d.is_none() {
-        throw(E::Logic, "MongoDB\\Driver\\TopologyDescription is not initialized");
+        throw(
+            E::Logic,
+            "MongoDB\\Driver\\TopologyDescription is not initialized",
+        );
     }
     d
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription___construct(_ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription___construct(
+    _ex: Ex,
+    _rv: *mut sys::zval,
+) {
     throw(E::Runtime, "Accessing private constructor");
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getServers(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getServers(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if call::none(ex)
-        && let Some(td) = this_td(ex) {
-            zval::write(rv, servers_zval(td));
-        }
+        && let Some(td) = this_td(ex)
+    {
+        zval::write(rv, servers_zval(td));
+    }
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getType(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_getType(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if call::none(ex)
-        && let Some(td) = this_td(ex) {
-            zval::write(rv, zval::string(td.ty.name().as_bytes()));
-        }
+        && let Some(td) = this_td(ex)
+    {
+        zval::write(rv, zval::string(td.ty.name().as_bytes()));
+    }
 }
 
 /// mongoc_topology_description_has_readable_server / _has_writable_server: a compatible
 /// topology with a server selectable for `op`.
-fn selectable(td: &TopologyDescription, op: OpType, rp: Option<&mongo_core::topology::ReadPrefs>) -> bool {
+fn selectable(
+    td: &TopologyDescription,
+    op: OpType,
+    rp: Option<&mongo_core::topology::ReadPrefs>,
+) -> bool {
     if td.compatible(rp).is_err() {
         return false;
     }
@@ -236,19 +323,33 @@ fn selectable(td: &TopologyDescription, op: OpType, rp: Option<&mongo_core::topo
     td.clone().select(op, rp, &[], 0).0.is_some()
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasReadableServer(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasReadableServer(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     let mut z: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"|O".as_ptr(), &mut z, super::readpref::CE.get()) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"|O".as_ptr(),
+        &mut z,
+        super::readpref::CE.get(),
+    ) != 0
+    {
         return;
     }
     let Some(td) = this_td(ex) else { return };
-    let rp = (!z.is_null()).then(|| obj::data::<super::readpref::ReadPreference>((*z).value.obj).prefs());
+    let rp = (!z.is_null())
+        .then(|| obj::data::<super::readpref::ReadPreference>((*z).value.obj).prefs());
     zval::write(rv, zval::bool(selectable(td, OpType::Read, rp.as_ref())));
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasWritableServer(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_TopologyDescription_hasWritableServer(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if call::none(ex)
-        && let Some(td) = this_td(ex) {
-            zval::write(rv, zval::bool(selectable(td, OpType::Write, None)));
-        }
+        && let Some(td) = this_td(ex)
+    {
+        zval::write(rv, zval::bool(selectable(td, OpType::Write, None)));
+    }
 }

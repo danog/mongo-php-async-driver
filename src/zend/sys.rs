@@ -1,7 +1,13 @@
 //! Raw Zend Engine FFI: ext-php-rs's bindgen bindings (`ext_php_rs::ffi`, extended through
 //! EXT_PHP_RS_ALLOWED_BINDINGS in .cargo/config.toml), plus the few ext/date and ext/spl
 //! declarations its wrapper header does not include.
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code, clippy::all)]
+#![allow(
+    non_upper_case_globals,
+    non_camel_case_types,
+    non_snake_case,
+    dead_code,
+    clippy::all
+)]
 
 pub use ext_php_rs::ffi::*;
 
@@ -73,12 +79,28 @@ pub struct php_date_obj {
     pub std: zend_object,
 }
 
-pub type spl_iterator_apply_func_t = ::core::option::Option<unsafe extern "C" fn(iter: *mut zend_object_iterator, puser: *mut ::core::ffi::c_void) -> ::core::ffi::c_int>;
+pub type spl_iterator_apply_func_t = ::core::option::Option<
+    unsafe extern "C" fn(
+        iter: *mut zend_object_iterator,
+        puser: *mut ::core::ffi::c_void,
+    ) -> ::core::ffi::c_int,
+>;
 
 unsafe extern "C" {
     pub fn php_date_get_date_ce() -> *mut zend_class_entry;
     pub fn php_date_get_immutable_ce() -> *mut zend_class_entry;
     pub fn php_date_get_interface_ce() -> *mut zend_class_entry;
-    pub fn php_date_initialize(dateobj: *mut php_date_obj, time_str: *const ::core::ffi::c_char, time_str_len: usize, format: *const ::core::ffi::c_char, timezone_object: *mut zval, flags: ::core::ffi::c_int) -> bool;
-    pub fn spl_iterator_apply(obj: *mut zval, apply_func: spl_iterator_apply_func_t, puser: *mut ::core::ffi::c_void) -> zend_result;
+    pub fn php_date_initialize(
+        dateobj: *mut php_date_obj,
+        time_str: *const ::core::ffi::c_char,
+        time_str_len: usize,
+        format: *const ::core::ffi::c_char,
+        timezone_object: *mut zval,
+        flags: ::core::ffi::c_int,
+    ) -> bool;
+    pub fn spl_iterator_apply(
+        obj: *mut zval,
+        apply_func: spl_iterator_apply_func_t,
+        puser: *mut ::core::ffi::c_void,
+    ) -> zend_result;
 }

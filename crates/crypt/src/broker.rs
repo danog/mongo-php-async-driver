@@ -30,7 +30,10 @@ pub struct KeyCache {
 
 impl KeyCache {
     pub fn new(expiration_ms: u64) -> KeyCache {
-        KeyCache { entries: Mutex::new(Vec::new()), expiration_ms }
+        KeyCache {
+            entries: Mutex::new(Vec::new()),
+            expiration_ms,
+        }
     }
 
     fn expired(&self, e: &CacheEntry) -> bool {
@@ -41,14 +44,21 @@ impl KeyCache {
         let mut g = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         g.retain(|e| !self.expired(e));
         g.iter()
-            .find(|e| id.is_some_and(|i| *i == e.doc.id) || alt.iter().any(|a| e.doc.alt_names.contains(a)))
+            .find(|e| {
+                id.is_some_and(|i| *i == e.doc.id)
+                    || alt.iter().any(|a| e.doc.alt_names.contains(a))
+            })
             .cloned()
     }
 
     fn put(&self, doc: &KeyDoc, material: &[u8]) {
         let mut g = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         g.retain(|e| e.doc.id != doc.id);
-        g.push(CacheEntry { doc: doc.clone(), material: material.to_vec(), last_updated: Instant::now() });
+        g.push(CacheEntry {
+            doc: doc.clone(),
+            material: material.to_vec(),
+            last_updated: Instant::now(),
+        });
     }
 }
 
@@ -81,18 +91,31 @@ fn intersects(a: &[AltName], b: &[AltName]) -> bool {
 
 impl<'a> KeyBroker<'a> {
     pub fn new(kms: &'a KmsProviders, cache: &'a KeyCache) -> Self {
-        KeyBroker { kms, provided: None, cache, requests: Vec::new(), returned: Vec::new(), cached: Vec::new(), any: false }
+        KeyBroker {
+            kms,
+            provided: None,
+            cache,
+            requests: Vec::new(),
+            returned: Vec::new(),
+            cached: Vec::new(),
+            any: false,
+        }
     }
 
     fn find_request(&self, id: Option<&[u8; 16]>, alt: &[AltName]) -> Option<usize> {
-        self.requests.iter().position(|r| (id.is_some() && r.id.as_ref() == id) || intersects(alt, &r.alt_names))
+        self.requests
+            .iter()
+            .position(|r| (id.is_some() && r.id.as_ref() == id) || intersects(alt, &r.alt_names))
     }
 
     fn try_cache(&mut self, i: usize) {
         let r = &self.requests[i];
         if let Some(e) = self.cache.get(r.id.as_ref(), &r.alt_names) {
             self.requests[i].satisfied = true;
-            self.cached.push(Returned { doc: e.doc, material: Some(e.material) });
+            self.cached.push(Returned {
+                doc: e.doc,
+                material: Some(e.material),
+            });
         }
     }
 
@@ -106,7 +129,11 @@ impl<'a> KeyBroker<'a> {
         if self.find_request(Some(id), &[]).is_some() {
             return;
         }
-        self.requests.push(Request { id: Some(*id), alt_names: Vec::new(), satisfied: false });
+        self.requests.push(Request {
+            id: Some(*id),
+            alt_names: Vec::new(),
+            satisfied: false,
+        });
         self.try_cache(self.requests.len() - 1);
     }
 
@@ -116,7 +143,11 @@ impl<'a> KeyBroker<'a> {
         if self.find_request(None, &alt).is_some() {
             return;
         }
-        self.requests.push(Request { id: None, alt_names: alt, satisfied: false });
+        self.requests.push(Request {
+            id: None,
+            alt_names: alt,
+            satisfied: false,
+        });
         self.try_cache(self.requests.len() - 1);
     }
 
@@ -171,9 +202,15 @@ impl<'a> KeyBroker<'a> {
         let key = KeyDoc::parse(doc)?;
         match self.find_request(Some(&key.id), &key.alt_names) {
             Some(_) => {}
-            None if !self.any => return Err("unexpected key returned, does not match any requests".into()),
+            None if !self.any => {
+                return Err("unexpected key returned, does not match any requests".into());
+            }
             None => {
-                self.requests.push(Request { id: Some(key.id), alt_names: key.alt_names.clone(), satisfied: false });
+                self.requests.push(Request {
+                    id: Some(key.id),
+                    alt_names: key.alt_names.clone(),
+                    satisfied: false,
+                });
                 let i = self.requests.len() - 1;
                 self.try_cache(i);
                 if self.requests[i].satisfied {
@@ -181,16 +218,28 @@ impl<'a> KeyBroker<'a> {
                 }
             }
         }
-        if self.returned.iter().any(|r| r.doc.id == key.id || intersects(&r.doc.alt_names, &key.alt_names)) {
+        if self
+            .returned
+            .iter()
+            .any(|r| r.doc.id == key.id || intersects(&r.doc.alt_names, &key.alt_names))
+        {
             return Err("keys returned have duplicate keyAltNames or _id".into());
         }
-        let creds = self.kms.get(&key.kek.kmsid).or_else(|| self.provided.as_ref().and_then(|k| k.get(&key.kek.kmsid)));
+        let creds = self
+            .kms
+            .get(&key.kek.kmsid)
+            .or_else(|| self.provided.as_ref().and_then(|k| k.get(&key.kek.kmsid)));
         if creds.is_none() {
-            return Err(format!("KMS provider `{}` is not configured", key.kek.kmsid));
+            return Err(format!(
+                "KMS provider `{}` is not configured",
+                key.kek.kmsid
+            ));
         }
         let mut material = None;
         if key.kek.kms_type() == KmsType::Local {
-            let Some(Creds::Local { key: kek }) = creds else { unreachable!("local kmsid has local creds") };
+            let Some(Creds::Local { key: kek }) = creds else {
+                unreachable!("local kmsid has local creds")
+            };
             let m = crate::crypto::unwrap_key(kek, &key.key_material)?;
             self.cache.put(&key, &m);
             material = Some(m);
@@ -221,14 +270,19 @@ impl<'a> KeyBroker<'a> {
 
     /// The returned keys whose material still needs a KMS round trip
     pub fn pending_kms(&mut self) -> impl Iterator<Item = (&KeyDoc, &mut Option<Vec<u8>>)> {
-        self.returned.iter_mut().filter(|r| r.material.is_none()).map(|r| (&r.doc, &mut r.material))
+        self.returned
+            .iter_mut()
+            .filter(|r| r.material.is_none())
+            .map(|r| (&r.doc, &mut r.material))
     }
 
     /// Stores a key decrypted by a KMS
     pub fn kms_done(&mut self) -> Result<()> {
         for r in &self.returned {
             match &r.material {
-                Some(m) if m.len() != crate::crypto::KEY_LEN => return Err("decrypted key is incorrect length".into()),
+                Some(m) if m.len() != crate::crypto::KEY_LEN => {
+                    return Err("decrypted key is incorrect length".into());
+                }
                 Some(m) => self.cache.put(&r.doc, m),
                 None => return Err("unexpected, key not decrypted".into()),
             }
@@ -244,7 +298,9 @@ impl<'a> KeyBroker<'a> {
             .chain(self.cached.iter())
             .find(|r| r.doc.id == *id)
             .ok_or("could not find key")?;
-        r.material.clone().ok_or_else(|| "unexpected, key not decrypted".into())
+        r.material
+            .clone()
+            .ok_or_else(|| "unexpected, key not decrypted".into())
     }
 
     /// `_mongocrypt_key_broker_decrypted_key_by_name`: (material, id)
@@ -255,11 +311,17 @@ impl<'a> KeyBroker<'a> {
             .chain(self.cached.iter())
             .find(|r| r.doc.alt_names.iter().any(|a| a == name))
             .ok_or("could not find key")?;
-        Ok((r.material.clone().ok_or("unexpected, key not decrypted")?, r.doc.id))
+        Ok((
+            r.material.clone().ok_or("unexpected, key not decrypted")?,
+            r.doc.id,
+        ))
     }
 
     /// Every decrypted key, the cached ones first (rewrapManyDataKey; after `kms_done`)
     pub fn all_keys(&self) -> impl Iterator<Item = (&KeyDoc, &Vec<u8>)> {
-        self.cached.iter().chain(self.returned.iter()).filter_map(|r| r.material.as_ref().map(|m| (&r.doc, m)))
+        self.cached
+            .iter()
+            .chain(self.returned.iter())
+            .filter_map(|r| r.material.as_ref().map(|m| (&r.doc, m)))
     }
 }

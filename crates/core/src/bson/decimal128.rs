@@ -16,10 +16,16 @@ pub struct Decimal128 {
 }
 
 impl Decimal128 {
-    pub const NAN: Decimal128 = Decimal128 { high: 0x7c00_0000_0000_0000, low: 0 };
+    pub const NAN: Decimal128 = Decimal128 {
+        high: 0x7c00_0000_0000_0000,
+        low: 0,
+    };
 
     fn inf(negative: bool) -> Self {
-        Decimal128 { high: 0x7800_0000_0000_0000 + if negative { 0x8000_0000_0000_0000 } else { 0 }, low: 0 }
+        Decimal128 {
+            high: 0x7800_0000_0000_0000 + if negative { 0x8000_0000_0000_0000 } else { 0 },
+            low: 0,
+        }
     }
 
     /// The 16 bytes as stored in BSON.
@@ -31,7 +37,10 @@ impl Decimal128 {
     }
 
     pub fn from_le_bytes(b: [u8; 16]) -> Self {
-        Decimal128 { low: u64::from_le_bytes(b[..8].try_into().unwrap()), high: u64::from_le_bytes(b[8..].try_into().unwrap()) }
+        Decimal128 {
+            low: u64::from_le_bytes(b[..8].try_into().unwrap()),
+            high: u64::from_le_bytes(b[8..].try_into().unwrap()),
+        }
     }
 
     /// bson_decimal128_to_string.
@@ -66,7 +75,8 @@ impl Decimal128 {
 
         let mut significand = [0u32; 36];
         let top = (high & 0x3fff) + ((significand_msb & 0xf) << 14);
-        let mut s128: u128 = ((top as u128) << 96) | ((midh as u128) << 64) | ((midl as u128) << 32) | low as u128;
+        let mut s128: u128 =
+            ((top as u128) << 96) | ((midh as u128) << 64) | ((midl as u128) << 32) | low as u128;
         let is_zero = if s128 == 0 {
             true
         } else if top >= (1 << 17) {
@@ -274,7 +284,9 @@ impl Decimal128 {
             }
         }
 
-        if (exponent as i64) <= radix_position as i64 && radix_position as i64 > exponent as i64 + (1 << 14) {
+        if (exponent as i64) <= radix_position as i64
+            && radix_position as i64 > exponent as i64 + (1 << 14)
+        {
             exponent = EXPONENT_MIN;
         } else {
             exponent -= radix_position as i32;
@@ -301,7 +313,9 @@ impl Decimal128 {
                 return None;
             }
             if ndigits_stored < ndigits {
-                if byte(first_nonzero + ndigits - 1 + includes_sign + sr) != b'0' && significant_digits != 0 {
+                if byte(first_nonzero + ndigits - 1 + includes_sign + sr) != b'0'
+                    && significant_digits != 0
+                {
                     return None;
                 }
                 ndigits -= 1;
@@ -319,7 +333,8 @@ impl Decimal128 {
         }
 
         if last_digit - first_digit + 1 < significant_digits {
-            let round_digit = byte(first_nonzero + last_digit + includes_sign + sr + 1).wrapping_sub(b'0');
+            let round_digit =
+                byte(first_nonzero + last_digit + includes_sign + sr + 1).wrapping_sub(b'0');
             if round_digit != 0 {
                 return None;
             }

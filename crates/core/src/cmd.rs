@@ -31,11 +31,7 @@ pub struct CmdError {
 
 fn find<'a>(doc: &'a [u8], key: &[u8]) -> Option<Value<'a>> {
     let mut it = Iter::new(doc)?;
-    if it.find(key) {
-        Some(it.value())
-    } else {
-        None
-    }
+    if it.find(key) { Some(it.value()) } else { None }
 }
 
 fn is_number(v: &Value) -> bool {
@@ -48,7 +44,8 @@ fn parse_error_reply(doc: &[u8], check_wce: bool) -> Option<(u32, String)> {
     let mut msg: Option<&[u8]> = None;
     let mut found = false;
     // one pass over the reply instead of one bson_iter_init_find per field
-    let [code_v, errmsg, err, wce] = crate::bson::iter::find_many(doc, [b"code", b"errmsg", b"$err", b"writeConcernError"]);
+    let [code_v, errmsg, err, wce] =
+        crate::bson::iter::find_many(doc, [b"code", b"errmsg", b"$err", b"writeConcernError"]);
     if let Some(v) = code_v.filter(is_number) {
         code = as_i64(&v) as u32;
         found = true;
@@ -60,32 +57,48 @@ fn parse_error_reply(doc: &[u8], check_wce: bool) -> Option<(u32, String)> {
         msg = Some(s);
         found = true;
     }
-    if !found && check_wce
-        && let Some(Value::Document(w)) = wce {
-            if let Some(v) = find(w, b"code").filter(is_number) {
-                code = as_i64(&v) as u32;
-                found = true;
-            }
-            if let Some(Value::Utf8(s)) = find(w, b"errmsg") {
-                msg = Some(s);
-                found = true;
-            }
+    if !found
+        && check_wce
+        && let Some(Value::Document(w)) = wce
+    {
+        if let Some(v) = find(w, b"code").filter(is_number) {
+            code = as_i64(&v) as u32;
+            found = true;
         }
+        if let Some(Value::Utf8(s)) = find(w, b"errmsg") {
+            msg = Some(s);
+            found = true;
+        }
+    }
     if !found {
         return None;
     }
-    let msg = msg.map(|m| String::from_utf8_lossy(m).into_owned()).unwrap_or_else(|| "Unknown command error".to_owned());
+    let msg = msg
+        .map(|m| String::from_utf8_lossy(m).into_owned())
+        .unwrap_or_else(|| "Unknown command error".to_owned());
     Some((code, msg))
 }
 
 /// _mongoc_cmd_set_error's code/category mapping.
 fn to_error(code: u32, message: String) -> CmdError {
     if code == code::PROTOCOL_ERROR {
-        CmdError { code: code::QUERY_COMMAND_NOT_FOUND, server: true, message }
+        CmdError {
+            code: code::QUERY_COMMAND_NOT_FOUND,
+            server: true,
+            message,
+        }
     } else if code == 0 {
-        CmdError { code: code::QUERY_FAILURE, server: false, message }
+        CmdError {
+            code: code::QUERY_FAILURE,
+            server: false,
+            message,
+        }
     } else {
-        CmdError { code, server: true, message }
+        CmdError {
+            code,
+            server: true,
+            message,
+        }
     }
 }
 
@@ -110,14 +123,25 @@ pub fn check_ok_no_wce(doc: &[u8]) -> Result<(), CmdError> {
 
 /// The message of an error reply ("Unknown command error" when it has none).
 pub fn error_message(doc: &[u8]) -> String {
-    parse_error_reply(doc, false).map(|e| e.1).unwrap_or_else(|| "Unknown command error".to_owned())
+    parse_error_reply(doc, false)
+        .map(|e| e.1)
+        .unwrap_or_else(|| "Unknown command error".to_owned())
 }
 
 impl CmdError {
     /// The bson_error_t libmongoc builds with error API version 2 (domain SERVER).
     pub fn into_error(self) -> crate::error::Error {
-        let category = if self.server { crate::error::Category::Server } else { crate::error::Category::Driver };
-        crate::error::Error { domain: crate::error::domain::SERVER, code: self.code, category, message: self.message }
+        let category = if self.server {
+            crate::error::Category::Server
+        } else {
+            crate::error::Category::Driver
+        };
+        crate::error::Error {
+            domain: crate::error::domain::SERVER,
+            code: self.code,
+            category,
+            message: self.message,
+        }
     }
 }
 
@@ -137,7 +161,9 @@ pub fn error_labels(reply: &[u8]) -> &[u8] {
 
 /// An `errorLabels` array (see error_labels) contains `label`.
 pub fn labels_have(labels: &[u8], label: &str) -> bool {
-    let Some(mut it) = Iter::new(labels) else { return false };
+    let Some(mut it) = Iter::new(labels) else {
+        return false;
+    };
     while it.next() {
         if matches!(it.value(), Value::Utf8(s) if s == label.as_bytes()) {
             return true;
@@ -148,7 +174,9 @@ pub fn labels_have(labels: &[u8], label: &str) -> bool {
 
 /// _mongoc_parse_wc_err: the error of a reply's writeConcernError.
 pub fn parse_wc_error(reply: &[u8]) -> Option<crate::error::Error> {
-    let Some(Value::Document(w)) = find(reply, b"writeConcernError") else { return None };
+    let Some(Value::Document(w)) = find(reply, b"writeConcernError") else {
+        return None;
+    };
     let (mut code, mut msg) = (0u32, String::new());
     let mut i = Iter::new(w)?;
     while i.next() {
@@ -162,5 +190,9 @@ pub fn parse_wc_error(reply: &[u8]) -> Option<crate::error::Error> {
             _ => {}
         }
     }
-    Some(crate::error::Error::new(crate::error::domain::WRITE_CONCERN, code, format!("Write Concern error: {msg}")))
+    Some(crate::error::Error::new(
+        crate::error::domain::WRITE_CONCERN,
+        code,
+        format!("Write Concern error: {msg}"),
+    ))
 }

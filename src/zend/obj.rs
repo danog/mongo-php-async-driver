@@ -21,12 +21,21 @@ pub const fn offset<T>() -> usize {
 /// (negative, -sizeof(zval), for a class without properties or guards: the last zval of
 /// zend_object's properties_table is not allocated then)
 unsafe fn props_size(ce: *const sys::zend_class_entry) -> isize {
-    let n = (*ce).default_properties_count as isize - if (*ce).ce_flags & sys::ZEND_ACC_USE_GUARDS != 0 { 0 } else { 1 };
+    let n = (*ce).default_properties_count as isize
+        - if (*ce).ce_flags & sys::ZEND_ACC_USE_GUARDS != 0 {
+            0
+        } else {
+            1
+        };
     size_of::<sys::zval>() as isize * n
 }
 
 /// Allocates and initializes an object of class `ce` carrying `data`.
-pub unsafe fn alloc<T>(ce: *mut sys::zend_class_entry, data: T, handlers: *const sys::zend_object_handlers) -> *mut sys::zend_object {
+pub unsafe fn alloc<T>(
+    ce: *mut sys::zend_class_entry,
+    data: T,
+    handlers: *const sys::zend_object_handlers,
+) -> *mut sys::zend_object {
     let p = sys::_emalloc((size_of::<Obj<T>>() as isize + props_size(ce)) as usize) as *mut Obj<T>;
     std::ptr::write(addr_of_mut!((*p).data), data);
     let o = addr_of_mut!((*p).std);
@@ -64,7 +73,12 @@ pub unsafe fn is_live(o: *mut sys::zend_object) -> bool {
 /// get_gc for objects holding PHP values outside their properties: the declared properties
 /// (or the properties table) as zend_std_get_gc gives them, plus `extra`, through the
 /// request's GC buffer (zend_get_gc_buffer_create/add_zval/use).
-pub unsafe fn get_gc_with(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32, extra: impl IntoIterator<Item = *mut sys::zval>) -> *mut sys::HashTable {
+pub unsafe fn get_gc_with(
+    o: *mut sys::zend_object,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+    extra: impl IntoIterator<Item = *mut sys::zval>,
+) -> *mut sys::HashTable {
     let (mut t, mut cnt): (*mut sys::zval, i32) = (null_mut(), 0);
     let ht = std_get_gc(o, &mut t, &mut cnt);
     let buf = sys::zend_get_gc_buffer_create();
@@ -93,8 +107,17 @@ pub unsafe fn get_gc_with(o: *mut sys::zend_object, table: *mut *mut sys::zval, 
 /// phongo_std_object_handlers: std handlers without clone, with phongo's get_gc.
 pub static STD: super::EngineCell<sys::zend_object_handlers> = super::EngineCell::handlers();
 
-unsafe extern "C" fn std_get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
-    if !(*(*o).handlers).get_properties.is_some_and(|f| std::ptr::fn_addr_eq(f, sys::zend_std_get_properties as unsafe extern "C" fn(_) -> _)) {
+unsafe extern "C" fn std_get_gc(
+    o: *mut sys::zend_object,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+) -> *mut sys::HashTable {
+    if !(*(*o).handlers).get_properties.is_some_and(|f| {
+        std::ptr::fn_addr_eq(
+            f,
+            sys::zend_std_get_properties as unsafe extern "C" fn(_) -> _,
+        )
+    }) {
         *table = null_mut();
         *n = 0;
         return (*o).properties;
@@ -110,7 +133,9 @@ pub unsafe fn init_std() {
 }
 
 /// A handler table for `Obj<T>` based on phongo's std handlers (offset and free_obj set).
-pub unsafe fn handlers<T>(h: *mut sys::zend_object_handlers) -> &'static mut sys::zend_object_handlers {
+pub unsafe fn handlers<T>(
+    h: *mut sys::zend_object_handlers,
+) -> &'static mut sys::zend_object_handlers {
     *h = *STD.get();
     (*h).offset = offset::<T>() as _;
     (*h).free_obj = Some(free::<T>);
@@ -119,7 +144,10 @@ pub unsafe fn handlers<T>(h: *mut sys::zend_object_handlers) -> &'static mut sys
 
 /// instanceof_function
 #[inline]
-pub unsafe fn instanceof(ce: *const sys::zend_class_entry, of: *const sys::zend_class_entry) -> bool {
+pub unsafe fn instanceof(
+    ce: *const sys::zend_class_entry,
+    of: *const sys::zend_class_entry,
+) -> bool {
     ce == of || sys::instanceof_function_slow(ce, of)
 }
 

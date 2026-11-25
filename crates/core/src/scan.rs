@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 use crate::net::{Conn, Interest, NetError};
 
 /// libmongoc's HAPPY_EYEBALLS_DELAY: each further address of a host starts this much later.
@@ -41,7 +41,15 @@ pub enum Step {
 
 /// The TLS client of a new connection: its configuration and server name, or the error that
 /// fails the check before it connects.
-pub type TlsSetup = Option<Result<(Arc<rustls::ClientConfig>, rustls::pki_types::ServerName<'static>), Error>>;
+pub type TlsSetup = Option<
+    Result<
+        (
+            Arc<rustls::ClientConfig>,
+            rustls::pki_types::ServerName<'static>,
+        ),
+        Error,
+    >,
+>;
 
 pub struct Probe {
     /// the scanner node (server id)
@@ -83,12 +91,42 @@ fn stream_error(code: u32, msg: &str) -> Error {
 impl Probe {
     /// A check on an existing connection (or a UNIX socket connected during the setup): it
     /// starts with the TLS handshake (`tls`) or the send.
-    pub fn with_stream(node: u32, mut conn: Conn, msg: Vec<u8>, timeout: Option<Duration>, fresh: bool, tls: TlsSetup) -> Probe {
+    pub fn with_stream(
+        node: u32,
+        mut conn: Conn,
+        msg: Vec<u8>,
+        timeout: Option<Duration>,
+        fresh: bool,
+        tls: TlsSetup,
+    ) -> Probe {
         let now = Instant::now();
         let name = conn.addr.clone();
-        let mut p = Probe { node, addr: None, fresh, conn: None, state: State::Send, events: crate::os::POLLOUT, start: now, delay_until: now, timeout, msg, sent: 0, tls: None, name, error: None, done: false, connected: true, pooled: false, hello_timeout: None, in_hello: false };
+        let mut p = Probe {
+            node,
+            addr: None,
+            fresh,
+            conn: None,
+            state: State::Send,
+            events: crate::os::POLLOUT,
+            start: now,
+            delay_until: now,
+            timeout,
+            msg,
+            sent: 0,
+            tls: None,
+            name,
+            error: None,
+            done: false,
+            connected: true,
+            pooled: false,
+            hello_timeout: None,
+            in_hello: false,
+        };
         if let Err(e) = conn.set_nonblocking() {
-            p.fail(NetError::Io(std::io::Error::other(e.to_string())), "Failed to write rpc bytes.");
+            p.fail(
+                NetError::Io(std::io::Error::other(e.to_string())),
+                "Failed to write rpc bytes.",
+            );
             return p;
         }
         p.conn = Some(conn);
@@ -100,9 +138,37 @@ impl Probe {
     }
 
     /// A check that connects to `addr` once `delay` has passed.
-    pub fn connect(node: u32, name: &str, addr: SocketAddr, delay: Duration, msg: Vec<u8>, timeout: Option<Duration>, tls: TlsSetup) -> Probe {
+    pub fn connect(
+        node: u32,
+        name: &str,
+        addr: SocketAddr,
+        delay: Duration,
+        msg: Vec<u8>,
+        timeout: Option<Duration>,
+        tls: TlsSetup,
+    ) -> Probe {
         let now = Instant::now();
-        Probe { node, addr: Some(addr), fresh: true, conn: None, state: State::PendingConnect, events: crate::os::POLLOUT, start: now, delay_until: now + delay, timeout, msg, sent: 0, tls, name: name.to_owned(), error: None, done: false, connected: false, pooled: false, hello_timeout: None, in_hello: false }
+        Probe {
+            node,
+            addr: Some(addr),
+            fresh: true,
+            conn: None,
+            state: State::PendingConnect,
+            events: crate::os::POLLOUT,
+            start: now,
+            delay_until: now + delay,
+            timeout,
+            msg,
+            sent: 0,
+            tls,
+            name: name.to_owned(),
+            error: None,
+            done: false,
+            connected: false,
+            pooled: false,
+            hello_timeout: None,
+            in_hello: false,
+        }
     }
 
     /// This check makes a pooled cluster's connection (_cluster_add_node): its hello waits
@@ -115,7 +181,10 @@ impl Probe {
 
     /// mongoc_client_connect_tcp: no address of the host accepted the connection.
     fn connect_error(&self) -> Error {
-        stream_error(code::STREAM_CONNECT, &format!("Failed to connect to target host: {}", self.name))
+        stream_error(
+            code::STREAM_CONNECT,
+            &format!("Failed to connect to target host: {}", self.name),
+        )
     }
 
     /// A network error of the pooled connection's hello (mongoc_cluster_run_command_private).
@@ -180,7 +249,11 @@ impl Probe {
 
     /// When the check times out (None: never, connectTimeoutMS 0).
     pub fn deadline(&self) -> Option<Instant> {
-        let t = if self.pooled && self.state == State::Recv { self.hello_timeout } else { self.timeout };
+        let t = if self.pooled && self.state == State::Recv {
+            self.hello_timeout
+        } else {
+            self.timeout
+        };
         t.map(|t| self.start + t)
     }
 
@@ -197,9 +270,23 @@ impl Probe {
                 self.hello_error(&NetError::Closed)
             }
         } else if self.state == State::Send {
-            stream_error(code::STREAM_CONNECT, if hup { "connection refused" } else { "unknown connection error" })
+            stream_error(
+                code::STREAM_CONNECT,
+                if hup {
+                    "connection refused"
+                } else {
+                    "unknown connection error"
+                },
+            )
         } else {
-            stream_error(code::STREAM_SOCKET, if hup { "connection closed" } else { "unknown socket error" })
+            stream_error(
+                code::STREAM_SOCKET,
+                if hup {
+                    "connection closed"
+                } else {
+                    "unknown socket error"
+                },
+            )
         };
         self.error = Some(e);
         self.state = State::Error;
@@ -217,7 +304,14 @@ impl Probe {
             self.error = Some(e);
             return;
         }
-        self.error = Some(stream_error(code::STREAM_CONNECT, if self.state == State::Send { "connection timeout" } else { "socket timeout" }));
+        self.error = Some(stream_error(
+            code::STREAM_CONNECT,
+            if self.state == State::Send {
+                "connection timeout"
+            } else {
+                "socket timeout"
+            },
+        ));
     }
 
     /// _acmd_cancel
@@ -228,7 +322,9 @@ impl Probe {
     /// One phase of mongoc_async_cmd_run (the caller reports a connection first when the state
     /// is Send).
     pub fn step(&mut self) -> Step {
-        let Some(conn) = self.conn.as_mut() else { return Step::Failed };
+        let Some(conn) = self.conn.as_mut() else {
+            return Step::Failed;
+        };
         match self.state {
             State::Setup => match conn.try_handshake() {
                 Ok(None) => {
@@ -237,7 +333,11 @@ impl Probe {
                     Step::Progress
                 }
                 Ok(Some(i)) => {
-                    self.events = if i == Interest::Read { crate::os::POLLIN } else { crate::os::POLLOUT };
+                    self.events = if i == Interest::Read {
+                        crate::os::POLLIN
+                    } else {
+                        crate::os::POLLOUT
+                    };
                     Step::Progress
                 }
                 Err(e) => {
@@ -245,7 +345,10 @@ impl Probe {
                     Step::Failed
                 }
             },
-            State::Send => match conn.try_send(&self.msg, &mut self.sent).and_then(|all| if all { conn.try_flush() } else { Ok(false) }) {
+            State::Send => match conn
+                .try_send(&self.msg, &mut self.sent)
+                .and_then(|all| if all { conn.try_flush() } else { Ok(false) })
+            {
                 Ok(true) => {
                     conn.begin_recv();
                     self.state = State::Recv;
@@ -259,16 +362,26 @@ impl Probe {
                     Step::Failed
                 }
                 Err(_) => {
-                    self.error = Some(stream_error(code::STREAM_SOCKET, "Failed to write rpc bytes."));
+                    self.error = Some(stream_error(
+                        code::STREAM_SOCKET,
+                        "Failed to write rpc bytes.",
+                    ));
                     Step::Failed
                 }
             },
             State::Recv => match conn.try_recv() {
                 Ok(false) => Step::Progress,
-                Ok(true) => match crate::handshake::reply_body(conn.message(), crate::net::DEFAULT_MAX_MSG_SIZE) {
+                Ok(true) => match crate::handshake::reply_body(
+                    conn.message(),
+                    crate::net::DEFAULT_MAX_MSG_SIZE,
+                ) {
                     Ok(body) => Step::Success(body),
                     Err(_) => {
-                        self.error = Some(Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply from server."));
+                        self.error = Some(Error::new(
+                            domain::PROTOCOL,
+                            code::PROTOCOL_INVALID_REPLY,
+                            "Invalid reply from server.",
+                        ));
                         Step::Failed
                     }
                 },
@@ -277,15 +390,25 @@ impl Probe {
                     Step::Failed
                 }
                 Err(NetError::Closed) => {
-                    self.error = Some(stream_error(code::STREAM_SOCKET, "Server closed connection."));
+                    self.error = Some(stream_error(
+                        code::STREAM_SOCKET,
+                        "Server closed connection.",
+                    ));
                     Step::Failed
                 }
                 Err(NetError::Protocol(_)) => {
-                    self.error = Some(Error::new(domain::PROTOCOL, code::PROTOCOL_INVALID_REPLY, "Invalid reply from server."));
+                    self.error = Some(Error::new(
+                        domain::PROTOCOL,
+                        code::PROTOCOL_INVALID_REPLY,
+                        "Invalid reply from server.",
+                    ));
                     Step::Failed
                 }
                 Err(_) => {
-                    self.error = Some(stream_error(code::STREAM_SOCKET, "Failed to receive rpc bytes from server."));
+                    self.error = Some(stream_error(
+                        code::STREAM_SOCKET,
+                        "Failed to receive rpc bytes from server.",
+                    ));
                     Step::Failed
                 }
             },
@@ -297,7 +420,11 @@ impl Probe {
 /// A connection-setup error (TLS) as the check reports it.
 fn net_error(e: &NetError) -> Error {
     match e {
-        NetError::Tls(m) => Error::new(domain::STREAM, code::STREAM_SOCKET, format!("TLS handshake failed: {m}")),
+        NetError::Tls(m) => Error::new(
+            domain::STREAM,
+            code::STREAM_SOCKET,
+            format!("TLS handshake failed: {m}"),
+        ),
         e => Error::new(domain::STREAM, code::STREAM_SOCKET, e.to_string()),
     }
 }

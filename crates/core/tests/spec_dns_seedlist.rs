@@ -44,19 +44,27 @@ fn run(path: &std::path::Path) -> Result<(), String> {
         (Ok(u), false) => u,
     };
     let td = TopologyDescription::from_uri(&uri, true);
-    let mut seeds: Vec<String> = td.servers.iter().map(|s| s.addr.to_ascii_lowercase()).collect();
+    let mut seeds: Vec<String> = td
+        .servers
+        .iter()
+        .map(|s| s.addr.to_ascii_lowercase())
+        .collect();
     seeds.sort();
     if let Some(want) = t["seeds"].as_array() {
-        let mut want: Vec<String> = want.iter().map(|s| s.as_str().unwrap().to_ascii_lowercase()).collect();
+        let mut want: Vec<String> = want
+            .iter()
+            .map(|s| s.as_str().unwrap().to_ascii_lowercase())
+            .collect();
         want.sort();
         if want != seeds {
             return Err(format!("seeds {seeds:?}, expected {want:?}"));
         }
     }
     if let Some(n) = t["numSeeds"].as_u64()
-        && seeds.len() as u64 != n {
-            return Err(format!("{} seeds, expected {n}", seeds.len()));
-        }
+        && seeds.len() as u64 != n
+    {
+        return Err(format!("{} seeds, expected {n}", seeds.len()));
+    }
     if let Some(o) = t["options"].as_object() {
         for (k, v) in o {
             let got: Value = match k.as_str() {
@@ -97,21 +105,41 @@ fn initial_dns_seedlist() {
         eprintln!("skipped: set MONGO_CORE_DNS_TESTS=1 (needs DNS for test.build.10gen.cc)");
         return;
     }
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/spec/source/initial-dns-seedlist-discovery/tests");
-    let mut files: Vec<_> = ["replica-set", "sharded", "load-balanced"].iter().flat_map(|d| std::fs::read_dir(root.join(d)).unwrap().map(|e| e.unwrap().path())).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/spec/source/initial-dns-seedlist-discovery/tests");
+    let mut files: Vec<_> = ["replica-set", "sharded", "load-balanced"]
+        .iter()
+        .flat_map(|d| {
+            std::fs::read_dir(root.join(d))
+                .unwrap()
+                .map(|e| e.unwrap().path())
+        })
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
     files.sort();
     let mut failures = Vec::new();
     let mut ran = 0;
     for f in &files {
-        let name = format!("{}/{}", f.parent().unwrap().file_name().unwrap().to_string_lossy(), f.file_name().unwrap().to_string_lossy());
+        let name = format!(
+            "{}/{}",
+            f.parent().unwrap().file_name().unwrap().to_string_lossy(),
+            f.file_name().unwrap().to_string_lossy()
+        );
         ran += 1;
         match run(f) {
-            Ok(()) if DIVERGENCES.contains(&name.as_str()) => failures.push(format!("{name}: listed as a divergence but passes")),
+            Ok(()) if DIVERGENCES.contains(&name.as_str()) => {
+                failures.push(format!("{name}: listed as a divergence but passes"))
+            }
             Ok(()) => {}
             Err(_) if DIVERGENCES.contains(&name.as_str()) => {}
             Err(e) => failures.push(format!("{name}: {e}")),
         }
     }
     eprintln!("{ran} files");
-    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

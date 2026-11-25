@@ -2,12 +2,12 @@
 //! encryption and decryption, document decryption and data key creation. Key vault reads and KMS
 //! round trips go through `Io`.
 
-use crate::bson::{append_wrapped, value_bytes, wrap_value, SUBTYPE_ENCRYPTED};
-use crate::broker::{KeyBroker, KeyCache, CACHE_EXPIRATION_MS_DEFAULT};
+use crate::broker::{CACHE_EXPIRATION_MS_DEFAULT, KeyBroker, KeyCache};
+use crate::bson::{SUBTYPE_ENCRYPTED, append_wrapped, value_bytes, wrap_value};
 use crate::crypto::{self, Algorithm};
 use crate::key::{Ciphertext, FLE1_DETERMINISTIC, FLE1_RANDOM};
 use crate::opts::{Kek, KmsProviders};
-use mongo_core::bson::iter::{Iter, Value, T_ARRAY, T_BINARY, T_DOCUMENT};
+use mongo_core::bson::iter::{Iter, T_ARRAY, T_BINARY, T_DOCUMENT, Value};
 use mongo_core::bson::writer::Writer;
 
 /// A libmongocrypt failure (`MONGOC_ERROR_CLIENT_SIDE_ENCRYPTION`, code 1) or an I/O error of the driver
@@ -37,7 +37,11 @@ pub trait Io {
     fn find_keys(&mut self, filter: &[u8]) -> std::result::Result<Vec<Vec<u8>>, Self::Error>;
     /// `MONGOCRYPT_CTX_NEED_KMS`: one TLS round trip, reading until `done` accepts the bytes read
     /// `feed` gets each read's bytes and returns true once no more are wanted
-    fn kms(&mut self, req: &crate::kms::KmsRequest, feed: &mut dyn FnMut(&[u8]) -> bool) -> std::result::Result<(), KmsFailure<Self::Error>>;
+    fn kms(
+        &mut self,
+        req: &crate::kms::KmsRequest,
+        feed: &mut dyn FnMut(&[u8]) -> bool,
+    ) -> std::result::Result<(), KmsFailure<Self::Error>>;
     /// A stream error (MONGOC_ERROR_STREAM_SOCKET) with this message
     fn stream_error(&self, msg: String) -> Self::Error;
     /// The pause before a KMS retry (inside a fiber it suspends instead of blocking)
@@ -45,11 +49,15 @@ pub trait Io {
         let _ = mongo_core::aio::sleep(d);
     }
     /// On-demand AWS credentials (`_mongoc_aws_credentials_obtain`): key id, secret, session token
-    fn aws_credentials(&mut self) -> std::result::Result<(String, String, Option<String>), Self::Error> {
+    fn aws_credentials(
+        &mut self,
+    ) -> std::result::Result<(String, String, Option<String>), Self::Error> {
         Err(self.stream_error("on-demand AWS credentials are not available".into()))
     }
     /// An Azure IMDS access token for Key Vault and its lifetime
-    fn azure_imds_token(&mut self) -> std::result::Result<(String, std::time::Duration), Self::Error> {
+    fn azure_imds_token(
+        &mut self,
+    ) -> std::result::Result<(String, std::time::Duration), Self::Error> {
         Err(self.stream_error("on-demand Azure credentials are not available".into()))
     }
     /// A GCP metadata server access token
@@ -57,7 +65,11 @@ pub trait Io {
         Err(self.stream_error("on-demand GCP credentials are not available".into()))
     }
     /// `MONGOCRYPT_CTX_NEED_MONGO_COLLINFO`: listCollections on `db` with `filter`, every result
-    fn list_collections(&mut self, db: &str, filter: &[u8]) -> std::result::Result<Vec<Vec<u8>>, Self::Error> {
+    fn list_collections(
+        &mut self,
+        db: &str,
+        filter: &[u8],
+    ) -> std::result::Result<Vec<Vec<u8>>, Self::Error> {
         let _ = (db, filter);
         Err(self.stream_error("listCollections is not available".into()))
     }
@@ -146,13 +158,24 @@ pub enum KeySel {
 }
 
 impl Crypt {
-    pub fn new(kms_providers: &[u8], key_expiration_ms: Option<u64>) -> std::result::Result<Crypt, String> {
+    pub fn new(
+        kms_providers: &[u8],
+        key_expiration_ms: Option<u64>,
+    ) -> std::result::Result<Crypt, String> {
         let kms = KmsProviders::parse(kms_providers)?;
         // _mongocrypt_opts_validate
         if kms.configured.is_empty() && kms.named.is_empty() && kms.need_credentials.is_empty() {
             return Err("no kms provider set".into());
         }
-        Ok(Crypt { kms, cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)), tls: Vec::new(), oauth: Default::default(), ondemand: Default::default(), azure_imds: Default::default(), collinfo: Default::default() })
+        Ok(Crypt {
+            kms,
+            cache: KeyCache::new(key_expiration_ms.unwrap_or(CACHE_EXPIRATION_MS_DEFAULT)),
+            tls: Vec::new(),
+            oauth: Default::default(),
+            ondemand: Default::default(),
+            azure_imds: Default::default(),
+            collinfo: Default::default(),
+        })
     }
 
     /// The credentials of a KMS provider: configured, or provided on demand for this operation
@@ -166,7 +189,10 @@ impl Crypt {
 
     /// Whether `kmsid` is a provider configured as `{}` (credentials on demand)
     fn on_demand(&self, kmsid: &str) -> bool {
-        !kmsid.contains(':') && self.kms.get(kmsid).is_none() && crate::opts::parse_kmsid(kmsid).is_ok_and(|(t, _)| self.kms.need_credentials.contains(&t))
+        !kmsid.contains(':')
+            && self.kms.get(kmsid).is_none()
+            && crate::opts::parse_kmsid(kmsid)
+                .is_ok_and(|(t, _)| self.kms.need_credentials.contains(&t))
     }
 
     /// libmongoc's `_state_need_kms_credentials`: credentials for every on-demand provider, in
@@ -188,7 +214,12 @@ impl Crypt {
         if need.contains(&KmsType::Azure) {
             // reused while it is valid for at least one more minute
             let mut cache = self.azure_imds.lock().unwrap_or_else(|e| e.into_inner());
-            let fresh = cache.as_ref().filter(|(_, exp)| *exp >= std::time::Instant::now() + std::time::Duration::from_secs(60)).map(|(t, _)| t.clone());
+            let fresh = cache
+                .as_ref()
+                .filter(|(_, exp)| {
+                    *exp >= std::time::Instant::now() + std::time::Duration::from_secs(60)
+                })
+                .map(|(t, _)| t.clone());
             let token = match fresh {
                 Some(t) => t,
                 None => {
@@ -215,7 +246,11 @@ impl Crypt {
 
     /// The TLS options of a KMS provider (libmongoc's per-kmsid `mongoc_ssl_opt_t`)
     fn tls_for(&self, kmsid: &str) -> mongo_core::tls::TlsOptions {
-        self.tls.iter().find(|(k, _)| k == kmsid).map(|(_, o)| o.clone()).unwrap_or_default()
+        self.tls
+            .iter()
+            .find(|(k, _)| k == kmsid)
+            .map(|(_, o)| o.clone())
+            .unwrap_or_default()
     }
 
     /// One KMS operation with libmongocrypt's retries: `make` builds the request, `parse` reads the
@@ -252,15 +287,23 @@ impl Crypt {
                     let msg = if !retryable {
                         "KMS request failed due to network error".to_string()
                     } else if attempts >= KMS_MAX_ATTEMPTS {
-                        format!("KMS request failed after {KMS_MAX_ATTEMPTS} retries due to a network error")
+                        format!(
+                            "KMS request failed after {KMS_MAX_ATTEMPTS} retries due to a network error"
+                        )
                     } else {
                         attempts += 1;
                         continue;
                     };
                     return Err(Error::Io(match f {
                         KmsFailure::Connect(e) => e,
-                        KmsFailure::Write(_) => io.stream_error(format!("{msg}. Failed to write to KMS stream: {}", req.endpoint)),
-                        KmsFailure::Read(_) => io.stream_error(format!("{msg}. Failed to read from KMS stream to: {}", req.endpoint)),
+                        KmsFailure::Write(_) => io.stream_error(format!(
+                            "{msg}. Failed to write to KMS stream: {}",
+                            req.endpoint
+                        )),
+                        KmsFailure::Read(_) => io.stream_error(format!(
+                            "{msg}. Failed to read from KMS stream to: {}",
+                            req.endpoint
+                        )),
                     }));
                 }
             }
@@ -268,32 +311,88 @@ impl Crypt {
     }
 
     /// AWS KMS Encrypt/Decrypt (`_mongocrypt_kms_ctx_init_aws_*` + `_ctx_done_aws`)
-    fn aws<I: Io>(&self, io: &mut I, kek: &Kek, decrypt: bool, data: &[u8]) -> Result<Vec<u8>, I::Error> {
-        let crate::opts::KekProvider::Aws { cmk, region, endpoint } = &kek.provider else {
+    fn aws<I: Io>(
+        &self,
+        io: &mut I,
+        kek: &Kek,
+        decrypt: bool,
+        data: &[u8],
+    ) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Aws {
+            cmk,
+            region,
+            endpoint,
+        } = &kek.provider
+        else {
             return Err("expected aws kms provider".into());
         };
         let creds = self.creds(&kek.kmsid);
-        let Some(crate::opts::Creds::Aws { access_key_id, secret_access_key, session_token }) = &creds else {
+        let Some(crate::opts::Creds::Aws {
+            access_key_id,
+            secret_access_key,
+            session_token,
+        }) = &creds
+        else {
             return Err(format!("KMS provider `{}` is not configured", kek.kmsid).into());
         };
         // the Host header: decryption uses host:port, encryption the host only (as libmongocrypt)
-        let host = endpoint.as_ref().map(|e| if decrypt { e.host_and_port.clone() } else { e.host.clone() });
-        let msg = crate::kms::aws_request(decrypt, data, Some(cmk), region, access_key_id, secret_access_key, session_token.as_deref(), host.as_deref(), &crate::kms::amz_datetime())?;
-        let ep = endpoint.as_ref().map_or_else(|| format!("kms.{region}.amazonaws.com:443"), |e| with_default_port(e, 443));
-        let req = crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: ep, message: msg, tls: self.tls_for(&kek.kmsid) };
-        let field = if decrypt { "Plaintext" } else { "CiphertextBlob" };
-        self.kms_call(io, &req, true, |s| [408, 429, 500, 502, 503, 509].contains(&s), &|r| crate::kms::aws_done(r, field))
+        let host = endpoint.as_ref().map(|e| {
+            if decrypt {
+                e.host_and_port.clone()
+            } else {
+                e.host.clone()
+            }
+        });
+        let msg = crate::kms::aws_request(
+            decrypt,
+            data,
+            Some(cmk),
+            region,
+            access_key_id,
+            secret_access_key,
+            session_token.as_deref(),
+            host.as_deref(),
+            &crate::kms::amz_datetime(),
+        )?;
+        let ep = endpoint.as_ref().map_or_else(
+            || format!("kms.{region}.amazonaws.com:443"),
+            |e| with_default_port(e, 443),
+        );
+        let req = crate::kms::KmsRequest {
+            kmsid: kek.kmsid.clone(),
+            endpoint: ep,
+            message: msg,
+            tls: self.tls_for(&kek.kmsid),
+        };
+        let field = if decrypt {
+            "Plaintext"
+        } else {
+            "CiphertextBlob"
+        };
+        self.kms_call(
+            io,
+            &req,
+            true,
+            |s| [408, 429, 500, 502, 503, 509].contains(&s),
+            &|r| crate::kms::aws_done(r, field),
+        )
     }
 
     /// `mc_mapof_kmsid_to_token_get_token`
     fn cached_token(&self, kmsid: &str) -> Option<String> {
         let c = self.oauth.lock().unwrap_or_else(|e| e.into_inner());
-        c.iter().find(|(k, _, exp)| k == kmsid && std::time::Instant::now() < *exp).map(|(_, t, _)| t.clone())
+        c.iter()
+            .find(|(k, _, exp)| k == kmsid && std::time::Instant::now() < *exp)
+            .map(|(_, t, _)| t.clone())
     }
 
     /// `mc_mapof_kmsid_to_token_add_response`
     fn cache_token(&self, kmsid: &str, token: String, ttl: std::time::Duration) {
-        let exp = std::time::Instant::now().checked_add(ttl).unwrap_or_else(|| std::time::Instant::now() + std::time::Duration::from_secs(86400 * 365));
+        let exp = std::time::Instant::now()
+            .checked_add(ttl)
+            .unwrap_or_else(|| {
+                std::time::Instant::now() + std::time::Duration::from_secs(86400 * 365)
+            });
         let mut c = self.oauth.lock().unwrap_or_else(|e| e.into_inner());
         match c.iter_mut().find(|(k, _, _)| k == kmsid) {
             Some(e) => {
@@ -306,16 +405,29 @@ impl Crypt {
 
     /// An Azure access token: configured, cached, or from an OAuth request
     /// (`_mongocrypt_kms_ctx_init_azure_auth`); `key_vault` sets the requested scope
-    fn azure_token<I: Io>(&self, io: &mut I, kmsid: &str, key_vault: &crate::opts::Endpoint) -> Result<String, I::Error> {
+    fn azure_token<I: Io>(
+        &self,
+        io: &mut I,
+        kmsid: &str,
+        key_vault: &crate::opts::Endpoint,
+    ) -> Result<String, I::Error> {
         let found = self.creds(kmsid);
         let Some(crate::opts::Creds::Azure(creds)) = &found else {
             return Err(format!("KMS provider `{kmsid}` is not configured").into());
         };
         let (tenant_id, client_id, client_secret, ipe) = match creds {
             crate::opts::AzureCreds::AccessToken(t) => return Ok(t.clone()),
-            crate::opts::AzureCreds::Client { tenant_id, client_id, client_secret, identity_platform_endpoint } => {
-                (tenant_id, client_id, client_secret, identity_platform_endpoint)
-            }
+            crate::opts::AzureCreds::Client {
+                tenant_id,
+                client_id,
+                client_secret,
+                identity_platform_endpoint,
+            } => (
+                tenant_id,
+                client_id,
+                client_secret,
+                identity_platform_endpoint,
+            ),
         };
         // cached per provider and scope: a token is only sent to the Key Vault domain it was
         // requested for (libmongocrypt caches per provider only; safety divergence)
@@ -326,36 +438,77 @@ impl Crypt {
         }
         let (endpoint, host) = match ipe {
             Some(e) => (with_default_port(e, 443), e.host.clone()),
-            None => ("login.microsoftonline.com:443".to_string(), "login.microsoftonline.com".to_string()),
+            None => (
+                "login.microsoftonline.com:443".to_string(),
+                "login.microsoftonline.com".to_string(),
+            ),
         };
-        let msg = crate::kms::azure_oauth_request(&host, &scope, tenant_id, client_id, client_secret)?;
-        let req = crate::kms::KmsRequest { kmsid: kmsid.to_string(), endpoint, message: msg, tls: self.tls_for(kmsid) };
+        let msg =
+            crate::kms::azure_oauth_request(&host, &scope, tenant_id, client_id, client_secret)?;
+        let req = crate::kms::KmsRequest {
+            kmsid: kmsid.to_string(),
+            endpoint,
+            message: msg,
+            tls: self.tls_for(kmsid),
+        };
         let (token, ttl) = self.kms_call(io, &req, true, azure_retry, &crate::kms::oauth_done)?;
         self.cache_token(&cache_key, token.clone(), ttl);
         Ok(token)
     }
 
     /// Azure Key Vault wrapkey/unwrapkey
-    fn azure<I: Io>(&self, io: &mut I, kek: &Kek, wrap: bool, data: &[u8]) -> Result<Vec<u8>, I::Error> {
-        let crate::opts::KekProvider::Azure { key_vault_endpoint, key_name, key_version } = &kek.provider else {
+    fn azure<I: Io>(
+        &self,
+        io: &mut I,
+        kek: &Kek,
+        wrap: bool,
+        data: &[u8],
+    ) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Azure {
+            key_vault_endpoint,
+            key_name,
+            key_version,
+        } = &kek.provider
+        else {
             return Err("expected azure kms provider".into());
         };
         let token = self.azure_token(io, &kek.kmsid, key_vault_endpoint)?;
-        let msg = crate::kms::azure_wrap_request(wrap, &key_vault_endpoint.host, &token, key_name, key_version.as_deref(), data)?;
-        let req = crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: with_default_port(key_vault_endpoint, 443), message: msg, tls: self.tls_for(&kek.kmsid) };
+        let msg = crate::kms::azure_wrap_request(
+            wrap,
+            &key_vault_endpoint.host,
+            &token,
+            key_name,
+            key_version.as_deref(),
+            data,
+        )?;
+        let req = crate::kms::KmsRequest {
+            kmsid: kek.kmsid.clone(),
+            endpoint: with_default_port(key_vault_endpoint, 443),
+            message: msg,
+            tls: self.tls_for(&kek.kmsid),
+        };
         self.kms_call(io, &req, true, azure_retry, &|r| crate::kms::azure_done(r))
     }
 
     /// A GCP access token: configured, cached, or from a JWT bearer OAuth request
     /// (`_mongocrypt_kms_ctx_init_gcp_auth`); `kms_endpoint` (the key's) sets the requested scope
-    fn gcp_token<I: Io>(&self, io: &mut I, kmsid: &str, kms_endpoint: Option<&crate::opts::Endpoint>) -> Result<String, I::Error> {
+    fn gcp_token<I: Io>(
+        &self,
+        io: &mut I,
+        kmsid: &str,
+        kms_endpoint: Option<&crate::opts::Endpoint>,
+    ) -> Result<String, I::Error> {
         let found = self.creds(kmsid);
         let Some(crate::opts::Creds::Gcp(creds)) = &found else {
             return Err(format!("KMS provider `{kmsid}` is not configured").into());
         };
         let (email, private_key, auth) = match creds {
             crate::opts::GcpCreds::AccessToken(t) => return Ok(t.clone()),
-            crate::opts::GcpCreds::ServiceAccount { email, private_key, endpoint } => (email, private_key, endpoint),
+            crate::opts::GcpCreds::ServiceAccount {
+                email,
+                private_key,
+                endpoint,
+            } => (email, private_key, endpoint),
         };
         let scope = match kms_endpoint {
             Some(e) => format!("https://www.{}/auth/cloudkms", e.domain),
@@ -368,38 +521,87 @@ impl Crypt {
         }
         let (endpoint, host) = match auth {
             Some(e) => (with_default_port(e, 443), e.host.clone()),
-            None => ("oauth2.googleapis.com:443".to_string(), "oauth2.googleapis.com".to_string()),
+            None => (
+                "oauth2.googleapis.com:443".to_string(),
+                "oauth2.googleapis.com".to_string(),
+            ),
         };
         let audience = format!("https://{host}/token");
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let msg = crate::kms::gcp_oauth_request(&host, email, &audience, &scope, private_key, now)?;
-        let req = crate::kms::KmsRequest { kmsid: kmsid.to_string(), endpoint, message: msg, tls: self.tls_for(kmsid) };
+        let req = crate::kms::KmsRequest {
+            kmsid: kmsid.to_string(),
+            endpoint,
+            message: msg,
+            tls: self.tls_for(kmsid),
+        };
         let (token, ttl) = self.kms_call(io, &req, true, gcp_retry, &crate::kms::oauth_done)?;
         self.cache_token(&cache_key, token.clone(), ttl);
         Ok(token)
     }
 
     /// Google Cloud KMS encrypt/decrypt
-    fn gcp<I: Io>(&self, io: &mut I, kek: &Kek, encrypt: bool, data: &[u8]) -> Result<Vec<u8>, I::Error> {
-        let crate::opts::KekProvider::Gcp { endpoint, project_id, location, key_ring, key_name, key_version } = &kek.provider else {
+    fn gcp<I: Io>(
+        &self,
+        io: &mut I,
+        kek: &Kek,
+        encrypt: bool,
+        data: &[u8],
+    ) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Gcp {
+            endpoint,
+            project_id,
+            location,
+            key_ring,
+            key_name,
+            key_version,
+        } = &kek.provider
+        else {
             return Err("expected gcp kms provider".into());
         };
         let token = self.gcp_token(io, &kek.kmsid, endpoint.as_ref())?;
         let (ep, host) = match endpoint {
             Some(e) => (with_default_port(e, 443), e.host.clone()),
-            None => ("cloudkms.googleapis.com:443".to_string(), "cloudkms.googleapis.com".to_string()),
+            None => (
+                "cloudkms.googleapis.com:443".to_string(),
+                "cloudkms.googleapis.com".to_string(),
+            ),
         };
         // decryption names no key version (the ciphertext carries it), as libmongocrypt
-        let key_version = if encrypt { key_version.as_deref() } else { None };
-        let key = crate::kms::GcpKey { project_id, location, key_ring, key_name, key_version };
+        let key_version = if encrypt {
+            key_version.as_deref()
+        } else {
+            None
+        };
+        let key = crate::kms::GcpKey {
+            project_id,
+            location,
+            key_ring,
+            key_name,
+            key_version,
+        };
         let msg = crate::kms::gcp_crypt_request(encrypt, &host, &token, &key, data)?;
-        let req = crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: ep, message: msg, tls: self.tls_for(&kek.kmsid) };
+        let req = crate::kms::KmsRequest {
+            kmsid: kek.kmsid.clone(),
+            endpoint: ep,
+            message: msg,
+            tls: self.tls_for(&kek.kmsid),
+        };
         let field = if encrypt { "ciphertext" } else { "plaintext" };
-        self.kms_call(io, &req, true, gcp_retry, &|r| crate::kms::aws_done(r, field))
+        self.kms_call(io, &req, true, gcp_retry, &|r| {
+            crate::kms::aws_done(r, field)
+        })
     }
 
     /// One KMIP round trip (never retried: KMIP requests are not idempotent)
-    fn kmip_call<I: Io, T>(&self, io: &mut I, req: &crate::kms::KmsRequest, parse: &dyn Fn(&[u8]) -> std::result::Result<T, String>) -> Result<T, I::Error> {
+    fn kmip_call<I: Io, T>(
+        &self,
+        io: &mut I,
+        req: &crate::kms::KmsRequest,
+        parse: &dyn Fn(&[u8]) -> std::result::Result<T, String>,
+    ) -> Result<T, I::Error> {
         let mut parser = crate::kmip::Parser::default();
         let res = io.kms(req, &mut |b: &[u8]| parser.feed(b));
         match res {
@@ -408,15 +610,25 @@ impl Crypt {
                 let msg = "KMS request failed due to network error";
                 Err(Error::Io(match f {
                     KmsFailure::Connect(e) => e,
-                    KmsFailure::Write(_) => io.stream_error(format!("{msg}. Failed to write to KMS stream: {}", req.endpoint)),
-                    KmsFailure::Read(_) => io.stream_error(format!("{msg}. Failed to read from KMS stream to: {}", req.endpoint)),
+                    KmsFailure::Write(_) => io.stream_error(format!(
+                        "{msg}. Failed to write to KMS stream: {}",
+                        req.endpoint
+                    )),
+                    KmsFailure::Read(_) => io.stream_error(format!(
+                        "{msg}. Failed to read from KMS stream to: {}",
+                        req.endpoint
+                    )),
                 }))
             }
         }
     }
 
     /// The KMIP endpoint: the KEK's, else the provider's (default port 5696)
-    fn kmip_request(&self, kek: &Kek, message: Vec<u8>) -> std::result::Result<crate::kms::KmsRequest, String> {
+    fn kmip_request(
+        &self,
+        kek: &Kek,
+        message: Vec<u8>,
+    ) -> std::result::Result<crate::kms::KmsRequest, String> {
         let crate::opts::KekProvider::Kmip { endpoint, .. } = &kek.provider else {
             return Err("KMS provider is not KMIP".into());
         };
@@ -424,16 +636,40 @@ impl Crypt {
             Some(crate::opts::Creds::Kmip { endpoint }) => Some(endpoint),
             _ => None,
         };
-        let e = endpoint.as_ref().or(configured.as_ref()).ok_or("endpoint not set for KMIP request")?;
-        Ok(crate::kms::KmsRequest { kmsid: kek.kmsid.clone(), endpoint: with_default_port(e, 5696), message, tls: self.tls_for(&kek.kmsid) })
+        let e = endpoint
+            .as_ref()
+            .or(configured.as_ref())
+            .ok_or("endpoint not set for KMIP request")?;
+        Ok(crate::kms::KmsRequest {
+            kmsid: kek.kmsid.clone(),
+            endpoint: with_default_port(e, 5696),
+            message,
+            tls: self.tls_for(&kek.kmsid),
+        })
     }
 
     /// The datakey context's KMIP steps (`_kms_kmip_start`)
-    fn kmip_wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<(Vec<u8>, Kek), I::Error> {
-        let crate::opts::KekProvider::Kmip { endpoint, key_id, delegated } = &kek.provider else {
+    fn kmip_wrap<I: Io>(
+        &self,
+        io: &mut I,
+        kek: &Kek,
+        material: &[u8],
+    ) -> Result<(Vec<u8>, Kek), I::Error> {
+        let crate::opts::KekProvider::Kmip {
+            endpoint,
+            key_id,
+            delegated,
+        } = &kek.provider
+        else {
             return Err("KMS provider is not KMIP".into());
         };
-        let uid_of = |what: &'static str| move |m: &[u8]| crate::kmip::unique_identifier(m).map_err(|e| format!("Error getting UniqueIdentifer from KMIP {what} response: {e}"));
+        let uid_of = |what: &'static str| {
+            move |m: &[u8]| {
+                crate::kmip::unique_identifier(m).map_err(|e| {
+                    format!("Error getting UniqueIdentifer from KMIP {what} response: {e}")
+                })
+            }
+        };
         let uid = match key_id {
             Some(k) => k.clone(),
             None => {
@@ -441,10 +677,15 @@ impl Crypt {
                     crate::kmip::create()
                 } else {
                     let secret = crypto::random(crate::kmip::SECRETDATA_LENGTH)?;
-                    crate::kmip::register_secretdata(&secret).map_err(|e| format!("Error creating KMIP register request: {e}"))?
+                    crate::kmip::register_secretdata(&secret)
+                        .map_err(|e| format!("Error creating KMIP register request: {e}"))?
                 };
                 let req = self.kmip_request(kek, msg)?;
-                let uid = self.kmip_call(io, &req, &uid_of(if *delegated { "Create" } else { "Register" }))?;
+                let uid = self.kmip_call(
+                    io,
+                    &req,
+                    &uid_of(if *delegated { "Create" } else { "Register" }),
+                )?;
                 // _ctx_done_kmip_activate reports errors as a Register response's (as libmongocrypt)
                 let req = self.kmip_request(kek, crate::kmip::activate(&uid))?;
                 self.kmip_call(io, &req, &uid_of("Register"))?;
@@ -452,40 +693,76 @@ impl Crypt {
             }
         };
         let encrypted = if *delegated {
-            let req = self.kmip_request(kek, crate::kmip::encrypt_decrypt(true, &uid, material, None))?;
+            let req = self.kmip_request(
+                kek,
+                crate::kmip::encrypt_decrypt(true, &uid, material, None),
+            )?;
             self.kmip_call(io, &req, &|m| {
-                let data = crate::kmip::data(m).map_err(|e| format!("Error getting data from KMIP Encrypt response: {e}"))?;
-                let iv = crate::kmip::iv(m).map_err(|e| format!("Error getting IV from KMIP Encrypt response: {e}"))?;
+                let data = crate::kmip::data(m)
+                    .map_err(|e| format!("Error getting data from KMIP Encrypt response: {e}"))?;
+                let iv = crate::kmip::iv(m)
+                    .map_err(|e| format!("Error getting IV from KMIP Encrypt response: {e}"))?;
                 if iv.len() != 16 {
-                    return Err(format!("KMIP IV response has unexpected length: {}", iv.len()));
+                    return Err(format!(
+                        "KMIP IV response has unexpected length: {}",
+                        iv.len()
+                    ));
                 }
                 Ok([iv, data].concat())
             })?
         } else {
             let req = self.kmip_request(kek, crate::kmip::get(&uid))?;
-            let secret = self.kmip_call(io, &req, &|m| crate::kmip::secretdata(m).map_err(|e| format!("Error getting SecretData from KMIP Get response: {e}")))?;
+            let secret = self.kmip_call(io, &req, &|m| {
+                crate::kmip::secretdata(m)
+                    .map_err(|e| format!("Error getting SecretData from KMIP Get response: {e}"))
+            })?;
             crypto::wrap_key(&secret, material)?
         };
-        let kek = Kek { kmsid: kek.kmsid.clone(), provider: crate::opts::KekProvider::Kmip { endpoint: endpoint.clone(), key_id: Some(uid), delegated: *delegated } };
+        let kek = Kek {
+            kmsid: kek.kmsid.clone(),
+            provider: crate::opts::KekProvider::Kmip {
+                endpoint: endpoint.clone(),
+                key_id: Some(uid),
+                delegated: *delegated,
+            },
+        };
         Ok((encrypted, kek))
     }
 
     /// The key broker's KMIP step: Get the secret and unwrap locally, or have the server decrypt
-    fn kmip_unwrap<I: Io>(&self, io: &mut I, key: &crate::key::KeyDoc) -> Result<Vec<u8>, I::Error> {
-        let crate::opts::KekProvider::Kmip { key_id, delegated, .. } = &key.kek.provider else {
+    fn kmip_unwrap<I: Io>(
+        &self,
+        io: &mut I,
+        key: &crate::key::KeyDoc,
+    ) -> Result<Vec<u8>, I::Error> {
+        let crate::opts::KekProvider::Kmip {
+            key_id, delegated, ..
+        } = &key.kek.provider
+        else {
             return Err("KMS provider is not KMIP".into());
         };
-        let uid = key_id.as_deref().ok_or("KMIP key malformed, no keyId present")?;
+        let uid = key_id
+            .as_deref()
+            .ok_or("KMIP key malformed, no keyId present")?;
         if *delegated {
             if key.key_material.len() < 16 {
                 return Err("Error getting IV from key material".into());
             }
             let (iv, ct) = key.key_material.split_at(16);
-            let req = self.kmip_request(&key.kek, crate::kmip::encrypt_decrypt(false, uid, ct, Some(iv)))?;
-            self.kmip_call(io, &req, &|m| crate::kmip::data(m).map_err(|e| format!("Error getting data from KMIP Decrypt response: {e}")))
+            let req = self.kmip_request(
+                &key.kek,
+                crate::kmip::encrypt_decrypt(false, uid, ct, Some(iv)),
+            )?;
+            self.kmip_call(io, &req, &|m| {
+                crate::kmip::data(m)
+                    .map_err(|e| format!("Error getting data from KMIP Decrypt response: {e}"))
+            })
         } else {
             let req = self.kmip_request(&key.kek, crate::kmip::get(uid))?;
-            let secret = self.kmip_call(io, &req, &|m| crate::kmip::secretdata(m).map_err(|e| format!("Error getting SecretData from KMIP Get response: {e}")))?;
+            let secret = self.kmip_call(io, &req, &|m| {
+                crate::kmip::secretdata(m)
+                    .map_err(|e| format!("Error getting SecretData from KMIP Get response: {e}"))
+            })?;
             Ok(crypto::unwrap_key(&secret, &key.key_material)?)
         }
     }
@@ -497,7 +774,11 @@ impl Crypt {
             crate::opts::KmsType::Azure => self.azure(io, &key.kek, false, &key.key_material),
             crate::opts::KmsType::Gcp => self.gcp(io, &key.kek, false, &key.key_material),
             crate::opts::KmsType::Kmip => self.kmip_unwrap(io, key),
-            t => Err(format!("the {} KMS provider is not supported by this build yet", t.name()).into()),
+            t => Err(format!(
+                "the {} KMS provider is not supported by this build yet",
+                t.name()
+            )
+            .into()),
         }
     }
 
@@ -507,7 +788,13 @@ impl Crypt {
             crate::opts::KmsType::Aws => self.aws(io, kek, false, material)?,
             crate::opts::KmsType::Azure => self.azure(io, kek, true, material)?,
             crate::opts::KmsType::Gcp => self.gcp(io, kek, true, material)?,
-            t => return Err(format!("the {} KMS provider is not supported by this build yet", t.name()).into()),
+            t => {
+                return Err(format!(
+                    "the {} KMS provider is not supported by this build yet",
+                    t.name()
+                )
+                .into());
+            }
         };
         if e.len() < crypto::KEY_LEN {
             return Err("key material not expected length".into());
@@ -519,7 +806,12 @@ impl Crypt {
         // KB_ADDING_DOCS: on-demand credentials are obtained before the key documents are read
         let _ondemand = if kb.needs_keys() && !self.kms.need_credentials.is_empty() {
             let g = self.obtain_credentials(io)?;
-            if let Some(k) = self.ondemand.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if let Some(k) = self
+                .ondemand
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
                 kb.provide(k.clone());
             }
             Some(g)
@@ -542,7 +834,13 @@ impl Crypt {
 
     /// `mongocrypt_ctx_explicit_encrypt_init` + finalize for FLE1: `value` is `{v: <value>}`;
     /// returns the binary subtype 6 payload
-    pub fn encrypt_fle1<I: Io>(&self, io: &mut I, value: &[u8], key: &KeySel, algo: Fle1Algorithm) -> Result<Vec<u8>, I::Error> {
+    pub fn encrypt_fle1<I: Io>(
+        &self,
+        io: &mut I,
+        value: &[u8],
+        key: &KeySel,
+        algo: Fle1Algorithm,
+    ) -> Result<Vec<u8>, I::Error> {
         let mut it = Iter::new(value).ok_or("msg must be bson")?;
         if !it.find(b"v") {
             return Err("invalid msg, must contain 'v'".into());
@@ -558,12 +856,25 @@ impl Crypt {
             KeySel::Id(id) => (kb.key_by_id(id)?, *id),
             KeySel::AltName(n) => kb.key_by_name(n)?,
         };
-        let subtype = if algo == Fle1Algorithm::Deterministic { FLE1_DETERMINISTIC } else { FLE1_RANDOM };
-        let ct = Ciphertext { blob_subtype: subtype, key_id, original_bson_type: it.value().type_code(), data: &[] };
-        let aad = ct.associated_data().ok_or("could not serialize associated data")?;
+        let subtype = if algo == Fle1Algorithm::Deterministic {
+            FLE1_DETERMINISTIC
+        } else {
+            FLE1_RANDOM
+        };
+        let ct = Ciphertext {
+            blob_subtype: subtype,
+            key_id,
+            original_bson_type: it.value().type_code(),
+            data: &[],
+        };
+        let aad = ct
+            .associated_data()
+            .ok_or("could not serialize associated data")?;
         let plaintext = value_bytes(&it);
         let iv = match algo {
-            Fle1Algorithm::Deterministic => crypto::deterministic_iv(&material, plaintext, &aad)?.to_vec(),
+            Fle1Algorithm::Deterministic => {
+                crypto::deterministic_iv(&material, plaintext, &aad)?.to_vec()
+            }
             Fle1Algorithm::Random => crypto::random(crypto::IV_LEN)?,
         };
         let data = Algorithm::Fle1.encrypt(&iv, Some(&aad), &material, plaintext)?;
@@ -580,7 +891,10 @@ impl Crypt {
             return Err("invalid msg, 'v' must contain a binary".into());
         };
         if subtype != SUBTYPE_ENCRYPTED {
-            return Err(format!("decryption expected BSON binary subtype {SUBTYPE_ENCRYPTED}, got {subtype}").into());
+            return Err(format!(
+                "decryption expected BSON binary subtype {SUBTYPE_ENCRYPTED}, got {subtype}"
+            )
+            .into());
         }
         if b.is_empty() {
             return Err("unsupported FLE blob subtype: expected non-empty payload".into());
@@ -606,13 +920,21 @@ impl Crypt {
         // _check_for_K_KeyId: indexed values name a second key inside their S_Key envelope
         let mut more = false;
         traverse(doc, &mut |b| {
-            if matches!(b[0], crate::fle2::SUBTYPE_IEV_EQUALITY_V2 | crate::fle2::SUBTYPE_IEV_RANGE_V2 | crate::fle2::SUBTYPE_IEV_TEXT) {
+            if matches!(
+                b[0],
+                crate::fle2::SUBTYPE_IEV_EQUALITY_V2
+                    | crate::fle2::SUBTYPE_IEV_RANGE_V2
+                    | crate::fle2::SUBTYPE_IEV_TEXT
+            ) {
                 let iev = crate::fle2::Iev::parse(b)?;
                 let s = kb.key_by_id(&iev.s_key_id)?;
                 kb.request_id(&iev.add_s_key(&s)?.k_key_id);
                 more = true;
             }
-            if matches!(b[0], crate::fle2::SUBTYPE_IEV_EQUALITY_V1 | crate::fle2::SUBTYPE_IEV_RANGE_V1) {
+            if matches!(
+                b[0],
+                crate::fle2::SUBTYPE_IEV_EQUALITY_V1 | crate::fle2::SUBTYPE_IEV_RANGE_V1
+            ) {
                 let iev = crate::fle2::IevV1::parse(b)?;
                 let s = kb.key_by_id(&iev.s_key_id)?;
                 kb.request_id(&iev.add_s_key(&s)?.k_key_id);
@@ -637,32 +959,58 @@ impl Crypt {
         let material = match key_material {
             Some(m) => {
                 if m.len() != crypto::KEY_LEN {
-                    return Err(format!("keyMaterial should have length {}, but has length {}", crypto::KEY_LEN, m.len()).into());
+                    return Err(format!(
+                        "keyMaterial should have length {}, but has length {}",
+                        crypto::KEY_LEN,
+                        m.len()
+                    )
+                    .into());
                 }
                 m.to_vec()
             }
             None => crypto::random(crypto::KEY_LEN)?,
         };
-        let _ondemand = if self.on_demand(&kek.kmsid) { Some(self.obtain_credentials(io)?) } else { None };
+        let _ondemand = if self.on_demand(&kek.kmsid) {
+            Some(self.obtain_credentials(io)?)
+        } else {
+            None
+        };
         let (encrypted, kek) = self.wrap(io, kek, &material)?;
         Ok(key_document(&kek, &encrypted, alt_names)?)
     }
 
     /// The datakey context's KMS step: `material` encrypted with `kek`, and the KEK to store (a
     /// KMIP KEK gains the keyId of the object it registered or created)
-    fn wrap<I: Io>(&self, io: &mut I, kek: &Kek, material: &[u8]) -> Result<(Vec<u8>, Kek), I::Error> {
+    fn wrap<I: Io>(
+        &self,
+        io: &mut I,
+        kek: &Kek,
+        material: &[u8],
+    ) -> Result<(Vec<u8>, Kek), I::Error> {
         match self.creds(&kek.kmsid).as_ref() {
-            Some(crate::opts::Creds::Local { key }) => Ok((crypto::wrap_key(key, material)?, kek.clone())),
+            Some(crate::opts::Creds::Local { key }) => {
+                Ok((crypto::wrap_key(key, material)?, kek.clone()))
+            }
             Some(crate::opts::Creds::Kmip { .. }) => self.kmip_wrap(io, kek, material),
             Some(_) => Ok((self.kms_wrap(io, kek, material)?, kek.clone())),
-            None => Err(format!("requested kms provider required by datakey is not configured: `{}`", kek.kmsid).into()),
+            None => Err(format!(
+                "requested kms provider required by datakey is not configured: `{}`",
+                kek.kmsid
+            )
+            .into()),
         }
     }
 
     /// `mongocrypt_ctx_encrypt_init` + finalize with `bypass_query_analysis`: the command to send
     /// (None: send `cmd` as is). Explicit payloads are kept; Queryable Encryption collections get
     /// encryptionInformation (and compaction/cleanup tokens).
-    pub fn auto_encrypt<I: Io>(&self, io: &mut I, db: &str, cmd: &[u8], opts: &AutoOpts) -> Result<Option<Vec<u8>>, I::Error> {
+    pub fn auto_encrypt<I: Io>(
+        &self,
+        io: &mut I,
+        db: &str,
+        cmd: &[u8],
+        opts: &AutoOpts,
+    ) -> Result<Option<Vec<u8>>, I::Error> {
         use crate::autoenc as ae;
         if db.is_empty() || db.contains('\0') {
             return Err("invalid db".into());
@@ -687,7 +1035,8 @@ impl Crypt {
             if bypass {
                 return Ok(None);
             }
-            let tc = tc.ok_or("unexpected error: did not bypass or error but no collection name")?;
+            let tc =
+                tc.ok_or("unexpected error: did not bypass or error but no collection name")?;
             sb.request(db, &tc)?;
             (None, tc)
         };
@@ -702,9 +1051,10 @@ impl Crypt {
             sb.satisfy_from_create_or_coll_mod(cmd)?;
         }
         if sb.need_more()
-            && let Some(m) = &opts.schema_map {
-                sb.satisfy_from_schema_map(m)?;
-            }
+            && let Some(m) = &opts.schema_map
+        {
+            sb.satisfy_from_schema_map(m)?;
+        }
         if sb.need_more() {
             sb.satisfy_from_cache(&self.collinfo)?;
         }
@@ -713,7 +1063,9 @@ impl Crypt {
         }
         if sb.need_more() {
             let filter = sb.list_collections_filter()?;
-            let docs = io.list_collections(target_db.as_deref().unwrap_or(db), &filter).map_err(Error::Io)?;
+            let docs = io
+                .list_collections(target_db.as_deref().unwrap_or(db), &filter)
+                .map_err(Error::Io)?;
             for d in docs {
                 sb.satisfy_from_collinfo(&d, &self.collinfo)?;
             }
@@ -725,7 +1077,8 @@ impl Crypt {
         let mut kb = KeyBroker::new(&self.kms, &self.cache);
         let mut need_keys = false;
         if let Some(efc) = &target_efc {
-            let compaction = name == b"compactStructuredEncryptionData" || name == b"cleanupStructuredEncryptionData";
+            let compaction = name == b"compactStructuredEncryptionData"
+                || name == b"cleanupStructuredEncryptionData";
             for f in &efc.fields {
                 match (&f.key_alt_name, f.key_id) {
                     (Some(a), _) => {
@@ -748,16 +1101,24 @@ impl Crypt {
             return Ok(None);
         }
         // _fle2_finalize
-        let by_name = |n: &[u8]| -> std::result::Result<[u8; 16], String> { kb.key_by_name(n).map(|(_, id)| id) };
+        let by_name = |n: &[u8]| -> std::result::Result<[u8; 16], String> {
+            kb.key_by_name(n).map(|(_, id)| id)
+        };
         let by_id = |id: &[u8; 16]| -> std::result::Result<Vec<u8>, String> { kb.key_by_id(id) };
         let mut converted = ae::strip_encryption_information(&name, cmd)?;
         let target_efc = match target_efc {
             Some(mut efc) => {
                 for f in efc.fields.iter_mut() {
                     if f.key_id.is_none()
-                        && let Some(a) = &f.key_alt_name {
-                            f.key_id = Some(by_name(a).map_err(|_| format!("Could not find key by keyAltName: {}", String::from_utf8_lossy(a)))?);
-                        }
+                        && let Some(a) = &f.key_alt_name
+                    {
+                        f.key_id = Some(by_name(a).map_err(|_| {
+                            format!(
+                                "Could not find key by keyAltName: {}",
+                                String::from_utf8_lossy(a)
+                            )
+                        })?);
+                    }
                 }
                 Some(efc)
             }
@@ -784,13 +1145,23 @@ impl Crypt {
     /// `{masterKey, keyMaterial}` to `$set` (re-encrypted with `new_kek`, or with its own KEK).
     /// The key broker runs as libmongocrypt's: cached keys are not decrypted again, and come first.
     /// On-demand credentials are obtained first, then the key documents matching `filter` read.
-    pub fn rewrap_many<I: Io>(&self, io: &mut I, filter: &[u8], new_kek: Option<&Kek>) -> Result<Vec<([u8; 16], Vec<u8>)>, I::Error> {
+    pub fn rewrap_many<I: Io>(
+        &self,
+        io: &mut I,
+        filter: &[u8],
+        new_kek: Option<&Kek>,
+    ) -> Result<Vec<([u8; 16], Vec<u8>)>, I::Error> {
         let mut kb = KeyBroker::new(&self.kms, &self.cache);
         let _ondemand = if self.kms.need_credentials.is_empty() {
             None
         } else {
             let g = self.obtain_credentials(io)?;
-            if let Some(k) = self.ondemand.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if let Some(k) = self
+                .ondemand
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
                 kb.provide(k.clone());
             }
             Some(g)
@@ -805,7 +1176,8 @@ impl Crypt {
             *slot = Some(self.kms_unwrap(io, doc)?);
         }
         kb.kms_done()?;
-        let keys: Vec<(crate::key::KeyDoc, Vec<u8>)> = kb.all_keys().map(|(d, m)| (d.clone(), m.clone())).collect();
+        let keys: Vec<(crate::key::KeyDoc, Vec<u8>)> =
+            kb.all_keys().map(|(d, m)| (d.clone(), m.clone())).collect();
         let mut out = Vec::with_capacity(keys.len());
         for (key, material) in keys {
             let (encrypted, kek) = self.wrap(io, new_kek.unwrap_or(&key.kek), &material)?;
@@ -821,7 +1193,11 @@ impl Crypt {
 }
 
 /// `_finalize` of the datakey context: the new key document
-pub fn key_document(kek: &Kek, encrypted_material: &[u8], alt_names: &[Vec<u8>]) -> std::result::Result<Vec<u8>, String> {
+pub fn key_document(
+    kek: &Kek,
+    encrypted_material: &[u8],
+    alt_names: &[Vec<u8>],
+) -> std::result::Result<Vec<u8>, String> {
     let mut w = Writer::new();
     let mut uuid = crypto::random(16)?;
     uuid[6] = 0x40 | (uuid[6] & 0x0f);
@@ -847,14 +1223,21 @@ pub fn key_document(kek: &Kek, encrypted_material: &[u8], alt_names: &[Vec<u8>])
 }
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// `_permitted_for_encryption`
 fn permitted_for_encryption(v: &Value, algo: Fle1Algorithm) -> std::result::Result<(), String> {
     match v {
-        Value::Null | Value::MinKey | Value::MaxKey | Value::Undefined => Err("BSON type invalid for encryption".into()),
-        Value::Binary(SUBTYPE_ENCRYPTED, _) => Err("BSON binary subtype 6 is invalid for encryption".into()),
+        Value::Null | Value::MinKey | Value::MaxKey | Value::Undefined => {
+            Err("BSON type invalid for encryption".into())
+        }
+        Value::Binary(SUBTYPE_ENCRYPTED, _) => {
+            Err("BSON binary subtype 6 is invalid for encryption".into())
+        }
         Value::Binary(..) => Ok(()),
         Value::Double(_)
         | Value::Document(_)
@@ -883,13 +1266,28 @@ fn is_ciphertext(b: u8) -> bool {
 }
 
 /// `_mongocrypt_traverse_binary_in_bson`
-fn traverse(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), String>) -> std::result::Result<(), String> {
+fn traverse(
+    doc: &[u8],
+    cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), String>,
+) -> std::result::Result<(), String> {
     let mut it = Iter::new(doc).ok_or("malformed bson")?;
     while it.next() {
         match it.value() {
             Value::Binary(SUBTYPE_ENCRYPTED, b) if !b.is_empty() && is_ciphertext(b[0]) => cb(b)?,
-            Value::Document(d) => traverse(d, cb).map_err(|e| if e == "malformed bson" { "error recursing into document".into() } else { e })?,
-            Value::Array(d) => traverse(d, cb).map_err(|e| if e == "malformed bson" { "error recursing into array".into() } else { e })?,
+            Value::Document(d) => traverse(d, cb).map_err(|e| {
+                if e == "malformed bson" {
+                    "error recursing into document".into()
+                } else {
+                    e
+                }
+            })?,
+            Value::Array(d) => traverse(d, cb).map_err(|e| {
+                if e == "malformed bson" {
+                    "error recursing into array".into()
+                } else {
+                    e
+                }
+            })?,
             _ => {}
         }
     }
@@ -897,13 +1295,28 @@ fn traverse(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), Str
 }
 
 /// `_mongocrypt_traverse_binary_in_bson` with TRAVERSE_MATCH_SUBTYPE6: every binary of subtype 6
-pub fn traverse_subtype6(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), String>) -> std::result::Result<(), String> {
+pub fn traverse_subtype6(
+    doc: &[u8],
+    cb: &mut dyn FnMut(&[u8]) -> std::result::Result<(), String>,
+) -> std::result::Result<(), String> {
     let mut it = Iter::new(doc).ok_or("malformed bson")?;
     while it.next() {
         match it.value() {
             Value::Binary(SUBTYPE_ENCRYPTED, b) => cb(b)?,
-            Value::Document(d) => traverse_subtype6(d, cb).map_err(|e| if e == "malformed bson" { "error recursing into document".into() } else { e })?,
-            Value::Array(d) => traverse_subtype6(d, cb).map_err(|e| if e == "malformed bson" { "error recursing into array".into() } else { e })?,
+            Value::Document(d) => traverse_subtype6(d, cb).map_err(|e| {
+                if e == "malformed bson" {
+                    "error recursing into document".into()
+                } else {
+                    e
+                }
+            })?,
+            Value::Array(d) => traverse_subtype6(d, cb).map_err(|e| {
+                if e == "malformed bson" {
+                    "error recursing into array".into()
+                } else {
+                    e
+                }
+            })?,
             _ => {}
         }
     }
@@ -912,7 +1325,10 @@ pub fn traverse_subtype6(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::R
 
 /// `_mongocrypt_transform_binary_in_bson`: a copy with every matching binary replaced by `cb`'s value
 /// (a `wrap_value` document)
-fn transform(doc: &[u8], cb: &mut dyn FnMut(&[u8]) -> std::result::Result<Vec<u8>, String>) -> std::result::Result<Vec<u8>, String> {
+fn transform(
+    doc: &[u8],
+    cb: &mut dyn FnMut(&[u8]) -> std::result::Result<Vec<u8>, String>,
+) -> std::result::Result<Vec<u8>, String> {
     let mut w = Writer::with_capacity(doc.len());
     transform_into(&mut w, doc, cb)?;
     Ok(w.finish())
@@ -956,7 +1372,9 @@ fn collect_key(kb: &mut KeyBroker, b: &[u8]) -> std::result::Result<(), String> 
             kb.request_id(&ct.key_id);
             Ok(())
         }
-        crate::fle2::SUBTYPE_IEV_EQUALITY_V2 | crate::fle2::SUBTYPE_IEV_RANGE_V2 | crate::fle2::SUBTYPE_IEV_TEXT => {
+        crate::fle2::SUBTYPE_IEV_EQUALITY_V2
+        | crate::fle2::SUBTYPE_IEV_RANGE_V2
+        | crate::fle2::SUBTYPE_IEV_TEXT => {
             kb.request_id(&crate::fle2::Iev::parse(b)?.s_key_id);
             Ok(())
         }
@@ -989,42 +1407,55 @@ fn decrypt_value(kb: &KeyBroker, b: &[u8]) -> std::result::Result<Vec<u8>, Strin
     match b[0] {
         1 | 2 => {
             let ct = Ciphertext::parse(b)?;
-            let material = kb.key_by_id(&ct.key_id).map_err(|_| "key not found".to_string())?;
-            let aad = ct.associated_data().ok_or("could not serialize associated data")?;
+            let material = kb
+                .key_by_id(&ct.key_id)
+                .map_err(|_| "key not found".to_string())?;
+            let aad = ct
+                .associated_data()
+                .ok_or("could not serialize associated data")?;
             let p = Algorithm::Fle1.decrypt(Some(&aad), &material, ct.data)?;
-            wrap_value(ct.original_bson_type, &p).ok_or_else(|| "malformed encrypted bson".to_string())
+            wrap_value(ct.original_bson_type, &p)
+                .ok_or_else(|| "malformed encrypted bson".to_string())
         }
-        crate::fle2::SUBTYPE_IEV_EQUALITY_V2 | crate::fle2::SUBTYPE_IEV_RANGE_V2 | crate::fle2::SUBTYPE_IEV_TEXT => {
+        crate::fle2::SUBTYPE_IEV_EQUALITY_V2
+        | crate::fle2::SUBTYPE_IEV_RANGE_V2
+        | crate::fle2::SUBTYPE_IEV_TEXT => {
             let iev = crate::fle2::Iev::parse(b)?;
             let inner = iev.add_s_key(&kb.key_by_id(&iev.s_key_id)?)?;
             let v = inner.add_k_key(&kb.key_by_id(&inner.k_key_id)?)?;
-            wrap_value(iev.value_type, &v).ok_or_else(|| "decrypted clientValue is not valid BSON".to_string())
+            wrap_value(iev.value_type, &v)
+                .ok_or_else(|| "decrypted clientValue is not valid BSON".to_string())
         }
         crate::fle2::SUBTYPE_UEV_V2 => {
             let u = crate::fle2::Uev::parse(b)?;
             let p = u.decrypt(&kb.key_by_id(&u.key_id)?)?;
-            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+            wrap_value(u.value_type, &p)
+                .ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
         }
         crate::fle2::SUBTYPE_IUP_V2 => {
             let u = crate::fle2::Iup::parse(b)?;
             let p = u.decrypt(&kb.key_by_id(&u.user_key_id)?)?;
-            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+            wrap_value(u.value_type, &p)
+                .ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
         }
         crate::fle2::SUBTYPE_IEV_EQUALITY_V1 | crate::fle2::SUBTYPE_IEV_RANGE_V1 => {
             let iev = crate::fle2::IevV1::parse(b)?;
             let inner = iev.add_s_key(&kb.key_by_id(&iev.s_key_id)?)?;
             let v = inner.add_k_key(&kb.key_by_id(&inner.k_key_id)?)?;
-            wrap_value(iev.value_type, &v).ok_or_else(|| "decrypted clientValue is not valid BSON".to_string())
+            wrap_value(iev.value_type, &v)
+                .ok_or_else(|| "decrypted clientValue is not valid BSON".to_string())
         }
         crate::fle2::SUBTYPE_UEV_V1 => {
             let u = crate::fle2::UevV1::parse(b)?;
             let p = u.decrypt(&kb.key_by_id(&u.key_id)?)?;
-            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+            wrap_value(u.value_type, &p)
+                .ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
         }
         crate::fle2::SUBTYPE_IUP_V1 => {
             let u = crate::fle2::IupV1::parse(b)?;
             let p = u.decrypt(&kb.key_by_id(&u.user_key_id)?)?;
-            wrap_value(u.value_type, &p).ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
+            wrap_value(u.value_type, &p)
+                .ok_or_else(|| "decrypted plaintext is not valid BSON".to_string())
         }
         _ => Err("Queryable Encryption v1 payloads are not supported by this build".into()),
     }
@@ -1088,10 +1519,14 @@ impl IndexType {
 /// `mc_validate_contention`
 pub fn validate_contention(c: i64) -> std::result::Result<(), String> {
     if c < 0 {
-        return Err(format!("Error validating contention: contention must be non-negative, got: {c}"));
+        return Err(format!(
+            "Error validating contention: contention must be non-negative, got: {c}"
+        ));
     }
     if c == i64::MAX {
-        return Err(format!("Error validating contention: contention must be < INT64_MAX, got: {c}"));
+        return Err(format!(
+            "Error validating contention: contention must be < INT64_MAX, got: {c}"
+        ));
     }
     Ok(())
 }
@@ -1118,10 +1553,19 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
         "indexed" => index_type = Some(IndexType::Equality),
         "unindexed" => index_type = Some(IndexType::None),
         "range" => index_type = Some(IndexType::Range),
-        "rangepreview" => return Err("Algorithm 'rangePreview' is deprecated, please use 'range'".into()),
+        "rangepreview" => {
+            return Err("Algorithm 'rangePreview' is deprecated, please use 'range'".into());
+        }
         "string" => index_type = Some(IndexType::String),
-        "textpreview" => return Err("Algorithm 'textPreview' is deprecated, please use 'string'".into()),
-        _ => return Err(format!("unsupported algorithm string \"{}\"", String::from_utf8_lossy(algo))),
+        "textpreview" => {
+            return Err("Algorithm 'textPreview' is deprecated, please use 'string'".into());
+        }
+        _ => {
+            return Err(format!(
+                "unsupported algorithm string \"{}\"",
+                String::from_utf8_lossy(algo)
+            ));
+        }
     }
     // mongocrypt_ctx_setopt_algorithm_range
     let range = match &o.range_opts {
@@ -1136,24 +1580,49 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     // mongocrypt_ctx_setopt_query_type
     let query_type = match &o.query_type {
         None => None,
-        Some(q) => Some(match String::from_utf8_lossy(q).to_ascii_lowercase().as_str() {
-            "equality" => QueryType::Equality,
-            "range" => QueryType::Range,
-            "rangepreview" => return Err("Query type 'rangePreview' is deprecated, please use 'range'".into()),
-            "prefix" => QueryType::Prefix,
-            "suffix" => QueryType::Suffix,
-            "substring" => QueryType::Substring,
-            "prefixpreview" => return Err("Query type 'prefixPreview' is deprecated, please use 'prefix'".into()),
-            "suffixpreview" => return Err("Query type 'suffixPreview' is deprecated, please use 'suffix'".into()),
-            "substringpreview" => return Err("Query type 'substringPreview' is deprecated, please use 'substring'".into()),
-            _ => return Err(format!("Unsupported query_type \"{}\"", String::from_utf8_lossy(q))),
-        }),
+        Some(q) => Some(
+            match String::from_utf8_lossy(q).to_ascii_lowercase().as_str() {
+                "equality" => QueryType::Equality,
+                "range" => QueryType::Range,
+                "rangepreview" => {
+                    return Err(
+                        "Query type 'rangePreview' is deprecated, please use 'range'".into(),
+                    );
+                }
+                "prefix" => QueryType::Prefix,
+                "suffix" => QueryType::Suffix,
+                "substring" => QueryType::Substring,
+                "prefixpreview" => {
+                    return Err(
+                        "Query type 'prefixPreview' is deprecated, please use 'prefix'".into(),
+                    );
+                }
+                "suffixpreview" => {
+                    return Err(
+                        "Query type 'suffixPreview' is deprecated, please use 'suffix'".into(),
+                    );
+                }
+                "substringpreview" => {
+                    return Err(
+                        "Query type 'substringPreview' is deprecated, please use 'substring'"
+                            .into(),
+                    );
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported query_type \"{}\"",
+                        String::from_utf8_lossy(q)
+                    ));
+                }
+            },
+        ),
     };
     // mongocrypt_ctx_setopt_key_id
     if let Some(id) = &o.key_id
-        && id.len() != 16 {
-            return Err("expected 16 byte UUID".into());
-        }
+        && id.len() != 16
+    {
+        return Err("expected 16 byte UUID".into());
+    }
     // _mongocrypt_ctx_init: the key descriptor is required
     let key = match (&o.key_id, &o.key_alt_name) {
         (None, None) => return Err("either key id or key alt name required".into()),
@@ -1161,7 +1630,11 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
         (Some(id), None) => KeySel::Id(id[..].try_into().expect("checked above")),
         (None, Some(n)) => KeySel::AltName(n.clone()),
     };
-    let (cf, rng, txt) = (o.contention_factor.is_some(), o.range_opts.is_some(), o.string_opts.is_some());
+    let (cf, rng, txt) = (
+        o.contention_factor.is_some(),
+        o.range_opts.is_some(),
+        o.string_opts.is_some(),
+    );
     if o.key_alt_name.is_some() {
         if index_type.is_some() {
             return Err("cannot set both key alt name and index type".into());
@@ -1196,17 +1669,27 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     if let Some(q) = query_type {
         let string = index_type == Some(IndexType::String);
         match q {
-            QueryType::Prefix if !string => return Err("prefix query type requires string index type".into()),
-            QueryType::Suffix if !string => return Err("suffix query type requires string index type".into()),
-            QueryType::Substring if !string => return Err("substring query type requires string index type".into()),
+            QueryType::Prefix if !string => {
+                return Err("prefix query type requires string index type".into());
+            }
+            QueryType::Suffix if !string => {
+                return Err("suffix query type requires string index type".into());
+            }
+            QueryType::Substring if !string => {
+                return Err("substring query type requires string index type".into());
+            }
             _ => {}
         }
     }
     if rng {
         match index_type {
             Some(IndexType::None) => return Err("cannot set range opts with no index type".into()),
-            Some(IndexType::Equality) => return Err("cannot set range opts with equality index type".into()),
-            Some(IndexType::String) => return Err("cannot set range opts with 'string' algorithm".into()),
+            Some(IndexType::Equality) => {
+                return Err("cannot set range opts with equality index type".into());
+            }
+            Some(IndexType::String) => {
+                return Err("cannot set range opts with 'string' algorithm".into());
+            }
             _ => {}
         }
     }
@@ -1217,11 +1700,21 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
         validate_contention(c)?;
     }
     match index_type {
-        Some(IndexType::Equality) if !cf => return Err("contention factor is required for indexed algorithm".into()),
-        Some(IndexType::Range) if !cf => return Err("contention factor is required for range indexed algorithm".into()),
-        Some(IndexType::Range) if !rng => return Err("range opts are required for range indexed algorithm".into()),
-        Some(IndexType::String) if !cf => return Err("contention factor is required for string algorithm".into()),
-        Some(IndexType::String) if !txt => return Err("string opts are required for string algorithm".into()),
+        Some(IndexType::Equality) if !cf => {
+            return Err("contention factor is required for indexed algorithm".into());
+        }
+        Some(IndexType::Range) if !cf => {
+            return Err("contention factor is required for range indexed algorithm".into());
+        }
+        Some(IndexType::Range) if !rng => {
+            return Err("range opts are required for range indexed algorithm".into());
+        }
+        Some(IndexType::String) if !cf => {
+            return Err("contention factor is required for string algorithm".into());
+        }
+        Some(IndexType::String) if !txt => {
+            return Err("string opts are required for string algorithm".into());
+        }
         _ => {}
     }
     if let (Some(q), Some(t)) = (query_type, index_type) {
@@ -1231,7 +1724,11 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
             _ => t == IndexType::String,
         };
         if !ok {
-            return Err(format!("query_type ({}) must match index_type ({})", q.name(), t.name()));
+            return Err(format!(
+                "query_type ({}) must match index_type ({})",
+                q.name(),
+                t.name()
+            ));
         }
     }
     let is_range_query = query_type == Some(QueryType::Range);
@@ -1241,12 +1738,24 @@ fn check_explicit(o: &ExplicitOpts, expression: bool) -> std::result::Result<Che
     if expression && !is_range_query {
         return Err("EncryptExpression may only be used for range queries.".into());
     }
-    Ok(Checked { fle1, index_type, query_type, range, text, key })
+    Ok(Checked {
+        fle1,
+        index_type,
+        query_type,
+        range,
+        text,
+        key,
+    })
 }
 
 impl Crypt {
     /// `_mongoc_crypt_explicit_encrypt`: the ciphertext (a binary subtype 6 payload) of the `{v: ..}` document's value
-    pub fn explicit_encrypt<I: Io>(&self, io: &mut I, value: &[u8], o: &ExplicitOpts) -> Result<Vec<u8>, I::Error> {
+    pub fn explicit_encrypt<I: Io>(
+        &self,
+        io: &mut I,
+        value: &[u8],
+        o: &ExplicitOpts,
+    ) -> Result<Vec<u8>, I::Error> {
         let c = check_explicit(o, false)?;
         match (c.fle1, c.index_type) {
             (Some(a), _) => self.encrypt_fle1(io, value, &c.key, a),
@@ -1269,7 +1778,15 @@ impl Crypt {
 
     /// `_fle2_finalize_explicit` for the string algorithm: FLE2InsertUpdatePayloadV2 with text
     /// search token sets, or FLE2FindTextPayload for prefix/suffix/substring queries
-    fn encrypt_text<I: Io>(&self, io: &mut I, value: &[u8], key_id: &[u8; 16], text: &crate::text::TextOpts, q: Option<QueryType>, cf: i64) -> Result<Vec<u8>, I::Error> {
+    fn encrypt_text<I: Io>(
+        &self,
+        io: &mut I,
+        value: &[u8],
+        key_id: &[u8; 16],
+        text: &crate::text::TextOpts,
+        q: Option<QueryType>,
+        cf: i64,
+    ) -> Result<Vec<u8>, I::Error> {
         use crate::text::Which;
         // explicit_encrypt_init: the TextOpts become a FLE2TextSearchInsertSpec
         let which = match q {
@@ -1301,13 +1818,23 @@ impl Crypt {
             v.extend_from_slice(&spec.v);
             v.push(0);
             out.push(crate::fle2::SUBTYPE_IUP_V2);
-            out.extend(crate::text::insert_payload(&spec, key_id, &key, key_id, &key, &v, cf)?);
+            out.extend(crate::text::insert_payload(
+                &spec, key_id, &key, key_id, &key, &v, cf,
+            )?);
         }
         Ok(out)
     }
 
     /// `_fle2_finalize_explicit` for the Unindexed and Indexed (equality) algorithms
-    fn encrypt_fle2<I: Io>(&self, io: &mut I, value: &[u8], key_id: &[u8; 16], t: IndexType, q: Option<QueryType>, cf: i64) -> Result<Vec<u8>, I::Error> {
+    fn encrypt_fle2<I: Io>(
+        &self,
+        io: &mut I,
+        value: &[u8],
+        key_id: &[u8; 16],
+        t: IndexType,
+        q: Option<QueryType>,
+        cf: i64,
+    ) -> Result<Vec<u8>, I::Error> {
         let mut it = Iter::new(value).ok_or("unable to convert input to BSON")?;
         if !it.find(b"v") {
             return Err("invalid input BSON, must contain 'v'".into());
@@ -1322,7 +1849,9 @@ impl Crypt {
         let mut out = Vec::new();
         match (t, q) {
             (IndexType::None, _) => {
-                return Ok(crate::fle2::uev_encrypt(key_id, value_type, plaintext, &key)?);
+                return Ok(crate::fle2::uev_encrypt(
+                    key_id, value_type, plaintext, &key,
+                )?);
             }
             (_, Some(_)) => {
                 out.push(crate::fle2::SUBTYPE_FIND_EQUALITY_V2);
@@ -1330,16 +1859,29 @@ impl Crypt {
             }
             (_, None) => {
                 // _fle2_choose_contention_factor: uniform in [0, maxContentionFactor]
-                let k = if cf > 0 { crypto::random_int64(cf + 1)? } else { 0 };
+                let k = if cf > 0 {
+                    crypto::random_int64(cf + 1)?
+                } else {
+                    0
+                };
                 out.push(crate::fle2::SUBTYPE_IUP_V2);
-                out.extend(crate::fle2::insert_update_payload(key_id, &key, key_id, &key, value_type, plaintext, k)?);
+                out.extend(crate::fle2::insert_update_payload(
+                    key_id, &key, key_id, &key, value_type, plaintext, k,
+                )?);
             }
         }
         Ok(out)
     }
 
     /// `_fle2_finalize_explicit` for a range insert: FLE2InsertUpdatePayloadV2 with edges
-    fn encrypt_range<I: Io>(&self, io: &mut I, value: &[u8], key_id: &[u8; 16], ro: &crate::range::RangeOpts, cf: i64) -> Result<Vec<u8>, I::Error> {
+    fn encrypt_range<I: Io>(
+        &self,
+        io: &mut I,
+        value: &[u8],
+        key_id: &[u8; 16],
+        ro: &crate::range::RangeOpts,
+        cf: i64,
+    ) -> Result<Vec<u8>, I::Error> {
         let mut it = Iter::new(value).ok_or("unable to convert input to BSON")?;
         if !it.find(b"v") {
             return Err("Error making FLE2RangeInsertSpec: Unable to find 'v' in input".into());
@@ -1348,30 +1890,58 @@ impl Crypt {
         let v = {
             let mut w = Writer::with_capacity(32);
             w.element_from(Some(b""), &it);
-            crate::range::Val { t: it.value().type_code(), elem: w.finish() }
+            crate::range::Val {
+                t: it.value().type_code(),
+                elem: w.finish(),
+            }
         };
         let spec = ro.insert_spec(&v)?;
         let mut kb = KeyBroker::new(&self.kms, &self.cache);
         kb.request_id(key_id);
         self.fetch(&mut kb, io)?;
         let key = kb.key_by_id(key_id).map_err(|_| "unable to retrieve key")?;
-        let k = if cf > 0 { crypto::random_int64(cf + 1)? } else { 0 };
+        let k = if cf > 0 {
+            crypto::random_int64(cf + 1)?
+        } else {
+            0
+        };
         let mut out = vec![crate::fle2::SUBTYPE_IUP_V2];
-        out.extend(crate::range::insert_payload(key_id, &key, &spec, value_bytes(&it), ro.sparsity, k)?);
+        out.extend(crate::range::insert_payload(
+            key_id,
+            &key,
+            &spec,
+            value_bytes(&it),
+            ro.sparsity,
+            k,
+        )?);
         Ok(out)
     }
 
     /// `_mongoc_crypt_explicit_encrypt_expression`
-    pub fn explicit_encrypt_expression<I: Io>(&self, io: &mut I, expr: &[u8], o: &ExplicitOpts) -> Result<Vec<u8>, I::Error> {
+    pub fn explicit_encrypt_expression<I: Io>(
+        &self,
+        io: &mut I,
+        expr: &[u8],
+        o: &ExplicitOpts,
+    ) -> Result<Vec<u8>, I::Error> {
         let c = check_explicit(o, true)?;
-        let KeySel::Id(key_id) = c.key else { unreachable!("index types require a key id") };
+        let KeySel::Id(key_id) = c.key else {
+            unreachable!("index types require a key id")
+        };
         // FLE2RangeFindDriverSpec_to_ciphertexts
-        let ro = c.range.as_ref().ok_or("Expected RangeOpts to be set for Range Find")?;
-        let cf = o.contention_factor.ok_or("Expected Contention Factor to be set for Range Find")?;
+        let ro = c
+            .range
+            .as_ref()
+            .ok_or("Expected RangeOpts to be set for Range Find")?;
+        let cf = o
+            .contention_factor
+            .ok_or("Expected Contention Factor to be set for Range Find")?;
         let mut kb = KeyBroker::new(&self.kms, &self.cache);
         kb.request_id(&key_id);
         self.fetch(&mut kb, io)?;
-        let key = kb.key_by_id(&key_id).map_err(|_| "unable to retrieve key")?;
+        let key = kb
+            .key_by_id(&key_id)
+            .map_err(|_| "unable to retrieve key")?;
         let mut w = Writer::with_capacity(expr.len() + 8);
         w.document(b"v", expr);
         let out = crate::range::encrypt_expression(&w.finish(), ro, cf, &key)?;

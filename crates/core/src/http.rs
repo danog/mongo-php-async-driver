@@ -32,7 +32,18 @@ pub fn parse_url(url: &str) -> Result<Url, String> {
     }
     let rest = match url.get(..7) {
         Some(p) if p.eq_ignore_ascii_case("http://") => &url[7..],
-        _ => return Err(if url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://")) { "https responders are not supported".into() } else { "Could not parse URL".into() }),
+        _ => {
+            return Err(
+                if url
+                    .get(..8)
+                    .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+                {
+                    "https responders are not supported".into()
+                } else {
+                    "Could not parse URL".into()
+                },
+            );
+        }
     };
     let (authority, path) = match rest.find(['/', '?', '#']) {
         Some(i) if rest.as_bytes()[i] == b'/' => (&rest[..i], &rest[i..]),
@@ -57,17 +68,40 @@ pub fn parse_url(url: &str) -> Result<Url, String> {
             None => (authority, ""),
         }
     };
-    let port = if port.is_empty() { 80 } else { port.parse::<u16>().ok().filter(|p| *p != 0).ok_or("Could not parse URL")? };
-    if host.is_empty() || host.trim_start_matches('[').trim_end_matches(']').is_empty() {
+    let port = if port.is_empty() {
+        80
+    } else {
+        port.parse::<u16>()
+            .ok()
+            .filter(|p| *p != 0)
+            .ok_or("Could not parse URL")?
+    };
+    if host.is_empty()
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .is_empty()
+    {
         return Err("Could not parse URL".into());
     }
     let path = path.split('#').next().unwrap_or("/");
-    Ok(Url { host: host.to_owned(), port, path: if path.is_empty() { "/".into() } else { path.to_owned() } })
+    Ok(Url {
+        host: host.to_owned(),
+        port,
+        path: if path.is_empty() {
+            "/".into()
+        } else {
+            path.to_owned()
+        },
+    })
 }
 
 /// The request head (_mongoc_http_render_request_head).
 pub fn request_head(method: &str, url: &Url, extra_headers: &str, body_len: usize) -> String {
-    let mut h = format!("{method} {} HTTP/1.0\r\nHost: {}:{}\r\nConnection: close\r\n", url.path, url.host, url.port);
+    let mut h = format!(
+        "{method} {} HTTP/1.0\r\nHost: {}:{}\r\nConnection: close\r\n",
+        url.path, url.host, url.port
+    );
     if body_len > 0 {
         h.push_str(&format!("Content-Length: {body_len}\r\n"));
     }
@@ -77,12 +111,19 @@ pub fn request_head(method: &str, url: &Url, extra_headers: &str, body_len: usiz
 }
 
 fn remaining(deadline: Instant) -> Result<Duration, String> {
-    deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()).ok_or_else(|| "Timeout reading from stream".to_owned())
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|d| !d.is_zero())
+        .ok_or_else(|| "Timeout reading from stream".to_owned())
 }
 
 fn connect(url: &Url, deadline: Instant) -> Result<crate::aio::Socket, String> {
     let host = url.host.trim_start_matches('[').trim_end_matches(']');
-    let addrs: Vec<SocketAddr> = (host, url.port).to_socket_addrs().map_err(|_| format!("Failed to connect to: {}", url.host))?.take(MAX_ADDRS).collect();
+    let addrs: Vec<SocketAddr> = (host, url.port)
+        .to_socket_addrs()
+        .map_err(|_| format!("Failed to connect to: {}", url.host))?
+        .take(MAX_ADDRS)
+        .collect();
     for a in addrs {
         let Ok(t) = remaining(deadline) else { break };
         // inside a fiber, the connect and every read and write suspend instead of blocking
@@ -103,14 +144,21 @@ pub struct Response {
 
 /// Sends one request and reads the response until the server closes the connection, all
 /// within `timeout`.
-pub fn send(method: &str, url: &Url, extra_headers: &str, body: &[u8], timeout: Duration) -> Result<Response, String> {
+pub fn send(
+    method: &str,
+    url: &Url,
+    extra_headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Result<Response, String> {
     let deadline = Instant::now() + timeout;
     let mut s = connect(url, deadline)?;
     let mut req = request_head(method, url, extra_headers, body.len()).into_bytes();
     req.extend_from_slice(body);
     let mut off = 0;
     while off < req.len() {
-        s.set_timeouts(Some(remaining(deadline)?)).map_err(|e| e.to_string())?;
+        s.set_timeouts(Some(remaining(deadline)?))
+            .map_err(|e| e.to_string())?;
         match s.write(&req[off..]) {
             Ok(0) => return Err("Failed to write the HTTP request".into()),
             Ok(n) => off += n,
@@ -121,7 +169,8 @@ pub fn send(method: &str, url: &Url, extra_headers: &str, body: &[u8], timeout: 
     let mut buf = Vec::new();
     let mut chunk = [0u8; 32 * 1024];
     loop {
-        s.set_timeouts(Some(remaining(deadline)?)).map_err(|e| e.to_string())?;
+        s.set_timeouts(Some(remaining(deadline)?))
+            .map_err(|e| e.to_string())?;
         match s.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => {
@@ -131,7 +180,14 @@ pub fn send(method: &str, url: &Url, extra_headers: &str, body: &[u8], timeout: 
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => return Err("Timeout reading from stream".into()),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err("Timeout reading from stream".into());
+            }
             // libmongoc stops reading at an error and parses what it has
             Err(_) => break,
         }
@@ -144,11 +200,27 @@ pub fn parse_response(buf: &[u8]) -> Result<Response, String> {
     if buf.is_empty() {
         return Err("No response received".into());
     }
-    let lead = if buf.starts_with(b"HTTP/1.0 ") || buf.starts_with(b"HTTP/1.1 ") { 9 } else { return Err("No HTTP version leader in HTTP response. Expected 'HTTP/1.0 ' or 'HTTP/1.1 '".into()) };
-    let code = buf.get(lead..lead + 3).filter(|c| c.iter().all(u8::is_ascii_digit)).ok_or("Invalid HTTP response status string")?;
+    let lead = if buf.starts_with(b"HTTP/1.0 ") || buf.starts_with(b"HTTP/1.1 ") {
+        9
+    } else {
+        return Err(
+            "No HTTP version leader in HTTP response. Expected 'HTTP/1.0 ' or 'HTTP/1.1 '".into(),
+        );
+    };
+    let code = buf
+        .get(lead..lead + 3)
+        .filter(|c| c.iter().all(u8::is_ascii_digit))
+        .ok_or("Invalid HTTP response status string")?;
     let status = code.iter().fold(0u16, |a, d| a * 10 + u16::from(d - b'0'));
-    let end = buf.windows(4).position(|w| w == b"\r\n\r\n").ok_or("Error occurred reading response: end of headers not found")?;
-    Ok(Response { status, headers: String::from_utf8_lossy(&buf[..end]).into_owned(), body: buf[end + 4..].to_vec() })
+    let end = buf
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("Error occurred reading response: end of headers not found")?;
+    Ok(Response {
+        status,
+        headers: String::from_utf8_lossy(&buf[..end]).into_owned(),
+        body: buf[end + 4..].to_vec(),
+    })
 }
 
 #[cfg(test)]
@@ -157,21 +229,59 @@ mod tests {
 
     #[test]
     fn urls() {
-        assert_eq!(parse_url("http://ocsp.example.com").unwrap(), Url { host: "ocsp.example.com".into(), port: 80, path: "/".into() });
-        assert_eq!(parse_url("HTTP://127.0.0.1:28041/x/y?z").unwrap(), Url { host: "127.0.0.1".into(), port: 28041, path: "/x/y?z".into() });
-        assert_eq!(parse_url("http://[::1]:8080").unwrap(), Url { host: "[::1]".into(), port: 8080, path: "/".into() });
+        assert_eq!(
+            parse_url("http://ocsp.example.com").unwrap(),
+            Url {
+                host: "ocsp.example.com".into(),
+                port: 80,
+                path: "/".into()
+            }
+        );
+        assert_eq!(
+            parse_url("HTTP://127.0.0.1:28041/x/y?z").unwrap(),
+            Url {
+                host: "127.0.0.1".into(),
+                port: 28041,
+                path: "/x/y?z".into()
+            }
+        );
+        assert_eq!(
+            parse_url("http://[::1]:8080").unwrap(),
+            Url {
+                host: "[::1]".into(),
+                port: 8080,
+                path: "/".into()
+            }
+        );
         assert_eq!(parse_url("http://h?q").unwrap().path, "/");
-        for bad in ["https://ocsp.example.com/", "ftp://x/", "http://", "http://:80/", "http://h:0/", "http://h:99999/", "http://u@h/", "http://h/a b", "http://h/\r\nX: y", "http://[::1/"] {
+        for bad in [
+            "https://ocsp.example.com/",
+            "ftp://x/",
+            "http://",
+            "http://:80/",
+            "http://h:0/",
+            "http://h:99999/",
+            "http://u@h/",
+            "http://h/a b",
+            "http://h/\r\nX: y",
+            "http://[::1/",
+        ] {
             assert!(parse_url(bad).is_err(), "{bad}");
         }
         assert!(parse_url(&format!("http://h/{}", "a".repeat(MAX_URL))).is_err());
-        assert_eq!(parse_url("https://x/").unwrap_err(), "https responders are not supported");
+        assert_eq!(
+            parse_url("https://x/").unwrap_err(),
+            "https responders are not supported"
+        );
     }
 
     #[test]
     fn head() {
         let u = parse_url("http://127.0.0.1:28041/ocsp").unwrap();
-        assert_eq!(request_head("POST", &u, "Content-Type: application/ocsp-request\r\n", 5), "POST /ocsp HTTP/1.0\r\nHost: 127.0.0.1:28041\r\nConnection: close\r\nContent-Length: 5\r\nContent-Type: application/ocsp-request\r\n\r\n");
+        assert_eq!(
+            request_head("POST", &u, "Content-Type: application/ocsp-request\r\n", 5),
+            "POST /ocsp HTTP/1.0\r\nHost: 127.0.0.1:28041\r\nConnection: close\r\nContent-Length: 5\r\nContent-Type: application/ocsp-request\r\n\r\n"
+        );
     }
 
     #[test]
@@ -205,12 +315,26 @@ mod tests {
                 }
             }
         });
-        let u = Url { host: "127.0.0.1".into(), port, path: "/".into() };
+        let u = Url {
+            host: "127.0.0.1".into(),
+            port,
+            path: "/".into(),
+        };
         let t0 = Instant::now();
-        assert_eq!(send("POST", &u, "", b"x", Duration::from_millis(300)).err().as_deref(), Some("Timeout reading from stream"));
+        assert_eq!(
+            send("POST", &u, "", b"x", Duration::from_millis(300))
+                .err()
+                .as_deref(),
+            Some("Timeout reading from stream")
+        );
         assert!(t0.elapsed() < Duration::from_millis(650));
         std::thread::sleep(Duration::from_millis(500));
-        assert_eq!(send("POST", &u, "", b"x", Duration::from_secs(10)).err().as_deref(), Some("HTTP response message is too large"));
+        assert_eq!(
+            send("POST", &u, "", b"x", Duration::from_secs(10))
+                .err()
+                .as_deref(),
+            Some("HTTP response message is too large")
+        );
         t.join().unwrap();
     }
 }

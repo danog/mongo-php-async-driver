@@ -13,13 +13,17 @@
 //! checks the name as part of the verification it then ignores); tlsAllowInvalidHostnames skips
 //! the name check only; tlsInsecure both. The handshake signatures are always verified.
 
-use crate::error::{code, domain, Error};
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use crate::error::{Error, code, domain};
 use rustls::client::WebPkiServerVerifier;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName, UnixTime};
-use rustls::{CertificateError, ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+use rustls::pki_types::{
+    CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName, UnixTime,
+};
+use rustls::{
+    CertificateError, ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
+};
 use std::sync::Arc;
 
 /// The TLS settings of a client (mongoc_ssl_opt_t plus the internal OCSP options).
@@ -44,7 +48,10 @@ impl std::fmt::Debug for TlsOptions {
             .field("crl_file", &self.crl_file)
             .field("pem_file", &self.pem_file)
             .field("pem_pwd", &self.pem_pwd.as_ref().map(|_| "******"))
-            .field("allow_invalid_certificates", &self.allow_invalid_certificates)
+            .field(
+                "allow_invalid_certificates",
+                &self.allow_invalid_certificates,
+            )
             .field("allow_invalid_hostname", &self.allow_invalid_hostname)
             .finish_non_exhaustive()
     }
@@ -64,7 +71,8 @@ impl TlsOptions {
             allow_invalid_certificates: uri.get_bool("tlsallowinvalidcertificates", insecure),
             allow_invalid_hostname: uri.get_bool("tlsallowinvalidhostnames", insecure),
             disable_ocsp_endpoint_check: uri.get_bool("tlsdisableocspendpointcheck", insecure),
-            disable_certificate_revocation_check: uri.get_bool("tlsdisablecertificaterevocationcheck", false),
+            disable_certificate_revocation_check: uri
+                .get_bool("tlsdisablecertificaterevocationcheck", false),
         }
     }
 }
@@ -79,17 +87,22 @@ const CPU_FEATURES: &str = "NEON, AES, PMULL and SHA2";
 /// The crypto provider, or the error every TLS connection gets on a CPU graviola cannot use.
 fn provider() -> Result<Arc<CryptoProvider>, Error> {
     static P: std::sync::OnceLock<Option<Arc<CryptoProvider>>> = std::sync::OnceLock::new();
-    provider_if(P.get_or_init(|| graviola::util::is_cpu_supported().then(|| Arc::new(rustls_graviola::default_provider()))))
+    provider_if(P.get_or_init(|| {
+        graviola::util::is_cpu_supported().then(|| Arc::new(rustls_graviola::default_provider()))
+    }))
 }
 
 fn provider_if(p: &Option<Arc<CryptoProvider>>) -> Result<Arc<CryptoProvider>, Error> {
     p.clone().ok_or_else(|| handshake_error(format!("TLS is not available on this CPU: the TLS library needs the {CPU_FEATURES} instructions")))
 }
 
-
 /// The error of a TLS setup or handshake failure (libmongoc reports both at connection time).
 pub fn handshake_error(detail: impl std::fmt::Display) -> Error {
-    Error::new(domain::STREAM, code::STREAM_SOCKET, format!("TLS handshake failed: {detail}"))
+    Error::new(
+        domain::STREAM,
+        code::STREAM_SOCKET,
+        format!("TLS handshake failed: {detail}"),
+    )
 }
 
 /// Files are read whole: certificate, key, CA and CRL files above this size are refused.
@@ -103,13 +116,18 @@ fn read_file(path: &str) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
     f.take(MAX_FILE + 1).read_to_end(&mut out)?;
     if out.len() as u64 > MAX_FILE {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "file too large"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "file too large",
+        ));
     }
     Ok(out)
 }
 
 fn certs_of(pem: &[u8]) -> Vec<CertificateDer<'static>> {
-    CertificateDer::pem_slice_iter(pem).filter_map(Result::ok).collect()
+    CertificateDer::pem_slice_iter(pem)
+        .filter_map(Result::ok)
+        .collect()
 }
 
 /// The system trust store: SSL_CERT_FILE / SSL_CERT_DIR when set, else (Unix) the bundle
@@ -167,9 +185,24 @@ fn windows_root_store(store: &mut RootCertStore) {
     use windows_sys::Win32::Security::Cryptography as c;
     let name: Vec<u16> = "root\0".encode_utf16().collect();
     // SAFETY: a NUL-terminated store name; the store is closed below
-    let h = unsafe { c::CertOpenStore(c::CERT_STORE_PROV_SYSTEM_W, c::X509_ASN_ENCODING | c::PKCS_7_ASN_ENCODING, 0, c::CERT_SYSTEM_STORE_CURRENT_USER | c::CERT_STORE_READONLY_FLAG, name.as_ptr().cast()) };
+    let h = unsafe {
+        c::CertOpenStore(
+            c::CERT_STORE_PROV_SYSTEM_W,
+            c::X509_ASN_ENCODING | c::PKCS_7_ASN_ENCODING,
+            0,
+            c::CERT_SYSTEM_STORE_CURRENT_USER | c::CERT_STORE_READONLY_FLAG,
+            name.as_ptr().cast(),
+        )
+    };
     if h.is_null() {
-        crate::log::error(crate::log::MONGOC, || format!("Can't open CA store: {}", crate::os::error_text(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32)));
+        crate::log::error(crate::log::MONGOC, || {
+            format!(
+                "Can't open CA store: {}",
+                crate::os::error_text(
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32
+                )
+            )
+        });
         return;
     }
     let mut certs = Vec::new();
@@ -181,7 +214,9 @@ fn windows_root_store(store: &mut RootCertStore) {
             break;
         }
         // SAFETY: the context's encoded certificate, valid until the next call
-        let der = unsafe { std::slice::from_raw_parts((*ctx).pbCertEncoded, (*ctx).cbCertEncoded as usize) };
+        let der = unsafe {
+            std::slice::from_raw_parts((*ctx).pbCertEncoded, (*ctx).cbCertEncoded as usize)
+        };
         certs.push(CertificateDer::from(der.to_vec()));
     }
     // SAFETY: the store opened above
@@ -198,12 +233,17 @@ fn add_file(store: &mut RootCertStore, path: &str) -> usize {
 /// The certificates of a CA directory, as OpenSSL's hashed-directory lookup finds them: the
 /// files named `<8 hex digits>.<n>` (c_rehash / openssl rehash names; CRLs are `.r<n>`).
 fn add_dir(store: &mut RootCertStore, dir: &str) -> usize {
-    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
     let mut added = 0;
     for e in rd.flatten().take(MAX_DIR_FILES) {
         let name = e.file_name();
         let n = name.to_string_lossy();
-        let hashed = n.len() > 9 && n.as_bytes()[8] == b'.' && n[..8].bytes().all(|b| b.is_ascii_hexdigit()) && n[9..].bytes().all(|b| b.is_ascii_digit());
+        let hashed = n.len() > 9
+            && n.as_bytes()[8] == b'.'
+            && n[..8].bytes().all(|b| b.is_ascii_hexdigit())
+            && n[9..].bytes().all(|b| b.is_ascii_digit());
         let p = e.path();
         if hashed && p.is_file() {
             added += add_file(store, &p.to_string_lossy());
@@ -213,8 +253,12 @@ fn add_dir(store: &mut RootCertStore, dir: &str) -> usize {
 }
 
 /// Loads the client certificate chain and key of `pem_file` (_mongoc_openssl_setup_pem_file).
-fn client_identity(pem_file: &str, password: Option<&str>) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
-    let pem = read_file(pem_file).map_err(|_| format!("Cannot find certificate in '{pem_file}'"))?;
+fn client_identity(
+    pem_file: &str,
+    password: Option<&str>,
+) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
+    let pem =
+        read_file(pem_file).map_err(|_| format!("Cannot find certificate in '{pem_file}'"))?;
     let chain = certs_of(&pem);
     if chain.is_empty() {
         return Err(format!("Cannot find certificate in '{pem_file}'"));
@@ -233,8 +277,11 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
         crate::log::error(crate::log::MONGOC, || m.clone());
         handshake_error(m)
     };
-    let p = provider().inspect_err(|e| crate::log::error(crate::log::MONGOC, || e.message.clone()))?;
-    let builder = ClientConfig::builder_with_provider(p.clone()).with_safe_default_protocol_versions().map_err(handshake_error)?;
+    let p =
+        provider().inspect_err(|e| crate::log::error(crate::log::MONGOC, || e.message.clone()))?;
+    let builder = ClientConfig::builder_with_provider(p.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(handshake_error)?;
     let mut roots = RootCertStore::empty();
     if o.ca_file.is_some() || o.ca_dir.is_some() {
         let mut n = 0;
@@ -245,7 +292,11 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
             n += add_dir(&mut roots, d);
         }
         if n == 0 {
-            return Err(fail(format!("Cannot load Certificate Authorities from '{}' and '{}'", o.ca_file.as_deref().unwrap_or("(null)"), o.ca_dir.as_deref().unwrap_or("(null)"))));
+            return Err(fail(format!(
+                "Cannot load Certificate Authorities from '{}' and '{}'",
+                o.ca_file.as_deref().unwrap_or("(null)"),
+                o.ca_dir.as_deref().unwrap_or("(null)")
+            )));
         }
     } else {
         system_roots(&mut roots);
@@ -254,32 +305,54 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
     let mut crls = Vec::new();
     if let Some(f) = &o.crl_file {
         let pem = read_file(f).map_err(|_| fail(format!("Cannot load CRL file '{f}'")))?;
-        crls = CertificateRevocationListDer::pem_slice_iter(&pem).filter_map(Result::ok).collect();
+        crls = CertificateRevocationListDer::pem_slice_iter(&pem)
+            .filter_map(Result::ok)
+            .collect();
         if crls.is_empty() {
             return Err(fail(format!("Cannot load CRL file '{f}'")));
         }
     }
     let verifier: Arc<dyn ServerCertVerifier> = if o.allow_invalid_certificates {
-        Arc::new(NoChainCheck { provider: p.clone() })
+        Arc::new(NoChainCheck {
+            provider: p.clone(),
+        })
     } else {
         let mut b = WebPkiServerVerifier::builder_with_provider(roots.clone(), p.clone());
         if !crls.is_empty() {
             // an expired CRL fails the handshake (OpenSSL: "CRL has expired")
-            b = b.with_crls(crls).only_check_end_entity_revocation().enforce_revocation_expiration();
+            b = b
+                .with_crls(crls)
+                .only_check_end_entity_revocation()
+                .enforce_revocation_expiration();
         }
-        let inner = b.build().map_err(|e| fail(format!("Cannot set up certificate verification: {e}")))?;
-        let checked: Arc<dyn ServerCertVerifier> = if o.allow_invalid_hostname { Arc::new(AnyName(inner)) } else { inner };
+        let inner = b
+            .build()
+            .map_err(|e| fail(format!("Cannot set up certificate verification: {e}")))?;
+        let checked: Arc<dyn ServerCertVerifier> = if o.allow_invalid_hostname {
+            Arc::new(AnyName(inner))
+        } else {
+            inner
+        };
         if o.disable_certificate_revocation_check {
             checked
         } else {
-            crate::ocsp::verifier(checked, roots.clone(), p.clone(), !o.disable_ocsp_endpoint_check)
+            crate::ocsp::verifier(
+                checked,
+                roots.clone(),
+                p.clone(),
+                !o.disable_ocsp_endpoint_check,
+            )
         }
     };
-    let builder = builder.dangerous().with_custom_certificate_verifier(verifier);
+    let builder = builder
+        .dangerous()
+        .with_custom_certificate_verifier(verifier);
     let mut cfg = match &o.pem_file {
         Some(f) => {
             let (chain, key) = client_identity(f, o.pem_pwd.as_deref()).map_err(fail)?;
-            builder.with_client_auth_cert(chain, key).map_err(|_| fail(format!("Cannot load private key: '{f}'")))?
+            builder
+                .with_client_auth_cert(chain, key)
+                .map_err(|_| fail(format!("Cannot load private key: '{f}'")))?
         }
         None => builder.with_no_client_auth(),
     };
@@ -290,7 +363,8 @@ pub fn client_config(o: &TlsOptions) -> Result<Arc<ClientConfig>, Error> {
 /// The server name to verify (and to send as SNI unless it is an address).
 pub fn server_name(host: &str) -> Result<ServerName<'static>, Error> {
     let h = host.trim_start_matches('[').trim_end_matches(']');
-    ServerName::try_from(h.to_owned()).map_err(|_| handshake_error(format!("invalid host name '{host}'")))
+    ServerName::try_from(h.to_owned())
+        .map_err(|_| handshake_error(format!("invalid host name '{host}'")))
 }
 
 /// tlsAllowInvalidHostnames: the chain is verified, a name mismatch is accepted.
@@ -298,17 +372,39 @@ pub fn server_name(host: &str) -> Result<ServerName<'static>, Error> {
 struct AnyName(Arc<WebPkiServerVerifier>);
 
 impl ServerCertVerifier for AnyName {
-    fn verify_server_cert(&self, end_entity: &CertificateDer<'_>, intermediates: &[CertificateDer<'_>], server_name: &ServerName<'_>, ocsp: &[u8], now: UnixTime) -> Result<ServerCertVerified, rustls::Error> {
-        match self.0.verify_server_cert(end_entity, intermediates, server_name, ocsp, now) {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        match self
+            .0
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp, now)
+        {
             // webpki checks the chain (and revocation) before the name
-            Err(rustls::Error::InvalidCertificate(CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. })) => Ok(ServerCertVerified::assertion()),
+            Err(rustls::Error::InvalidCertificate(
+                CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
+            )) => Ok(ServerCertVerified::assertion()),
             r => r,
         }
     }
-    fn verify_tls12_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls12_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         self.0.verify_tls12_signature(m, c, d)
     }
-    fn verify_tls13_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls13_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         self.0.verify_tls13_signature(m, c, d)
     }
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -324,17 +420,46 @@ struct NoChainCheck {
 }
 
 impl ServerCertVerifier for NoChainCheck {
-    fn verify_server_cert(&self, _end_entity: &CertificateDer<'_>, _intermediates: &[CertificateDer<'_>], _server_name: &ServerName<'_>, _ocsp: &[u8], _now: UnixTime) -> Result<ServerCertVerified, rustls::Error> {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
         Ok(ServerCertVerified::assertion())
     }
-    fn verify_tls12_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(m, c, d, &self.provider.signature_verification_algorithms)
+    fn verify_tls12_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            m,
+            c,
+            d,
+            &self.provider.signature_verification_algorithms,
+        )
     }
-    fn verify_tls13_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(m, c, d, &self.provider.signature_verification_algorithms)
+    fn verify_tls13_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            m,
+            c,
+            d,
+            &self.provider.signature_verification_algorithms,
+        )
     }
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.provider.signature_verification_algorithms.supported_schemes()
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
@@ -342,18 +467,39 @@ impl ServerCertVerifier for NoChainCheck {
 /// exists, so that messages read as the reference's).
 pub fn describe(e: &rustls::Error) -> String {
     match e {
-        rustls::Error::InvalidCertificate(CertificateError::Other(o)) if o.0.downcast_ref::<crate::ocsp::OcspFailed>().is_some() => crate::ocsp::OcspFailed.to_string(),
+        rustls::Error::InvalidCertificate(CertificateError::Other(o))
+            if o.0.downcast_ref::<crate::ocsp::OcspFailed>().is_some() =>
+        {
+            crate::ocsp::OcspFailed.to_string()
+        }
         rustls::Error::InvalidCertificate(c) => {
             let (n, s) = match c {
-                CertificateError::UnknownIssuer => (20, "unable to get local issuer certificate".to_owned()),
-                CertificateError::Expired | CertificateError::ExpiredContext { .. } => (10, "certificate has expired".to_owned()),
-                CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => (9, "certificate is not yet valid".to_owned()),
+                CertificateError::UnknownIssuer => {
+                    (20, "unable to get local issuer certificate".to_owned())
+                }
+                CertificateError::Expired | CertificateError::ExpiredContext { .. } => {
+                    (10, "certificate has expired".to_owned())
+                }
+                CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => {
+                    (9, "certificate is not yet valid".to_owned())
+                }
                 CertificateError::Revoked => (23, "certificate revoked".to_owned()),
-                CertificateError::UnknownRevocationStatus => (3, "unable to get certificate CRL".to_owned()),
-                CertificateError::ExpiredRevocationList | CertificateError::ExpiredRevocationListContext { .. } => (12, "CRL has expired".to_owned()),
+                CertificateError::UnknownRevocationStatus => {
+                    (3, "unable to get certificate CRL".to_owned())
+                }
+                CertificateError::ExpiredRevocationList
+                | CertificateError::ExpiredRevocationListContext { .. } => {
+                    (12, "CRL has expired".to_owned())
+                }
                 CertificateError::BadSignature => (7, "certificate signature failure".to_owned()),
-                CertificateError::NotValidForNameContext { expected: ServerName::IpAddress(_), .. } => (64, "IP address mismatch".to_owned()),
-                CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => (62, "hostname mismatch".to_owned()),
+                CertificateError::NotValidForNameContext {
+                    expected: ServerName::IpAddress(_),
+                    ..
+                } => (64, "IP address mismatch".to_owned()),
+                CertificateError::NotValidForName
+                | CertificateError::NotValidForNameContext { .. } => {
+                    (62, "hostname mismatch".to_owned())
+                }
                 other => (0, format!("{other:?}")),
             };
             if n == 0 {
@@ -371,7 +517,13 @@ mod tests {
     #[test]
     fn unsupported_cpu_is_an_error() {
         let e = super::provider_if(&None).unwrap_err();
-        assert!(e.message.starts_with("TLS handshake failed: TLS is not available on this CPU: the TLS library needs the "), "{}", e.message);
+        assert!(
+            e.message.starts_with(
+                "TLS handshake failed: TLS is not available on this CPU: the TLS library needs the "
+            ),
+            "{}",
+            e.message
+        );
         assert!(super::provider().is_ok(), "this CPU should be supported");
     }
 

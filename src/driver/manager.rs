@@ -1,17 +1,17 @@
 //! MongoDB\Driver\Manager (src/MongoDB/Manager.c, phongo_client.c, phongo_execute.c).
 
-use mongo_core::log;
+use super::ClientRef;
 use super::command::Command;
 use super::cursor::Cursor;
 use super::readpref::ReadPreference;
-use mongo_core::uri::ReadMode;
-use super::ClientRef;
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zstr, zval, ClassEntry, EngineCell};
+use crate::zend::{ClassEntry, EngineCell, hash, obj, sys, zstr, zval};
 use mongo_core::client::{Client, Settings};
-use mongo_core::error::{code, domain, Error};
+use mongo_core::error::{Error, code, domain};
+use mongo_core::log;
 use mongo_core::topology::OpType;
+use mongo_core::uri::ReadMode;
 use mongo_core::uri::Uri;
 use std::ptr::null_mut;
 
@@ -49,10 +49,22 @@ unsafe extern "C" fn free(o: *mut sys::zend_object) {
 
 /// The subscribers it holds, for the GC (a subscriber referencing the Manager, or an object
 /// holding it, is a collectable cycle).
-unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_gc(
+    o: *mut sys::zend_object,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+) -> *mut sys::HashTable {
     let m = obj::data::<Manager>(o);
     let extra: [*mut sys::zval; 2] = [&mut m.enc_fields_map, &mut m.kv_manager];
-    obj::get_gc_with(o, table, n, m.subscribers.iter_mut().map(|(_, z, _)| z as *mut sys::zval).chain(extra))
+    obj::get_gc_with(
+        o,
+        table,
+        n,
+        m.subscribers
+            .iter_mut()
+            .map(|(_, z, _)| z as *mut sys::zval)
+            .chain(extra),
+    )
 }
 
 unsafe fn free_manager(o: *mut sys::zend_object) {
@@ -61,9 +73,13 @@ unsafe fn free_manager(o: *mut sys::zend_object) {
     if let Some(c) = m.client.as_ref() {
         // phongo_client_unregister
         if super::is_persistent(c) {
-            log::debug(PHONGO, || "Not destroying persistent client for Manager".to_owned());
+            log::debug(PHONGO, || {
+                "Not destroying persistent client for Manager".to_owned()
+            });
         } else if std::rc::Rc::strong_count(c) == 2 {
-            log::debug(PHONGO, || "Destroying non-persistent client for Manager".to_owned());
+            log::debug(PHONGO, || {
+                "Destroying non-persistent client for Manager".to_owned()
+            });
         }
         if std::rc::Rc::strong_count(c) == 2 && !super::is_persistent(c) {
             if let Ok(mut cl) = c.try_checkout().ok_or(()) {
@@ -98,12 +114,25 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
 
 /// phongo_manager_get_debug_info: the URI (redacted), a Server for every known server, and the
 /// crypt_shared version (none: client-side encryption is not supported yet).
-unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_debug_info(
+    o: *mut sys::zend_object,
+    is_temp: *mut i32,
+) -> *mut sys::HashTable {
     *is_temp = 1;
     let m = obj::data::<Manager>(o);
     let ht = hash::new(3);
     hash::str_update(ht, b"uri", zval::string(m.uri_string.as_bytes()));
-    let ids: Vec<u32> = m.client.as_ref().and_then(|c| c.shared().td.try_borrow().ok().map(|td| td.known_servers().map(|s| s.id).collect())).unwrap_or_default();
+    let ids: Vec<u32> = m
+        .client
+        .as_ref()
+        .and_then(|c| {
+            c.shared()
+                .td
+                .try_borrow()
+                .ok()
+                .map(|td| td.known_servers().map(|s| s.id).collect())
+        })
+        .unwrap_or_default();
     let cluster = hash::new(ids.len() as u32);
     if let Some(c) = &m.client {
         for id in ids {
@@ -140,25 +169,42 @@ fn concat_handshake(default: &str, custom: Option<&[u8]>) -> String {
 unsafe fn handshake_data(driver_options: *mut sys::zval) -> Option<(String, String, String)> {
     let mut parts: [Option<Vec<u8>>; 3] = [None, None, None];
     if !driver_options.is_null()
-        && let Some(d) = hash::find((*driver_options).value.arr, b"driver") {
-            let d = zval::deref(d);
-            if !zval::is(d, sys::IS_ARRAY) {
-                throw(E::InvalidArgument, format!("Expected \"driver\" driver option to be an array, {} given", zval::type_name(d)));
-                return None;
-            }
-            for (i, k) in ["name", "version", "platform"].iter().enumerate() {
-                if let Some(v) = hash::find((*d).value.arr, k.as_bytes()) {
-                    let v = zval::deref(v);
-                    if !zval::is(v, sys::IS_STRING) {
-                        throw(E::InvalidArgument, format!("Expected \"{k}\" handshake option to be a string, {} given", zval::type_name(v)));
-                        return None;
-                    }
-                    parts[i] = Some(zval::str_bytes(v).to_vec());
+        && let Some(d) = hash::find((*driver_options).value.arr, b"driver")
+    {
+        let d = zval::deref(d);
+        if !zval::is(d, sys::IS_ARRAY) {
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"driver\" driver option to be an array, {} given",
+                    zval::type_name(d)
+                ),
+            );
+            return None;
+        }
+        for (i, k) in ["name", "version", "platform"].iter().enumerate() {
+            if let Some(v) = hash::find((*d).value.arr, k.as_bytes()) {
+                let v = zval::deref(v);
+                if !zval::is(v, sys::IS_STRING) {
+                    throw(
+                        E::InvalidArgument,
+                        format!(
+                            "Expected \"{k}\" handshake option to be a string, {} given",
+                            zval::type_name(v)
+                        ),
+                    );
+                    return None;
                 }
+                parts[i] = Some(zval::str_bytes(v).to_vec());
             }
         }
+    }
     let [n, v, p] = parts;
-    Some((concat_handshake("ext-mongodb:PHP", n.as_deref()), concat_handshake(mongo_core::EXT_VERSION, v.as_deref()), concat_handshake(&php_platform(), p.as_deref())))
+    Some((
+        concat_handshake("ext-mongodb:PHP", n.as_deref()),
+        concat_handshake(mongo_core::EXT_VERSION, v.as_deref()),
+        concat_handshake(&php_platform(), p.as_deref()),
+    ))
 }
 
 /// A shallow copy of `ht` (ZVAL_DUP of an array: the values are shared).
@@ -205,7 +251,8 @@ unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
                 true
             });
             updates.push((key, zval::arr(tags)));
-        } else if key.eq_ignore_ascii_case(b"authmechanismproperties") && zval::is(v, sys::IS_ARRAY) {
+        } else if key.eq_ignore_ascii_case(b"authmechanismproperties") && zval::is(v, sys::IS_ARRAY)
+        {
             let props = dup((*v).value.arr);
             let mut fix: Vec<Vec<u8>> = Vec::new();
             hash::each(props, true, |pk, pv| {
@@ -213,7 +260,10 @@ unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
                     let mut b = String::new();
                     let name = hash::key_bytes(pk, &mut b).to_vec();
                     let pv = zval::deref(pv);
-                    if name.eq_ignore_ascii_case(b"CANONICALIZE_HOST_NAME") && !zval::is(pv, sys::IS_STRING) && zval::is_true(pv) {
+                    if name.eq_ignore_ascii_case(b"CANONICALIZE_HOST_NAME")
+                        && !zval::is(pv, sys::IS_STRING)
+                        && zval::is_true(pv)
+                    {
                         fix.push(name);
                     }
                 }
@@ -236,11 +286,27 @@ unsafe fn prep_uri_options(options: *mut sys::zval) -> sys::zval {
 /// 'options' => options, 'driverOptions' => driverOptions]) with an autoEncryption
 /// keyVaultClient Manager replaced by its own hash. None after an exception. The hash holds
 /// the option values (credentials too): it is only ever a lookup key, never shown.
-unsafe fn client_hash(uri_string: &str, options: *mut sys::zval, driver_options: *mut sys::zval) -> Option<Vec<u8>> {
+unsafe fn client_hash(
+    uri_string: &str,
+    options: *mut sys::zval,
+    driver_options: *mut sys::zval,
+) -> Option<Vec<u8>> {
     let args = hash::new(4);
     hash::str_update(args, b"pid", zval::long(i64::from(std::process::id())));
-    hash::str_update(args, b"uri", zval::string(&mongo_core::auth::scram::sha256(uri_string.as_bytes())));
-    hash::str_update(args, b"options", if options.is_null() { zval::null() } else { zval::copy(options) });
+    hash::str_update(
+        args,
+        b"uri",
+        zval::string(&mongo_core::auth::scram::sha256(uri_string.as_bytes())),
+    );
+    hash::str_update(
+        args,
+        b"options",
+        if options.is_null() {
+            zval::null()
+        } else {
+            zval::copy(options)
+        },
+    );
     let dopts = if driver_options.is_null() {
         zval::null()
     } else {
@@ -250,10 +316,14 @@ unsafe fn client_hash(uri_string: &str, options: *mut sys::zval, driver_options:
             .filter(|a| zval::is(*a, sys::IS_ARRAY))
             .and_then(|a| hash::find((*a).value.arr, b"keyVaultClient"))
             .map(|k| zval::deref(k))
-            .filter(|k| zval::is(*k, sys::IS_OBJECT) && obj::instanceof((*(**k).value.obj).ce, CE.get()));
+            .filter(|k| {
+                zval::is(*k, sys::IS_OBJECT) && obj::instanceof((*(**k).value.obj).ce, CE.get())
+            });
         if let Some(k) = kvc {
             let h = obj::data::<Manager>((*k).value.obj).client_hash.clone();
-            let src = hash::find((*driver_options).value.arr, b"autoEncryption").map(|a| zval::deref(a)).expect("checked above");
+            let src = hash::find((*driver_options).value.arr, b"autoEncryption")
+                .map(|a| zval::deref(a))
+                .expect("checked above");
             let ae = dup((*src).value.arr);
             hash::str_update(ae, b"keyVaultClient", zval::string(&h));
             let dh = dup((*driver_options).value.arr);
@@ -302,27 +372,48 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut options: *mut sys::zval = null_mut();
     let mut driver_options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"|s!a!a!".as_ptr(), &mut p, &mut l, &mut options, &mut driver_options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"|s!a!a!".as_ptr(),
+        &mut p,
+        &mut l,
+        &mut options,
+        &mut driver_options,
+    ) != 0
+    {
         return;
     }
-    let uri_string = if p.is_null() { URI_DEFAULT.to_owned() } else { String::from_utf8_lossy(std::slice::from_raw_parts(p, l)).into_owned() };
+    let uri_string = if p.is_null() {
+        URI_DEFAULT.to_owned()
+    } else {
+        String::from_utf8_lossy(std::slice::from_raw_parts(p, l)).into_owned()
+    };
     // the prepared copy of the options is what phongo hashes and encodes
-    let mut prepared = if options.is_null() { None } else { Some(prep_uri_options(options)) };
-    let options: *mut sys::zval = prepared.as_mut().map_or(null_mut(), |z| z as *mut sys::zval);
+    let mut prepared = if options.is_null() {
+        None
+    } else {
+        Some(prep_uri_options(options))
+    };
+    let options: *mut sys::zval = prepared
+        .as_mut()
+        .map_or(null_mut(), |z| z as *mut sys::zval);
     // phongo_manager_init: the hash first; a persistent client found for it is used as is
-    let Some(key) = client_hash(&uri_string, options, driver_options) else { return };
+    let Some(key) = client_hash(&uri_string, options, driver_options) else {
+        return;
+    };
     let me = obj::data::<Manager>(call::this(ex));
     me.client_hash = key.clone();
     // safety: the reference shows the URI as given, password included
     me.uri_string = mongo_core::uri::redact(&uri_string);
-    let disable_persistence = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"disableClientPersistence").is_some_and(|z| zval::is_true(zval::deref(z)));
-    if !disable_persistence
-        && let Some(c) = super::find_persistent_client(&key) {
-            log::debug(PHONGO, || "Found persistent client".to_owned());
-            super::apm::register_manager(call::this(ex), c.clone());
-            me.client = Some(c);
-            return;
-        }
+    let disable_persistence = !driver_options.is_null()
+        && hash::find((*driver_options).value.arr, b"disableClientPersistence")
+            .is_some_and(|z| zval::is_true(zval::deref(z)));
+    if !disable_persistence && let Some(c) = super::find_persistent_client(&key) {
+        log::debug(PHONGO, || "Found persistent client".to_owned());
+        super::apm::register_manager(call::this(ex), c.clone());
+        me.client = Some(c);
+        return;
+    }
     let doc = if options.is_null() {
         None
     } else {
@@ -342,7 +433,10 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
                 log::warning(log::MONGOC, || w);
             }
             // the connection string is never quoted: it may hold credentials
-            throw(E::InvalidArgument, format!("Failed to parse MongoDB URI: {e}."));
+            throw(
+                E::InvalidArgument,
+                format!("Failed to parse MongoDB URI: {e}."),
+            );
             return;
         }
     };
@@ -359,7 +453,12 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     let (mut ca_dir, mut crl_file) = (None, None);
     if !driver_options.is_null() {
         if let Some(k) = legacy_tls_driver_option((*driver_options).value.arr) {
-            throw(E::InvalidArgument, format!("Unsupported driver option \"{k}\": TLS is configured with the URI options (tls, tlsCAFile, tlsCertificateKeyFile, ...) and the \"ca_dir\" and \"crl_file\" driver options"));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Unsupported driver option \"{k}\": TLS is configured with the URI options (tls, tlsCAFile, tlsCertificateKeyFile, ...) and the \"ca_dir\" and \"crl_file\" driver options"
+                ),
+            );
             return;
         }
         let ht = (*driver_options).value.arr;
@@ -381,7 +480,12 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     // and the constructor throws at the end
     let hs = match handshake_data(driver_options) {
         Some(hs) => {
-            log::debug(PHONGO, || format!("Setting driver handshake data: {{ name: '{}', version: '{}', platform: '{}' }}", hs.0, hs.1, hs.2));
+            log::debug(PHONGO, || {
+                format!(
+                    "Setting driver handshake data: {{ name: '{}', version: '{}', platform: '{}' }}",
+                    hs.0, hs.1, hs.2
+                )
+            });
             hs
         }
         None => Default::default(),
@@ -403,11 +507,17 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
         }
         let mut s = Settings::from_uri(&uri);
         if ca_dir.is_some() || crl_file.is_some() {
-            let t = s.tls.get_or_insert_with(|| mongo_core::tls::TlsOptions::from_uri(&uri));
+            let t = s
+                .tls
+                .get_or_insert_with(|| mongo_core::tls::TlsOptions::from_uri(&uri));
             t.ca_dir = ca_dir.clone();
             t.crl_file = crl_file.clone();
         }
-        (s.metadata.driver_name, s.metadata.driver_version, s.metadata.platform) = hs;
+        (
+            s.metadata.driver_name,
+            s.metadata.driver_version,
+            s.metadata.platform,
+        ) = hs;
         if let Ok(Some(a)) = &api {
             s.hello.api_version = Some(a.version.clone());
             s.hello.api_strict = a.strict;
@@ -419,11 +529,15 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
     };
     // phongo_manager_set_auto_encryption_opts of a build without libmongocrypt: refused, so that
     // nothing is ever written unencrypted when automatic encryption was asked for
-    let auto_encryption = !driver_options.is_null() && hash::find((*driver_options).value.arr, b"autoEncryption").is_some();
+    let auto_encryption = !driver_options.is_null()
+        && hash::find((*driver_options).value.arr, b"autoEncryption").is_some();
     let r = match &api {
         Err(msg) => {
             match make() {
-                Err(e) => throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message)),
+                Err(e) => throw(
+                    E::InvalidArgument,
+                    format!("Failed to parse URI options: {}", e.message),
+                ),
                 // the client is dropped after the throw
                 Ok(_c) => throw(E::InvalidArgument, msg.clone()),
             }
@@ -432,16 +546,22 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
         Ok(_) => make().map(|c| std::rc::Rc::new(mongo_core::client::ClientPool::new(c))),
     };
     // phongo_manager_set_auto_encryption_opts (after the client exists; a failure drops it)
-    if auto_encryption
-        && let Ok(c) = &r {
-            match super::clientencryption::auto_encryption(me, driver_options, !disable_persistence) {
-                Some(ac) => *c.shared().auto_crypt.borrow_mut() = Some(ac),
-                None => return,
-            }
+    if auto_encryption && let Ok(c) = &r {
+        match super::clientencryption::auto_encryption(me, driver_options, !disable_persistence) {
+            Some(ac) => *c.shared().auto_crypt.borrow_mut() = Some(ac),
+            None => return,
         }
+    }
     match r {
         Ok(c) => {
-            log::debug(PHONGO, || if disable_persistence { "Created non-persistent client" } else { "Created persistent client" }.to_owned());
+            log::debug(PHONGO, || {
+                if disable_persistence {
+                    "Created non-persistent client"
+                } else {
+                    "Created persistent client"
+                }
+                .to_owned()
+            });
             if !disable_persistence {
                 log::debug(PHONGO, || "Stored persistent client".to_owned());
                 super::store_persistent_client(key, c.clone());
@@ -452,7 +572,10 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
             me.client = Some(c);
         }
         // phongo_client: mongoc_client_new_from_uri_with_error failed
-        Err(e) => throw(E::InvalidArgument, format!("Failed to parse URI options: {}", e.message)),
+        Err(e) => throw(
+            E::InvalidArgument,
+            format!("Failed to parse URI options: {}", e.message),
+        ),
     }
 }
 
@@ -460,7 +583,15 @@ unsafe fn construct(ex: Ex, _rv: *mut sys::zval) {
 /// ignores them, which would leave a connection the application meant to configure unverified
 /// or in cleartext.
 unsafe fn legacy_tls_driver_option(ht: *mut sys::HashTable) -> Option<String> {
-    const KEYS: &[&str] = &["ca_file", "pem_file", "pem_pwd", "context", "allow_invalid_hostname", "weak_cert_validation", "allow_self_signed"];
+    const KEYS: &[&str] = &[
+        "ca_file",
+        "pem_file",
+        "pem_pwd",
+        "context",
+        "allow_invalid_hostname",
+        "weak_cert_validation",
+        "allow_self_signed",
+    ];
     let mut found = None;
     let mut buf = String::new();
     hash::each(ht, true, |k, _| {
@@ -492,11 +623,16 @@ fn php_platform() -> String {
 
 /// phongo_throw_exception_no_cse
 pub fn no_cse(message: &str) -> String {
-    format!("{message} Please recompile with support for libmongocrypt using the with-mongodb-client-side-encryption configure switch.")
+    format!(
+        "{message} Please recompile with support for libmongocrypt using the with-mongodb-client-side-encryption configure switch."
+    )
 }
 
 /// Manager::getEncryptedFieldsMap(): null (automatic encryption cannot be enabled)
-pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(ex: Ex, rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(
+    ex: Ex,
+    rv: *mut sys::zval,
+) {
     if !call::none(ex) {
         return;
     }
@@ -508,7 +644,9 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getEncryptedFieldsMap(ex: Ex
 
 /// PHP_VERSION
 fn php_version() -> String {
-    std::ffi::CStr::from_bytes_with_nul(sys::PHP_VERSION).map(|c| c.to_string_lossy().into_owned()).unwrap_or_default()
+    std::ffi::CStr::from_bytes_with_nul(sys::PHP_VERSION)
+        .map(|c| c.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -527,43 +665,92 @@ pub fn rp_parts(rp: &ReadPreference) -> (ReadMode, Vec<u8>) {
 }
 
 /// phongo_parse_read_concern: the "readConcern" option.
-unsafe fn parse_read_concern(options: *mut sys::zval) -> Result<Option<super::readconcern::ReadConcern>, ()> {
+unsafe fn parse_read_concern(
+    options: *mut sys::zval,
+) -> Result<Option<super::readconcern::ReadConcern>, ()> {
     if options.is_null() {
         return Ok(None);
     }
     if !zval::is(options, sys::IS_ARRAY) {
-        throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected options to be array, {} given",
+                zval::type_name(options)
+            ),
+        );
         return Err(());
     }
-    let Some(z) = hash::sym_find((*options).value.arr, b"readConcern") else { return Ok(None) };
+    let Some(z) = hash::sym_find((*options).value.arr, b"readConcern") else {
+        return Ok(None);
+    };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readconcern::CE.get()) {
-        throw(E::InvalidArgument, format!("Expected \"readConcern\" option to be MongoDB\\Driver\\ReadConcern, {} given", zval::type_name(z)));
+    if !zval::is(z, sys::IS_OBJECT)
+        || !obj::instanceof((*(*z).value.obj).ce, super::readconcern::CE.get())
+    {
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected \"readConcern\" option to be MongoDB\\Driver\\ReadConcern, {} given",
+                zval::type_name(z)
+            ),
+        );
         return Err(());
     }
-    Ok(Some(obj::data::<super::readconcern::ReadConcern>((*z).value.obj).clone()))
+    Ok(Some(
+        obj::data::<super::readconcern::ReadConcern>((*z).value.obj).clone(),
+    ))
 }
 
 /// phongo_validate_dbname
 unsafe fn validate_dbname(db: &[u8]) -> bool {
     if db.contains(&0) {
-        throw(E::InvalidArgument, "Invalid database name provided: database names may not contain a null byte");
+        throw(
+            E::InvalidArgument,
+            "Invalid database name provided: database names may not contain a null byte",
+        );
         return false;
     }
     if db.contains(&b'.') {
-        throw(E::InvalidArgument, format!("Invalid database name provided: database names may not contain a '.' character: {}", String::from_utf8_lossy(db)));
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Invalid database name provided: database names may not contain a '.' character: {}",
+                String::from_utf8_lossy(db)
+            ),
+        );
         return false;
     }
     true
 }
 
 /// phongo_execute_command for Manager::execute*Command and Server::execute*Command.
-pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef, ty: CmdType, server_id: Option<u32>, mgr: *mut sys::zend_object) {
+pub unsafe fn execute_command_args(
+    ex: Ex,
+    rv: *mut sys::zval,
+    client: ClientRef,
+    ty: CmdType,
+    server_id: Option<u32>,
+    mgr: *mut sys::zend_object,
+) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut command: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    let spec = if ty == CmdType::Raw { c"sO|z!" } else { c"sO|a!" };
-    if sys::zend_parse_parameters(call::num_args(ex), spec.as_ptr(), &mut p, &mut l, &mut command, super::command::CE.get(), &mut options) != 0 {
+    let spec = if ty == CmdType::Raw {
+        c"sO|z!"
+    } else {
+        c"sO|a!"
+    };
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        spec.as_ptr(),
+        &mut p,
+        &mut l,
+        &mut command,
+        super::command::CE.get(),
+        &mut options,
+    ) != 0
+    {
         return;
     }
     let dbb = std::slice::from_raw_parts(p, l);
@@ -571,7 +758,13 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     let mut rp: Option<ReadPreference> = None;
     if matches!(ty, CmdType::Raw | CmdType::Read) {
         if !options.is_null() && !zval::is(options, sys::IS_ARRAY) {
-            throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected options to be array, {} given",
+                    zval::type_name(options)
+                ),
+            );
             return;
         }
         if !options.is_null() {
@@ -581,11 +774,15 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
             }
         }
     }
-    let Ok(zsession) = super::parse_session(options, &client) else { return };
+    let Ok(zsession) = super::parse_session(options, &client) else {
+        return;
+    };
     let sid = match server_id {
         Some(s) => s,
         None => {
-            let Some(pinned) = super::session_server_id(zsession) else { return };
+            let Some(pinned) = super::session_server_id(zsession) else {
+                return;
+            };
             if pinned > 0 {
                 pinned
             } else {
@@ -598,7 +795,11 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
                     _ => None,
                 };
                 let prefs = eff.as_ref().map(ReadPreference::prefs);
-                let op = if for_writes { OpType::Write } else { OpType::Read };
+                let op = if for_writes {
+                    OpType::Write
+                } else {
+                    OpType::Read
+                };
                 let selected = client.checkout().select_server_id(op, prefs.as_ref(), &[]);
                 super::apm::flush(&client);
                 match selected {
@@ -634,19 +835,28 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
         }
         unack = match &wc {
             Some(w) => !w.is_acknowledged(),
-            None if ty != CmdType::Raw => !super::writeconcern::WriteConcern::from_uri(&client.shared().uri).is_acknowledged(),
+            None if ty != CmdType::Raw => {
+                !super::writeconcern::WriteConcern::from_uri(&client.shared().uri).is_acknowledged()
+            }
             None => false,
         };
     }
     if zsession.is_some() && unack {
-        throw(E::InvalidArgument, "Cannot combine \"session\" option with an unacknowledged write concern");
+        throw(
+            E::InvalidArgument,
+            "Cannot combine \"session\" option with an unacknowledged write concern",
+        );
         return;
     }
     let cmd = obj::data::<Command>((*command).value.obj);
     let Some(bson) = cmd.bson.clone() else { return };
     let (batch_size, max_await) = (cmd.batch_size, cmd.max_await_time_ms);
     // phongo_create_implicit_session (ignoring errors)
-    let mut implicit = if zsession.is_none() && !unack { client.start_session(true, false).ok() } else { None };
+    let mut implicit = if zsession.is_none() && !unack {
+        client.start_session(true, false).ok()
+    } else {
+        None
+    };
     // _mongoc_client_command_with_opts
     let mode_read = matches!(ty, CmdType::Read | CmdType::ReadWrite);
     let mode_write = matches!(ty, CmdType::Write | CmdType::ReadWrite);
@@ -667,12 +877,25 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
         };
         let in_txn = sess.as_ref().is_some_and(|s| s.in_txn());
         let cmd_name = mongo_core::cmdparts::command_name(&bson).unwrap_or_default();
-        let invalid = |m: &str| Err(mongo_core::cmdparts::Failure::from(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m)));
-        if in_txn && matches!(ty, CmdType::Read | CmdType::Raw) && rp.as_ref().is_some_and(|r| r.mode != ReadMode::Primary) {
+        let invalid = |m: &str| {
+            Err(mongo_core::cmdparts::Failure::from(Error::new(
+                domain::COMMAND,
+                code::COMMAND_INVALID_ARG,
+                m,
+            )))
+        };
+        if in_txn
+            && matches!(ty, CmdType::Read | CmdType::Raw)
+            && rp.as_ref().is_some_and(|r| r.mode != ReadMode::Primary)
+        {
             invalid("Read preference in a transaction must be primary")
         } else if in_txn && rc.is_some() {
             invalid("Cannot set read concern after starting transaction")
-        } else if in_txn && wc.is_some() && cmd_name != "commitTransaction" && cmd_name != "abortTransaction" {
+        } else if in_txn
+            && wc.is_some()
+            && cmd_name != "commitTransaction"
+            && cmd_name != "abortTransaction"
+        {
             invalid("Cannot set write concern after starting transaction")
         } else if let Err(e) = cl.stream_for_server(sid, true) {
             // the stream's reply (pooled mode's backpressure labels)
@@ -740,15 +963,17 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
             return;
         }
     };
-    if mode_write
-        && let Some(e) = write_concern_error(&reply) {
-            if let Some(mut s) = implicit.take() {
-                client.end_session(&mut s);
-            }
-            super::throw_error(&e, Some(&reply));
-            return;
+    if mode_write && let Some(e) = write_concern_error(&reply) {
+        if let Some(mut s) = implicit.take() {
+            client.end_session(&mut s);
         }
-    let has_cursor = matches!(mongo_core::cmdparts::find(&reply, b"cursor"), Some(mongo_core::bson::iter::Value::Document(_)));
+        super::throw_error(&e, Some(&reply));
+        return;
+    }
+    let has_cursor = matches!(
+        mongo_core::cmdparts::find(&reply, b"cursor"),
+        Some(mongo_core::bson::iter::Value::Document(_))
+    );
     let mut c = if has_cursor {
         Cursor::from_reply(reply, client.clone(), sid, &db)
     } else {
@@ -773,11 +998,12 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
             c.opts.batch_size = batch_size as i64;
         }
         if let Some(mut it) = mongo_core::bson::iter::Iter::new(&bson)
-            && it.find(b"comment") {
-                let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
-                w.element_from(Some(b"comment"), &it);
-                c.opts.comment = Some(w.finish());
-            }
+            && it.find(b"comment")
+        {
+            let mut w = mongo_core::bson::writer::Writer::with_capacity(64);
+            w.element_from(Some(b"comment"), &it);
+            c.opts.comment = Some(w.finish());
+        }
     }
     if let Some(z) = zsession {
         c.session = zval::copy(z);
@@ -795,13 +1021,24 @@ pub unsafe fn execute_command_args(ex: Ex, rv: *mut sys::zval, client: ClientRef
     zval::write(rv, super::cursor::new_cursor(c, mgr));
 }
 
-
 /// phongo_parse_read_preference
-unsafe fn parse_read_preference(options: *mut sys::HashTable) -> Result<Option<ReadPreference>, ()> {
-    let Some(z) = hash::find(options, b"readPreference") else { return Ok(None) };
+unsafe fn parse_read_preference(
+    options: *mut sys::HashTable,
+) -> Result<Option<ReadPreference>, ()> {
+    let Some(z) = hash::find(options, b"readPreference") else {
+        return Ok(None);
+    };
     let z = zval::deref(z);
-    if !zval::is(z, sys::IS_OBJECT) || !obj::instanceof((*(*z).value.obj).ce, super::readpref::CE.get()) {
-        throw(E::InvalidArgument, format!("Expected \"readPreference\" option to be MongoDB\\Driver\\ReadPreference, {} given", zval::type_name(z)));
+    if !zval::is(z, sys::IS_OBJECT)
+        || !obj::instanceof((*(*z).value.obj).ce, super::readpref::CE.get())
+    {
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected \"readPreference\" option to be MongoDB\\Driver\\ReadPreference, {} given",
+                zval::type_name(z)
+            ),
+        );
         return Err(());
     }
     Ok(Some(obj::data::<ReadPreference>((*z).value.obj).clone()))
@@ -819,7 +1056,12 @@ pub fn client_read_preference(uri: &Uri) -> ReadPreference {
         }
         w.finish().into()
     };
-    ReadPreference { mode: uri.read_mode, tags, max_staleness_seconds: uri.max_staleness_seconds as i64, hedge: None }
+    ReadPreference {
+        mode: uri.read_mode,
+        tags,
+        max_staleness_seconds: uri.max_staleness_seconds as i64,
+        hedge: None,
+    }
 }
 
 /// _mongoc_parse_wc_err
@@ -842,8 +1084,14 @@ macro_rules! exec {
 }
 exec!(zim_MongoDB_Driver_Manager_executeCommand, CmdType::Raw);
 exec!(zim_MongoDB_Driver_Manager_executeReadCommand, CmdType::Read);
-exec!(zim_MongoDB_Driver_Manager_executeWriteCommand, CmdType::Write);
-exec!(zim_MongoDB_Driver_Manager_executeReadWriteCommand, CmdType::ReadWrite);
+exec!(
+    zim_MongoDB_Driver_Manager_executeWriteCommand,
+    CmdType::Write
+);
+exec!(
+    zim_MongoDB_Driver_Manager_executeReadWriteCommand,
+    CmdType::ReadWrite
+);
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mut sys::zval) {
     let mut rp: *mut sys::zval = null_mut();
@@ -855,13 +1103,21 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_selectServer(ex: Ex, rv: *mu
     // an argument, NULL read prefs (primary), not the client's read preference
     let prefs = if rp.is_null() {
         None
-    } else if zval::is(rp, sys::IS_OBJECT) && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE.get()) {
+    } else if zval::is(rp, sys::IS_OBJECT)
+        && obj::instanceof((*(*rp).value.obj).ce, super::readpref::CE.get())
+    {
         Some(obj::data::<ReadPreference>((*rp).value.obj).prefs())
     } else {
-        sys::zend_argument_type_error(1, c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(), zval::value_name(rp));
+        sys::zend_argument_type_error(
+            1,
+            c"must be of type ?MongoDB\\Driver\\ReadPreference, %s given".as_ptr(),
+            zval::value_name(rp),
+        );
         return;
     };
-    let r = c.checkout().select_server_id(OpType::Read, prefs.as_ref(), &[]);
+    let r = c
+        .checkout()
+        .select_server_id(OpType::Read, prefs.as_ref(), &[]);
     super::apm::flush(&c);
     match r {
         Ok((id, _)) => zval::write(rv, super::server::new_server(c, id, call::this(ex))),
@@ -875,7 +1131,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getServers(ex: Ex, rv: *mut 
     }
     let ht = hash::new(0);
     if let Some(c) = client_of(ex) {
-        let ids: Vec<u32> = c.shared().td.borrow().known_servers().map(|s| s.id).collect();
+        let ids: Vec<u32> = c
+            .shared()
+            .td
+            .borrow()
+            .known_servers()
+            .map(|s| s.id)
+            .collect();
         for id in ids {
             hash::push(ht, super::server::new_server(c.clone(), id, call::this(ex)));
         }
@@ -917,7 +1179,13 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
         if let Some(z) = hash::find(ht, b"defaultTransactionOptions") {
             let z = zval::deref(z);
             if !zval::is(z, sys::IS_ARRAY) {
-                throw(E::InvalidArgument, format!("Expected \"defaultTransactionOptions\" option to be an array, {} given", zval::type_name(z)));
+                throw(
+                    E::InvalidArgument,
+                    format!(
+                        "Expected \"defaultTransactionOptions\" option to be an array, {} given",
+                        zval::type_name(z)
+                    ),
+                );
                 return;
             }
             match super::session::parse_txn_options(z) {
@@ -935,7 +1203,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
     let snap = snapshot.unwrap_or(false);
     let cc = causal.unwrap_or(!snap);
     if cc && snap {
-        throw(E::InvalidArgument, "Only one of \"causalConsistency\" and \"snapshot\" can be enabled");
+        throw(
+            E::InvalidArgument,
+            "Only one of \"causalConsistency\" and \"snapshot\" can be enabled",
+        );
         return;
     }
     // an exception from the option conversions (an error handler that throws on the warning):
@@ -948,7 +1219,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_startSession(ex: Ex, rv: *mu
     match r {
         Ok(cs) => {
             let drp = rp.unwrap_or_else(|| client_read_preference(&c.shared().uri));
-            zval::write(rv, super::session::new_session(c.clone(), cs, drp, call::this(ex)));
+            zval::write(
+                rv,
+                super::session::new_session(c.clone(), cs, drp, call::this(ex)),
+            );
         }
         Err(e) => super::throw_error(&e, None),
     }
@@ -966,20 +1240,39 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_getWriteConcern(ex: Ex, rv: 
 
 /// phongo_execute_bulk_write (Manager::executeBulkWrite selects a primary first; a Server
 /// passes its id).
-pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>, mgr: *mut sys::zend_object) {
+pub unsafe fn execute_bulk_write(
+    ex: Ex,
+    rv: *mut sys::zval,
+    client: ClientRef,
+    server_id: Option<u32>,
+    mgr: *mut sys::zend_object,
+) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut zbulk: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zbulk, super::bulkwrite::CE.get(), &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"sO|z!".as_ptr(),
+        &mut p,
+        &mut l,
+        &mut zbulk,
+        super::bulkwrite::CE.get(),
+        &mut options,
+    ) != 0
+    {
         return;
     }
     let ns = std::slice::from_raw_parts(p, l).to_vec();
-    let Ok(session) = super::parse_session(options, &client) else { return };
+    let Ok(session) = super::parse_session(options, &client) else {
+        return;
+    };
     let server_id = match server_id {
         Some(s) => s,
         None => {
             // phongo_manager_select_server(for_writes)
-            let Some(pinned) = super::session_server_id(session) else { return };
+            let Some(pinned) = super::session_server_id(session) else {
+                return;
+            };
             if pinned > 0 {
                 pinned
             } else {
@@ -997,15 +1290,29 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     };
     let bw = obj::data::<super::bulkwrite::BulkWrite>((*zbulk).value.obj);
     if bw.executed {
-        throw(E::InvalidArgument, "BulkWrite objects may only be executed once and this instance has already been executed");
+        throw(
+            E::InvalidArgument,
+            "BulkWrite objects may only be executed once and this instance has already been executed",
+        );
         return;
     }
-    let Some((db, coll)) = super::split_namespace(&ns) else { return };
-    let Ok(session) = super::parse_session(options, &client) else { return };
-    let Ok(wc_opt) = super::parse_write_concern(options) else { return };
-    let wc = wc_opt.clone().unwrap_or_else(|| super::writeconcern::WriteConcern::from_uri(&client.shared().uri));
+    let Some((db, coll)) = super::split_namespace(&ns) else {
+        return;
+    };
+    let Ok(session) = super::parse_session(options, &client) else {
+        return;
+    };
+    let Ok(wc_opt) = super::parse_write_concern(options) else {
+        return;
+    };
+    let wc = wc_opt
+        .clone()
+        .unwrap_or_else(|| super::writeconcern::WriteConcern::from_uri(&client.shared().uri));
     if session.is_some() && !wc.is_acknowledged() {
-        throw(E::InvalidArgument, "Cannot combine \"session\" option with an unacknowledged write concern");
+        throw(
+            E::InvalidArgument,
+            "Cannot combine \"session\" option with an unacknowledged write concern",
+        );
         return;
     }
     bw.database = Some(db.clone());
@@ -1020,14 +1327,22 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     let r = {
         let mut cl = client.checkout();
         match session {
-            Some(z) => super::with_session(z, |s| bw.bulk.execute(&mut cl, &db, &coll, &wc, Some(s))),
+            Some(z) => {
+                super::with_session(z, |s| bw.bulk.execute(&mut cl, &db, &coll, &wc, Some(s)))
+            }
             None => Some(bw.bulk.execute(&mut cl, &db, &coll, &wc, None)),
         }
     };
     let Some((ok, reply, error)) = r else { return };
     bw.executed = true;
     super::apm::flush(&client);
-    let result = super::writeresult::new_writeresult(reply.clone(), client.clone(), bw.bulk.server_id, wc, mgr);
+    let result = super::writeresult::new_writeresult(
+        reply.clone(),
+        client.clone(),
+        bw.bulk.server_id,
+        wc,
+        mgr,
+    );
     zval::write(rv, result);
     if ok {
         return;
@@ -1043,7 +1358,10 @@ pub unsafe fn execute_bulk_write(ex: Ex, rv: *mut sys::zval, client: ClientRef, 
     let ex_obj = if call::has_exception() {
         let prev = (*crate::zend::eg()).exception;
         let name = crate::zend::class::name((*prev).ce);
-        let msg = format!("Bulk write failed due to previous {name}: {}", error.message);
+        let msg = format!(
+            "Bulk write failed due to previous {name}: {}",
+            error.message
+        );
         super::throw_code(bwe, &msg, 0)
     } else {
         super::throw_code(bwe, &error.message, error.php_code())
@@ -1059,18 +1377,39 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Manager_executeBulkWrite(ex: Ex, rv:
 }
 
 /// phongo_execute_query (Manager selects a server with the read preference first).
-pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, server_id: Option<u32>, mgr: *mut sys::zend_object) {
+pub unsafe fn execute_query(
+    ex: Ex,
+    rv: *mut sys::zval,
+    client: ClientRef,
+    server_id: Option<u32>,
+    mgr: *mut sys::zend_object,
+) {
     let (mut p, mut l): (*const u8, usize) = (null_mut(), 0);
     let mut zquery: *mut sys::zval = null_mut();
     let mut options: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"sO|z!".as_ptr(), &mut p, &mut l, &mut zquery, super::query::CE.get(), &mut options) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"sO|z!".as_ptr(),
+        &mut p,
+        &mut l,
+        &mut zquery,
+        super::query::CE.get(),
+        &mut options,
+    ) != 0
+    {
         return;
     }
     let ns = std::slice::from_raw_parts(p, l).to_vec();
     let mut rp: Option<ReadPreference> = None;
     if !options.is_null() {
         if !zval::is(options, sys::IS_ARRAY) {
-            throw(E::InvalidArgument, format!("Expected options to be array, {} given", zval::type_name(options)));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected options to be array, {} given",
+                    zval::type_name(options)
+                ),
+            );
             return;
         }
         match parse_read_preference((*options).value.arr) {
@@ -1078,18 +1417,26 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
             Err(()) => return,
         }
     }
-    let Ok(zsession) = super::parse_session(options, &client) else { return };
+    let Ok(zsession) = super::parse_session(options, &client) else {
+        return;
+    };
     let sid = match server_id {
         Some(s) => s,
         None => {
-            let Some(pinned) = super::session_server_id(zsession) else { return };
+            let Some(pinned) = super::session_server_id(zsession) else {
+                return;
+            };
             if pinned > 0 {
                 pinned
             } else {
                 // inherit the client's read preference
-                let eff = rp.clone().unwrap_or_else(|| client_read_preference(&client.shared().uri));
+                let eff = rp
+                    .clone()
+                    .unwrap_or_else(|| client_read_preference(&client.shared().uri));
                 let prefs = eff.prefs();
-                let selected = client.checkout().select_server_id(OpType::Read, Some(&prefs), &[]);
+                let selected = client
+                    .checkout()
+                    .select_server_id(OpType::Read, Some(&prefs), &[]);
                 super::apm::flush(&client);
                 match selected {
                     Ok((s, _)) => s,
@@ -1101,10 +1448,18 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
             }
         }
     };
-    let Some((db, coll)) = super::split_namespace(&ns) else { return };
+    let Some((db, coll)) = super::split_namespace(&ns) else {
+        return;
+    };
     let q = obj::data::<super::query::Query>((*zquery).value.obj);
-    let filter = q.filter.clone().unwrap_or_else(|| mongo_core::bson::writer::Writer::new().finish());
-    let qopts = q.opts.clone().unwrap_or_else(|| mongo_core::bson::writer::Writer::new().finish());
+    let filter = q
+        .filter
+        .clone()
+        .unwrap_or_else(|| mongo_core::bson::writer::Writer::new().finish());
+    let qopts = q
+        .opts
+        .clone()
+        .unwrap_or_else(|| mongo_core::bson::writer::Writer::new().finish());
     // the cursor options (_mongoc_cursor_new_with_opts) and the find command's options
     let mut co = super::cursor::CursorOpts::default();
     let mut exhaust = false;
@@ -1113,7 +1468,10 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
         while it.next() {
             let v = it.value();
             let as_i64 = || match v {
-                mongo_core::bson::iter::Value::Int32(_) | mongo_core::bson::iter::Value::Int64(_) | mongo_core::bson::iter::Value::Double(_) | mongo_core::bson::iter::Value::Bool(_) => mongo_core::sdam::as_i64(&v),
+                mongo_core::bson::iter::Value::Int32(_)
+                | mongo_core::bson::iter::Value::Int64(_)
+                | mongo_core::bson::iter::Value::Double(_)
+                | mongo_core::bson::iter::Value::Bool(_) => mongo_core::sdam::as_i64(&v),
                 _ => 0,
             };
             let as_bool = || matches!(v, mongo_core::bson::iter::Value::Bool(true));
@@ -1138,9 +1496,12 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
         }
     }
     co.max_await_time_ms = q.max_await_time_ms as i64;
-    let mut c = super::cursor::Cursor::for_find(client.clone(), sid, &db, &coll, filter, fw.finish());
+    let mut c =
+        super::cursor::Cursor::for_find(client.clone(), sid, &db, &coll, filter, fw.finish());
     c.opts = co;
-    let read_prefs = rp.clone().unwrap_or_else(|| client_read_preference(&client.shared().uri));
+    let read_prefs = rp
+        .clone()
+        .unwrap_or_else(|| client_read_preference(&client.shared().uri));
     c.read_prefs = Some(rp_parts(&read_prefs));
     c.retry_prefs = Some(read_prefs.prefs());
     c.read_concern = match &q.read_concern {
@@ -1148,11 +1509,19 @@ pub unsafe fn execute_query(ex: Ex, rv: *mut sys::zval, client: ClientRef, serve
         Some(_) => Vec::new(),
         None => {
             let crc = mongo_core::concern::ReadConcern::from_uri(&client.shared().uri);
-            if crc.is_default() { Vec::new() } else { crc.to_bson() }
+            if crc.is_default() {
+                Vec::new()
+            } else {
+                crc.to_bson()
+            }
         }
     };
     if exhaust && c.opts.limit != 0 {
-        c.set_error(mongo_core::error::Error::new(mongo_core::error::domain::CURSOR, mongo_core::error::code::CURSOR_INVALID_CURSOR, "Cannot specify both 'exhaust' and 'limit'."));
+        c.set_error(mongo_core::error::Error::new(
+            mongo_core::error::domain::CURSOR,
+            mongo_core::error::code::CURSOR_INVALID_CURSOR,
+            "Cannot specify both 'exhaust' and 'limit'.",
+        ));
     }
     if let Some(z) = zsession {
         c.session = zval::copy(z);

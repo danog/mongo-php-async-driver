@@ -11,7 +11,11 @@ struct Vault {
 
 impl Io for Vault {
     type Error = ();
-    fn kms(&mut self, _r: &mongo_crypt::kms::KmsRequest, _d: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), mongo_crypt::engine::KmsFailure<()>> {
+    fn kms(
+        &mut self,
+        _r: &mongo_crypt::kms::KmsRequest,
+        _d: &mut dyn FnMut(&[u8]) -> bool,
+    ) -> Result<(), mongo_crypt::engine::KmsFailure<()>> {
         unreachable!("local KMS only")
     }
     fn stream_error(&self, _m: String) {}
@@ -53,17 +57,46 @@ fn key_id(doc: &[u8]) -> [u8; 16] {
 #[test]
 fn local_roundtrip() {
     let crypt = Crypt::new(&kms(), None).unwrap();
-    let doc = crypt.data_key_doc(&mut Vault { keys: vec![], finds: 0 }, &local_kek(), None, &[b"name".to_vec()]).unwrap();
+    let doc = crypt
+        .data_key_doc(
+            &mut Vault {
+                keys: vec![],
+                finds: 0,
+            },
+            &local_kek(),
+            None,
+            &[b"name".to_vec()],
+        )
+        .unwrap();
     let id = key_id(&doc);
-    let mut vault = Vault { keys: vec![doc], finds: 0 };
+    let mut vault = Vault {
+        keys: vec![doc],
+        finds: 0,
+    };
     let value = v(|w| w.utf8(b"v", b"hello"));
-    let a = crypt.encrypt_fle1(&mut vault, &value, &KeySel::Id(id), Fle1Algorithm::Deterministic).unwrap();
-    let b = crypt.encrypt_fle1(&mut vault, &value, &KeySel::AltName(b"name".to_vec()), Fle1Algorithm::Deterministic).unwrap();
+    let a = crypt
+        .encrypt_fle1(
+            &mut vault,
+            &value,
+            &KeySel::Id(id),
+            Fle1Algorithm::Deterministic,
+        )
+        .unwrap();
+    let b = crypt
+        .encrypt_fle1(
+            &mut vault,
+            &value,
+            &KeySel::AltName(b"name".to_vec()),
+            Fle1Algorithm::Deterministic,
+        )
+        .unwrap();
     assert_eq!(a, b, "deterministic");
     assert_eq!(a[0], 1);
     assert_eq!(&a[1..17], &id);
     assert_eq!(a[17], 2);
-    let r = crypt.encrypt_fle1(&mut vault, &value, &KeySel::Id(id), Fle1Algorithm::Random).unwrap();
+    let r = crypt
+        .encrypt_fle1(&mut vault, &value, &KeySel::Id(id), Fle1Algorithm::Random)
+        .unwrap();
     assert_ne!(a, r);
     // the key cache: one key vault query for all of the above
     assert_eq!(vault.finds, 1);
@@ -91,7 +124,12 @@ fn local_roundtrip() {
     assert_eq!(out, expect);
     // errors
     let bad = v(|w| w.double(b"v", 1.5));
-    match crypt.encrypt_fle1(&mut vault, &bad, &KeySel::Id(id), Fle1Algorithm::Deterministic) {
+    match crypt.encrypt_fle1(
+        &mut vault,
+        &bad,
+        &KeySel::Id(id),
+        Fle1Algorithm::Deterministic,
+    ) {
         Err(Error::Crypt(m)) => assert_eq!(m, "BSON type invalid for deterministic encryption"),
         o => panic!("{o:?}"),
     }
@@ -102,9 +140,15 @@ fn local_roundtrip() {
         o => panic!("{o:?}"),
     }
     let other = Crypt::new(&kms(), None).unwrap();
-    let mut empty = Vault { keys: vec![], finds: 0 };
+    let mut empty = Vault {
+        keys: vec![],
+        finds: 0,
+    };
     match other.encrypt_fle1(&mut empty, &value, &KeySel::Id(id), Fle1Algorithm::Random) {
-        Err(Error::Crypt(m)) => assert!(m.starts_with("not all keys requested were satisfied"), "{m}"),
+        Err(Error::Crypt(m)) => assert!(
+            m.starts_with("not all keys requested were satisfied"),
+            "{m}"
+        ),
         o => panic!("{o:?}"),
     }
 }

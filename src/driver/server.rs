@@ -1,11 +1,11 @@
 //! MongoDB\Driver\Server (src/MongoDB/Server.c)
 
 use super::ClientRef;
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{obj, sys, zval, ClassEntry, EngineCell};
+use crate::zend::{ClassEntry, EngineCell, obj, sys, zval};
 use mongo_core::bson::iter::{Iter, Value};
-use mongo_core::sdam::{ServerDescription, ServerType, RTT_UNSET};
+use mongo_core::sdam::{RTT_UNSET, ServerDescription, ServerType};
 use std::ptr::null_mut;
 
 #[derive(Default)]
@@ -25,13 +25,22 @@ unsafe extern "C" fn create(c: *mut sys::zend_class_entry) -> *mut sys::zend_obj
 
 /// The current description of a Server object's server (mongoc_client_get_server_description).
 fn description(s: &Server) -> Option<ServerDescription> {
-    s.client.as_ref().and_then(|c| c.shared().td.try_borrow().ok().and_then(|td| td.server(s.server_id).cloned()))
+    s.client.as_ref().and_then(|c| {
+        c.shared()
+            .td
+            .try_borrow()
+            .ok()
+            .and_then(|td| td.server(s.server_id).cloned())
+    })
 }
 
 /// strcasecmp (C locale)
 fn strcasecmp(a: &[u8], b: &[u8]) -> i32 {
     for i in 0.. {
-        let (x, y) = (a.get(i).map_or(0, u8::to_ascii_lowercase), b.get(i).map_or(0, u8::to_ascii_lowercase));
+        let (x, y) = (
+            a.get(i).map_or(0, u8::to_ascii_lowercase),
+            b.get(i).map_or(0, u8::to_ascii_lowercase),
+        );
         if x != y || x == 0 {
             return x as i32 - y as i32;
         }
@@ -43,10 +52,16 @@ fn strcasecmp(a: &[u8], b: &[u8]) -> i32 {
 /// when a description is missing.
 unsafe extern "C" fn compare(a: *mut sys::zval, b: *mut sys::zval) -> i32 {
     // ZEND_COMPARE_OBJECTS_FALLBACK
-    if !zval::is(a, sys::IS_OBJECT) || !zval::is(b, sys::IS_OBJECT) || (*(*a).value.obj).handlers != (*(*b).value.obj).handlers {
+    if !zval::is(a, sys::IS_OBJECT)
+        || !zval::is(b, sys::IS_OBJECT)
+        || (*(*a).value.obj).handlers != (*(*b).value.obj).handlers
+    {
         return sys::zend_std_compare_objects(a, b);
     }
-    let (x, y) = (obj::data::<Server>((*a).value.obj), obj::data::<Server>((*b).value.obj));
+    let (x, y) = (
+        obj::data::<Server>((*a).value.obj),
+        obj::data::<Server>((*b).value.obj),
+    );
     match (description(x), description(y)) {
         (Some(sx), Some(sy)) => strcasecmp(sx.addr.as_bytes(), sy.addr.as_bytes()),
         _ => {
@@ -71,7 +86,12 @@ fn reported_hello(s: &Server, sd: &ServerDescription) -> Option<Vec<u8>> {
         (Ok(()), Some(h)) => Some(h.hello.clone()),
         (Err(e), _) => {
             drop(cl);
-            unsafe { throw(E::Runtime, format!("Failed to get handshake server description: {}", e.message)) };
+            unsafe {
+                throw(
+                    E::Runtime,
+                    format!("Failed to get handshake server description: {}", e.message),
+                )
+            };
             None
         }
         (Ok(()), None) => {
@@ -83,7 +103,10 @@ fn reported_hello(s: &Server, sd: &ServerDescription) -> Option<Vec<u8>> {
 }
 
 /// phongo_server_get_debug_info
-unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_debug_info(
+    o: *mut sys::zend_object,
+    is_temp: *mut i32,
+) -> *mut sys::HashTable {
     use crate::zend::hash;
     *is_temp = 1;
     let s = obj::data::<Server>(o);
@@ -96,9 +119,21 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
     hash::str_update(ht, b"host", zval::string(host.as_bytes()));
     hash::str_update(ht, b"port", zval::long(port));
     hash::str_update(ht, b"type", zval::long(sd.ty as i64));
-    hash::str_update(ht, b"is_primary", zval::bool(sd.ty == ServerType::RsPrimary));
-    hash::str_update(ht, b"is_secondary", zval::bool(sd.ty == ServerType::RsSecondary));
-    hash::str_update(ht, b"is_arbiter", zval::bool(sd.ty == ServerType::RsArbiter));
+    hash::str_update(
+        ht,
+        b"is_primary",
+        zval::bool(sd.ty == ServerType::RsPrimary),
+    );
+    hash::str_update(
+        ht,
+        b"is_secondary",
+        zval::bool(sd.ty == ServerType::RsSecondary),
+    );
+    hash::str_update(
+        ht,
+        b"is_arbiter",
+        zval::bool(sd.ty == ServerType::RsArbiter),
+    );
     hash::str_update(ht, b"is_hidden", zval::bool(hello_flag(&sd, b"hidden")));
     hash::str_update(ht, b"is_passive", zval::bool(hello_flag(&sd, b"passive")));
     if let Some(tags) = hello_tags(&sd) {
@@ -107,13 +142,27 @@ unsafe extern "C" fn get_debug_info(o: *mut sys::zend_object, is_temp: *mut i32)
             None => return release(ht),
         }
     }
-    let Some(hello) = reported_hello(s, &sd) else { return release(ht) };
-    let doc: &[u8] = if hello.is_empty() { &[5, 0, 0, 0, 0] } else { &hello };
+    let Some(hello) = reported_hello(s, &sd) else {
+        return release(ht);
+    };
+    let doc: &[u8] = if hello.is_empty() {
+        &[5, 0, 0, 0, 0]
+    } else {
+        &hello
+    };
     match super::to_zval(doc, &super::debug_typemap()) {
         Some(z) => hash::str_update(ht, b"last_hello_response", z),
         None => return release(ht),
     }
-    hash::str_update(ht, b"round_trip_time", if sd.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(sd.rtt_ms) });
+    hash::str_update(
+        ht,
+        b"round_trip_time",
+        if sd.rtt_ms == RTT_UNSET {
+            zval::null()
+        } else {
+            zval::long(sd.rtt_ms)
+        },
+    );
     ht
 }
 
@@ -144,14 +193,30 @@ pub unsafe fn init_MongoDB_Driver_Server(c: *mut sys::zend_class_entry) {
     h.get_gc = Some(get_gc);
 }
 
-unsafe extern "C" fn get_gc(o: *mut sys::zend_object, table: *mut *mut sys::zval, n: *mut i32) -> *mut sys::HashTable {
+unsafe extern "C" fn get_gc(
+    o: *mut sys::zend_object,
+    table: *mut *mut sys::zval,
+    n: *mut i32,
+) -> *mut sys::HashTable {
     let s = obj::data::<Server>(o);
     obj::get_gc_with(o, table, n, [s.manager.gc()])
 }
 
 /// phongo_server_init: a Server of the Manager object `manager`.
-pub unsafe fn new_server(client: ClientRef, server_id: u32, manager: *mut sys::zend_object) -> sys::zval {
-    zval::obj(obj::alloc(CE.get(), Server { client: Some(client), server_id, manager: super::ManagerRef::new(manager) }, H_SERVER.get()))
+pub unsafe fn new_server(
+    client: ClientRef,
+    server_id: u32,
+    manager: *mut sys::zend_object,
+) -> sys::zval {
+    zval::obj(obj::alloc(
+        CE.get(),
+        Server {
+            client: Some(client),
+            server_id,
+            manager: super::ManagerRef::new(manager),
+        },
+        H_SERVER.get(),
+    ))
 }
 
 #[inline]
@@ -170,7 +235,10 @@ pub(crate) unsafe fn sd(ex: Ex) -> Option<ServerDescription> {
 
 pub(crate) fn host_port(addr: &str) -> (String, i64) {
     match addr.rsplit_once(':') {
-        Some((h, p)) => (h.trim_start_matches('[').trim_end_matches(']').to_owned(), p.parse().unwrap_or(27017)),
+        Some((h, p)) => (
+            h.trim_start_matches('[').trim_end_matches(']').to_owned(),
+            p.parse().unwrap_or(27017),
+        ),
         None => (addr.to_owned(), 27017),
     }
 }
@@ -186,50 +254,69 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Server___construct(_ex: Ex, _rv: *mu
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getHost(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            zval::write(rv, zval::string(host_port(&d.addr).0.as_bytes()));
-        }
+        && let Some(d) = sd(ex)
+    {
+        zval::write(rv, zval::string(host_port(&d.addr).0.as_bytes()));
+    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getPort(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            zval::write(rv, zval::long(host_port(&d.addr).1));
-        }
+        && let Some(d) = sd(ex)
+    {
+        zval::write(rv, zval::long(host_port(&d.addr).1));
+    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getInfo(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            let Some(hello) = reported_hello(me(ex), &d) else { return };
-            let doc: &[u8] = if hello.is_empty() { &[5, 0, 0, 0, 0] } else { &hello };
-            if let Some(z) = super::to_zval(doc, &super::debug_typemap()) {
-                zval::write(rv, z);
-            }
+        && let Some(d) = sd(ex)
+    {
+        let Some(hello) = reported_hello(me(ex), &d) else {
+            return;
+        };
+        let doc: &[u8] = if hello.is_empty() {
+            &[5, 0, 0, 0, 0]
+        } else {
+            &hello
+        };
+        if let Some(z) = super::to_zval(doc, &super::debug_typemap()) {
+            zval::write(rv, z);
         }
+    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getLatency(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            zval::write(rv, if d.rtt_ms == RTT_UNSET { zval::null() } else { zval::long(d.rtt_ms) });
-        }
+        && let Some(d) = sd(ex)
+    {
+        zval::write(
+            rv,
+            if d.rtt_ms == RTT_UNSET {
+                zval::null()
+            } else {
+                zval::long(d.rtt_ms)
+            },
+        );
+    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getTags(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            match hello_tags(&d) {
-                Some(t) => {
-                    if let Some(z) = super::to_zval(t, &super::debug_typemap()) {
-                        zval::write(rv, z);
-                    }
+        && let Some(d) = sd(ex)
+    {
+        match hello_tags(&d) {
+            Some(t) => {
+                if let Some(z) = super::to_zval(t, &super::debug_typemap()) {
+                    zval::write(rv, z);
                 }
-                None => zval::write(rv, zval::arr(crate::zend::hash::new(0))),
             }
+            None => zval::write(rv, zval::arr(crate::zend::hash::new(0))),
         }
+    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_getType(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            zval::write(rv, zval::long(d.ty as i64));
-        }
+        && let Some(d) = sd(ex)
+    {
+        zval::write(rv, zval::long(d.ty as i64));
+    }
 }
 macro_rules! is_type {
     ($f:ident, $t:expr) => {
@@ -243,19 +330,24 @@ macro_rules! is_type {
     };
 }
 is_type!(zim_MongoDB_Driver_Server_isPrimary, ServerType::RsPrimary);
-is_type!(zim_MongoDB_Driver_Server_isSecondary, ServerType::RsSecondary);
+is_type!(
+    zim_MongoDB_Driver_Server_isSecondary,
+    ServerType::RsSecondary
+);
 is_type!(zim_MongoDB_Driver_Server_isArbiter, ServerType::RsArbiter);
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_isHidden(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            zval::write(rv, zval::bool(hello_flag(&d, b"hidden")));
-        }
+        && let Some(d) = sd(ex)
+    {
+        zval::write(rv, zval::bool(hello_flag(&d, b"hidden")));
+    }
 }
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_isPassive(ex: Ex, rv: *mut sys::zval) {
     if call::none(ex)
-        && let Some(d) = sd(ex) {
-            zval::write(rv, zval::bool(hello_flag(&d, b"passive")));
-        }
+        && let Some(d) = sd(ex)
+    {
+        zval::write(rv, zval::bool(hello_flag(&d, b"passive")));
+    }
 }
 
 macro_rules! exec {
@@ -263,14 +355,33 @@ macro_rules! exec {
         pub unsafe extern "C" fn $f(ex: Ex, rv: *mut sys::zval) {
             let s = me(ex);
             let Some(c) = s.client.clone() else { return };
-            super::manager::execute_command_args(ex, rv, c, $ty, Some(s.server_id), s.manager.obj());
+            super::manager::execute_command_args(
+                ex,
+                rv,
+                c,
+                $ty,
+                Some(s.server_id),
+                s.manager.obj(),
+            );
         }
     };
 }
-exec!(zim_MongoDB_Driver_Server_executeCommand, super::manager::CmdType::Raw);
-exec!(zim_MongoDB_Driver_Server_executeReadCommand, super::manager::CmdType::Read);
-exec!(zim_MongoDB_Driver_Server_executeWriteCommand, super::manager::CmdType::Write);
-exec!(zim_MongoDB_Driver_Server_executeReadWriteCommand, super::manager::CmdType::ReadWrite);
+exec!(
+    zim_MongoDB_Driver_Server_executeCommand,
+    super::manager::CmdType::Raw
+);
+exec!(
+    zim_MongoDB_Driver_Server_executeReadCommand,
+    super::manager::CmdType::Read
+);
+exec!(
+    zim_MongoDB_Driver_Server_executeWriteCommand,
+    super::manager::CmdType::Write
+);
+exec!(
+    zim_MongoDB_Driver_Server_executeReadWriteCommand,
+    super::manager::CmdType::ReadWrite
+);
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Server_executeBulkWrite(ex: Ex, rv: *mut sys::zval) {
     let s = me(ex);

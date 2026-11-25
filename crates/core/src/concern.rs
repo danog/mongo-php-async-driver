@@ -2,7 +2,7 @@
 
 use crate::bson::iter::{Iter, Value};
 use crate::bson::writer::Writer;
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 use crate::uri::{W_DEFAULT, W_MAJORITY, W_TAG, W_UNACKNOWLEDGED};
 
 /// mongoc_write_concern_t
@@ -18,7 +18,13 @@ pub struct WriteConcern {
 
 impl Default for WriteConcern {
     fn default() -> Self {
-        WriteConcern { w: W_DEFAULT, wtag: None, wtimeout: 0, journal: None, is_default: true }
+        WriteConcern {
+            w: W_DEFAULT,
+            wtag: None,
+            wtimeout: 0,
+            journal: None,
+            is_default: true,
+        }
     }
 }
 
@@ -89,8 +95,16 @@ impl WriteConcern {
     }
     /// _mongoc_write_concern_new_from_iter (the value of a "writeConcern" option).
     pub fn from_value(v: &Value) -> Result<Self, Error> {
-        let fail = || Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Invalid writeConcern");
-        let Value::Document(d) = v else { return Err(fail()) };
+        let fail = || {
+            Error::new(
+                domain::COMMAND,
+                code::COMMAND_INVALID_ARG,
+                "Invalid writeConcern",
+            )
+        };
+        let Value::Document(d) = v else {
+            return Err(fail());
+        };
         let mut wc = WriteConcern::default();
         let mut it = Iter::new(d).ok_or_else(fail)?;
         while it.next() {
@@ -119,7 +133,9 @@ impl WriteConcern {
                 },
                 b"wtimeout" => {
                     let v = it.value();
-                    if !matches!(v, Value::Int32(_) | Value::Int64(_)) || crate::sdam::as_i64(&v) < 0 {
+                    if !matches!(v, Value::Int32(_) | Value::Int64(_))
+                        || crate::sdam::as_i64(&v) < 0
+                    {
                         return Err(fail());
                     }
                     wc.set_wtimeout(crate::sdam::as_i64(&v));
@@ -128,7 +144,11 @@ impl WriteConcern {
             }
         }
         if !wc.is_valid() {
-            return Err(Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, "Invalid writeConcern"));
+            return Err(Error::new(
+                domain::COMMAND,
+                code::COMMAND_INVALID_ARG,
+                "Invalid writeConcern",
+            ));
         }
         Ok(wc)
     }
@@ -154,6 +174,8 @@ impl ReadConcern {
         w.finish()
     }
     pub fn from_uri(u: &crate::uri::Uri) -> Self {
-        ReadConcern { level: u.read_concern_level.as_ref().map(|s| s.as_bytes().to_vec()) }
+        ReadConcern {
+            level: u.read_concern_level.as_ref().map(|s| s.as_bytes().to_vec()),
+        }
     }
 }

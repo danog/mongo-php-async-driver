@@ -1,9 +1,9 @@
 //! MongoDB\Driver\Command (src/MongoDB/Command.c)
 
-use crate::bson::types::{cls, Cls, Props};
-use crate::bson::{throw, E};
+use crate::bson::types::{Cls, Props, cls};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{hash, obj, sys, zval, ClassEntry};
+use crate::zend::{ClassEntry, hash, obj, sys, zval};
 use mongo_core::bson::iter::{Iter, Value};
 use std::ptr::null_mut;
 
@@ -24,7 +24,12 @@ impl Cls for Command {
         &mut self.props
     }
     fn dup(&self) -> Self {
-        Command { bson: self.bson.clone(), batch_size: self.batch_size, max_await_time_ms: self.max_await_time_ms, props: Props::default() }
+        Command {
+            bson: self.bson.clone(),
+            batch_size: self.batch_size,
+            max_await_time_ms: self.max_await_time_ms,
+            props: Props::default(),
+        }
     }
     unsafe fn fill(&mut self, ht: *mut sys::HashTable, _debug: bool) -> bool {
         match &self.bson {
@@ -50,7 +55,12 @@ pub unsafe fn init_MongoDB_Driver_Command(c: *mut sys::zend_class_entry) {
 
 /// The command's first key (its name).
 pub fn name(bson: &[u8]) -> String {
-    Iter::new(bson).and_then(|mut it| it.next().then(|| String::from_utf8_lossy(it.key()).into_owned())).unwrap_or_default()
+    Iter::new(bson)
+        .and_then(|mut it| {
+            it.next()
+                .then(|| String::from_utf8_lossy(it.key()).into_owned())
+        })
+        .unwrap_or_default()
 }
 
 pub unsafe extern "C" fn zim_MongoDB_Driver_Command___construct(ex: Ex, _rv: *mut sys::zval) {
@@ -60,37 +70,54 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_Command___construct(ex: Ex, _rv: *mu
         return;
     }
     if !zval::is(doc, sys::IS_ARRAY) && !zval::is(doc, sys::IS_OBJECT) {
-        sys::zend_argument_type_error(1, c"must be of type object|array, %s given".as_ptr(), zval::value_name(doc));
+        sys::zend_argument_type_error(
+            1,
+            c"must be of type object|array, %s given".as_ptr(),
+            zval::value_name(doc),
+        );
         return;
     }
     let me = obj::data::<Command>(call::this(ex));
-    let Some(b) = crate::bson::encode::to_bson(doc, crate::bson::encode::NONE) else { return };
+    let Some(b) = crate::bson::encode::to_bson(doc, crate::bson::encode::NONE) else {
+        return;
+    };
     // cursor.batchSize of the command
     if let Some(mut it) = Iter::new(&b)
         && it.find(b"cursor")
-            && let Value::Document(d) = it.value()
-                && let Some(mut c) = Iter::new(d)
-                    && c.find(b"batchSize")
-                        && let v @ (Value::Int32(_) | Value::Int64(_)) = c.value() {
-                            let n = mongo_core::sdam::as_i64(&v);
-                            if (0..=u32::MAX as i64).contains(&n) {
-                                me.batch_size = n as u32;
-                            }
-                        }
+        && let Value::Document(d) = it.value()
+        && let Some(mut c) = Iter::new(d)
+        && c.find(b"batchSize")
+        && let v @ (Value::Int32(_) | Value::Int64(_)) = c.value()
+    {
+        let n = mongo_core::sdam::as_i64(&v);
+        if (0..=u32::MAX as i64).contains(&n) {
+            me.batch_size = n as u32;
+        }
+    }
     me.bson = Some(b);
     if !opts.is_null()
-        && let Some(z) = hash::find((*opts).value.arr, b"maxAwaitTimeMS") {
-            let v = sys::zval_get_long_func(z, false);
-            if v < 0 {
-                throw(E::InvalidArgument, format!("Expected \"maxAwaitTimeMS\" option to be >= 0, {v} given"));
-                return;
-            }
-            if v > u32::MAX as i64 {
-                throw(E::InvalidArgument, format!("Expected \"maxAwaitTimeMS\" option to be <= {}, {v} given", u32::MAX));
-                return;
-            }
-            me.max_await_time_ms = v as u32;
+        && let Some(z) = hash::find((*opts).value.arr, b"maxAwaitTimeMS")
+    {
+        let v = sys::zval_get_long_func(z, false);
+        if v < 0 {
+            throw(
+                E::InvalidArgument,
+                format!("Expected \"maxAwaitTimeMS\" option to be >= 0, {v} given"),
+            );
+            return;
         }
+        if v > u32::MAX as i64 {
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "Expected \"maxAwaitTimeMS\" option to be <= {}, {v} given",
+                    u32::MAX
+                ),
+            );
+            return;
+        }
+        me.max_await_time_ms = v as u32;
+    }
 }
 
 #[allow(dead_code)]

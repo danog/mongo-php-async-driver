@@ -84,7 +84,8 @@ impl Writer {
 
     #[inline]
     fn str_body(&mut self, s: &[u8]) {
-        self.buf.extend_from_slice(&((s.len() + 1) as u32).to_le_bytes());
+        self.buf
+            .extend_from_slice(&((s.len() + 1) as u32).to_le_bytes());
         self.buf.extend_from_slice(s);
         self.buf.push(0);
     }
@@ -129,11 +130,14 @@ impl Writer {
     pub fn binary(&mut self, key: &[u8], subtype: u8, data: &[u8]) {
         self.head(T_BINARY, key);
         if subtype == 2 {
-            self.buf.extend_from_slice(&((data.len() + 4) as u32).to_le_bytes());
+            self.buf
+                .extend_from_slice(&((data.len() + 4) as u32).to_le_bytes());
             self.buf.push(2);
-            self.buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            self.buf
+                .extend_from_slice(&(data.len() as u32).to_le_bytes());
         } else {
-            self.buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            self.buf
+                .extend_from_slice(&(data.len() as u32).to_le_bytes());
             self.buf.push(subtype);
         }
         self.buf.extend_from_slice(data);

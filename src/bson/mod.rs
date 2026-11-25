@@ -8,7 +8,7 @@ pub mod document;
 pub mod encode;
 pub mod types;
 
-use crate::zend::{call, class, sys, ClassEntry};
+use crate::zend::{ClassEntry, call, class, sys};
 use std::ffi::CStr;
 
 /// The class entries phongo keeps in globals (phongo_*_ce).
@@ -107,11 +107,17 @@ pub unsafe fn init_MongoDB_BSON_Unserializable(ce: *mut sys::zend_class_entry) {
 }
 
 /// phongo_implement_unserializable: enums cannot implement Unserializable (nor Persistable).
-unsafe extern "C" fn implement_unserializable(iface: *mut sys::zend_class_entry, class: *mut sys::zend_class_entry) -> i32 {
+unsafe extern "C" fn implement_unserializable(
+    iface: *mut sys::zend_class_entry,
+    class: *mut sys::zend_class_entry,
+) -> i32 {
     if (*class).ce_flags & sys::ZEND_ACC_ENUM != 0 {
         let c = ce();
         let mut err = iface;
-        if iface == c.unserializable.get() && !c.persistable.get().is_null() && crate::zend::obj::instanceof(class, c.persistable.get()) {
+        if iface == c.unserializable.get()
+            && !c.persistable.get().is_null()
+            && crate::zend::obj::instanceof(class, c.persistable.get())
+        {
             err = c.persistable.get();
         }
         sys::zend_error_noreturn(

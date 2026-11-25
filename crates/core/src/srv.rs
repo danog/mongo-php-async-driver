@@ -8,7 +8,7 @@
 //! due: never per operation.
 
 use crate::dns::{self, LookupError};
-use crate::error::{code, domain, Error};
+use crate::error::{Error, code, domain};
 use crate::uri::{Host, Uri};
 
 /// MONGOC_TOPOLOGY_MIN_RESCAN_SRV_INTERVAL_MS
@@ -44,7 +44,11 @@ fn prefer_tcp() -> bool {
 
 /// The "_<srvServiceName>._tcp.<host>" name of the URI's SRV records.
 pub fn prefixed_hostname(uri: &Uri) -> String {
-    format!("_{}._tcp.{}", uri.options.str("srvservicename").unwrap_or("mongodb"), uri.srv.as_deref().unwrap_or_default())
+    format!(
+        "_{}._tcp.{}",
+        uri.options.str("srvservicename").unwrap_or("mongodb"),
+        uri.srv.as_deref().unwrap_or_default()
+    )
 }
 
 /// _mongoc_get_rr_dnsapi (Windows): SRV records (hosts) or the TXT record (options) of
@@ -54,7 +58,11 @@ pub fn prefixed_hostname(uri: &Uri) -> String {
 pub fn get_rr(_cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> Result<(), Error> {
     use std::ffi::{CStr, CString};
     use windows_sys::Win32::NetworkManagement::Dns as d;
-    let (ty, name) = if srv { (d::DNS_TYPE_SRV, "SRV") } else { (d::DNS_TYPE_TEXT, "TXT") };
+    let (ty, name) = if srv {
+        (d::DNS_TYPE_SRV, "SRV")
+    } else {
+        (d::DNS_TYPE_TEXT, "TXT")
+    };
     let fail = |m: String| if srv { Err(err(m)) } else { Ok(()) };
     // a C string: whatever follows a NUL is not part of it
     let c = CString::new(hostname.split('\0').next().unwrap_or_default()).unwrap_or_default();
@@ -74,9 +82,21 @@ pub fn get_rr(_cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) ->
     }
     let mut list = List(std::ptr::null_mut());
     // SAFETY: a NUL-terminated name; the result list is owned by `list`
-    let res = unsafe { d::DnsQuery_UTF8(c.as_ptr().cast(), ty, options, std::ptr::null_mut(), &mut list.0, std::ptr::null_mut()) };
+    let res = unsafe {
+        d::DnsQuery_UTF8(
+            c.as_ptr().cast(),
+            ty,
+            options,
+            std::ptr::null_mut(),
+            &mut list.0,
+            std::ptr::null_mut(),
+        )
+    };
     if res != 0 {
-        return fail(format!("Failed to look up {name} record \"{hostname}\": {}", crate::os::error_text(res)));
+        return fail(format!(
+            "Failed to look up {name} record \"{hostname}\": {}",
+            crate::os::error_text(res)
+        ));
     }
     if list.0.is_null() {
         return fail(format!("No {name} records for \"{hostname}\""));
@@ -90,7 +110,10 @@ pub fn get_rr(_cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) ->
         seen += 1;
         // as many records as a resolver answer may give (dns::parse_answers)
         if seen > dns::MAX_RECORDS && srv {
-            return Err(err(format!("Too many records in {name} answer for \"{hostname}\": at most {} are accepted", dns::MAX_RECORDS)));
+            return Err(err(format!(
+                "Too many records in {name} answer for \"{hostname}\": at most {} are accepted",
+                dns::MAX_RECORDS
+            )));
         }
         // records of other types may come back
         if r.wType == ty {
@@ -103,7 +126,13 @@ pub fn get_rr(_cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) ->
             if srv {
                 // SAFETY: an SRV record's data; the target is a NUL-terminated UTF-8 string
                 let s = unsafe { r.Data.SRV };
-                let target = if s.pNameTarget.is_null() { String::new() } else { unsafe { CStr::from_ptr(s.pNameTarget.cast()) }.to_string_lossy().into_owned() };
+                let target = if s.pNameTarget.is_null() {
+                    String::new()
+                } else {
+                    unsafe { CStr::from_ptr(s.pNameTarget.cast()) }
+                        .to_string_lossy()
+                        .into_owned()
+                };
                 let host = crate::uri::host_from_hostport(&target, s.wPort).map_err(err)?;
                 upsert(&mut rr.hosts, host);
             } else {
@@ -134,20 +163,38 @@ pub fn get_rr(_cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) ->
 /// A failed TXT lookup is not an error (only a malformed or second TXT record is).
 #[cfg(unix)]
 pub fn get_rr(cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> Result<(), Error> {
-    let (ty, name) = if srv { (dns::T_SRV, "SRV") } else { (dns::T_TXT, "TXT") };
+    let (ty, name) = if srv {
+        (dns::T_SRV, "SRV")
+    } else {
+        (dns::T_TXT, "TXT")
+    };
     let m = match dns::search(cfg, hostname, ty, prefer_tcp()) {
         Ok(m) => m,
-        Err(e) if srv => return Err(err(format!("Failed to look up {name} record \"{hostname}\": {}", e.message()))),
+        Err(e) if srv => {
+            return Err(err(format!(
+                "Failed to look up {name} record \"{hostname}\": {}",
+                e.message()
+            )));
+        }
         Err(_) => return Ok(()),
     };
     let records = match dns::parse_answers(&m) {
         Ok(r) => r,
-        Err("too many records") if srv => return Err(err(format!("Too many records in {name} answer for \"{hostname}\": at most {} are accepted", dns::MAX_RECORDS))),
+        Err("too many records") if srv => {
+            return Err(err(format!(
+                "Too many records in {name} answer for \"{hostname}\": at most {} are accepted",
+                dns::MAX_RECORDS
+            )));
+        }
         Err(_) if srv => return Err(err(format!("Invalid {name} answer for \"{hostname}\""))),
         Err(_) => return Ok(()),
     };
     if records.is_empty() {
-        return if srv { Err(err(format!("No {name} records for \"{hostname}\""))) } else { Ok(()) };
+        return if srv {
+            Err(err(format!("No {name} records for \"{hostname}\"")))
+        } else {
+            Ok(())
+        };
     }
     let mut matching = 0;
     for (i, r) in records.iter().enumerate() {
@@ -170,7 +217,13 @@ pub fn get_rr(cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> 
         }
     }
     if matching == 0 {
-        return if srv { Err(err(format!("No matching {name} records for \"{hostname}\""))) } else { Ok(()) };
+        return if srv {
+            Err(err(format!(
+                "No matching {name} records for \"{hostname}\""
+            )))
+        } else {
+            Ok(())
+        };
     }
     Ok(())
 }
@@ -178,8 +231,17 @@ pub fn get_rr(cfg: &dns::Config, hostname: &str, srv: bool, rr: &mut RrData) -> 
 #[cfg_attr(not(unix), allow(dead_code))]
 /// srv_callback: priority, weight, port, target (the record must hold all of them; libmongoc
 /// reads the port without checking the record's length).
-fn srv_record(hostname: &str, m: &[u8], (start, end): (usize, usize), rr: &mut RrData) -> Result<(), Error> {
-    let invalid = || err(format!("Invalid record in SRV answer for \"{hostname}\": \"An unknown error occurred.\""));
+fn srv_record(
+    hostname: &str,
+    m: &[u8],
+    (start, end): (usize, usize),
+    rr: &mut RrData,
+) -> Result<(), Error> {
+    let invalid = || {
+        err(format!(
+            "Invalid record in SRV answer for \"{hostname}\": \"An unknown error occurred.\""
+        ))
+    };
     if end - start < 7 {
         return Err(invalid());
     }
@@ -196,7 +258,9 @@ fn srv_record(hostname: &str, m: &[u8], (start, end): (usize, usize), rr: &mut R
 fn txt_record(hostname: &str, data: &[u8], rr: &mut RrData) -> Result<(), Error> {
     let total = data.len();
     if !(1..=255).contains(&total) {
-        return Err(err(format!("Invalid TXT record size {total} for \"{hostname}\"")));
+        return Err(err(format!(
+            "Invalid TXT record size {total} for \"{hostname}\""
+        )));
     }
     let mut txt = Vec::with_capacity(total);
     let mut pos = 0;
@@ -204,7 +268,9 @@ fn txt_record(hostname: &str, data: &[u8], rr: &mut RrData) -> Result<(), Error>
         let len = data[pos] as usize;
         pos += 1;
         if total - pos < len {
-            return Err(err(format!("Invalid TXT string size {len} at {pos} in {total}-byte TXT record for \"{hostname}\"")));
+            return Err(err(format!(
+                "Invalid TXT string size {len} at {pos} in {total}-byte TXT record for \"{hostname}\""
+            )));
         }
         txt.extend_from_slice(&data[pos..pos + len]);
         pos += len;
@@ -215,7 +281,10 @@ fn txt_record(hostname: &str, data: &[u8], rr: &mut RrData) -> Result<(), Error>
 
 /// _mongoc_host_list_upsert: a host already listed (same host_and_port, any case) is replaced.
 fn upsert(list: &mut Vec<Host>, h: Host) {
-    match list.iter().position(|x| x.host_and_port.eq_ignore_ascii_case(&h.host_and_port)) {
+    match list
+        .iter()
+        .position(|x| x.host_and_port.eq_ignore_ascii_case(&h.host_and_port))
+    {
         Some(i) => list[i] = h,
         None => list.push(h),
     }
@@ -225,7 +294,11 @@ fn upsert(list: &mut Vec<Host>, h: Host) {
 /// (the SRV host name without its first label).
 pub fn validate(uri: &Uri, host: &str) -> Result<(), Error> {
     let srv_hostname = uri.srv.as_deref().unwrap_or_default();
-    let bad = || err(format!("Invalid host \"{host}\" returned for service \"{srv_hostname}\": host must be subdomain of service name"));
+    let bad = || {
+        err(format!(
+            "Invalid host \"{host}\" returned for service \"{srv_hostname}\": host must be subdomain of service name"
+        ))
+    };
     if host.len() <= 1 || host.starts_with('.') {
         return Err(bad());
     }
@@ -250,14 +323,18 @@ pub fn initial(uri: &mut Uri) -> Result<Option<Polling>, Error> {
     let srv_hostname = uri.srv.clone().unwrap_or_default();
     get_rr(&cfg, &srv_hostname, false, &mut rr)?;
     if let Some(opts) = &rr.txt_record_opts {
-        uri.apply_query_string(opts, true).map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
+        uri.apply_query_string(opts, true)
+            .map_err(|m| Error::new(domain::COMMAND, code::COMMAND_INVALID_ARG, m))?;
     }
     // mongoc_uri_init_with_srv_host_list
     for h in rr.hosts {
         validate(uri, &h.host)?;
         upsert(&mut uri.hosts, h);
     }
-    Ok(Some(Polling { last_scan_ms: now_ms(), interval_ms: (i64::from(rr.min_ttl) * 1000).max(MIN_RESCAN_INTERVAL_MS) }))
+    Ok(Some(Polling {
+        last_scan_ms: now_ms(),
+        interval_ms: (i64::from(rr.min_ttl) * 1000).max(MIN_RESCAN_INTERVAL_MS),
+    }))
 }
 
 /// mongoc_topology_rescan_srv (the caller checks the topology type): the hosts to reconcile
@@ -268,11 +345,18 @@ pub fn rescan(uri: &Uri, p: &mut Polling, heartbeat_ms: i64) -> Option<Vec<Strin
         return None;
     }
     let mut rr = RrData::default();
-    let r = get_rr(&dns::Config::system(), &prefixed_hostname(uri), true, &mut rr);
+    let r = get_rr(
+        &dns::Config::system(),
+        &prefixed_hostname(uri),
+        true,
+        &mut rr,
+    );
     p.last_scan_ms = now_ms();
     if let Err(e) = r {
         p.interval_ms = heartbeat_ms;
-        crate::log::error(crate::log::MONGOC, || format!("SRV polling error: {}", e.message));
+        crate::log::error(crate::log::MONGOC, || {
+            format!("SRV polling error: {}", e.message)
+        });
         return None;
     }
     p.interval_ms = (i64::from(rr.min_ttl) * 1000).max(MIN_RESCAN_INTERVAL_MS);
@@ -281,11 +365,15 @@ pub fn rescan(uri: &Uri, p: &mut Polling, heartbeat_ms: i64) -> Option<Vec<Strin
         if validate(uri, &h.host).is_ok() {
             upsert(&mut valid, h);
         } else {
-            crate::log::error(crate::log::MONGOC, || format!("Invalid host returned by SRV: {}", h.host_and_port));
+            crate::log::error(crate::log::MONGOC, || {
+                format!("Invalid host returned by SRV: {}", h.host_and_port)
+            });
         }
     }
     if valid.is_empty() {
-        crate::log::error(crate::log::MONGOC, || "SRV response did not contain any valid hosts".to_owned());
+        crate::log::error(crate::log::MONGOC, || {
+            "SRV response did not contain any valid hosts".to_owned()
+        });
         p.interval_ms = heartbeat_ms;
         return None;
     }
@@ -303,9 +391,15 @@ mod tests {
     fn records() {
         let mut rr = RrData::default();
         assert!(txt_record("h", b"", &mut rr).is_err());
-        assert_eq!(txt_record("h", b"\x05abc", &mut rr).unwrap_err().message, "Invalid TXT string size 5 at 1 in 4-byte TXT record for \"h\"");
+        assert_eq!(
+            txt_record("h", b"\x05abc", &mut rr).unwrap_err().message,
+            "Invalid TXT string size 5 at 1 in 4-byte TXT record for \"h\""
+        );
         txt_record("h", b"\x0dauthSource=db\x0e&replicaSet=rs", &mut rr).unwrap();
-        assert_eq!(rr.txt_record_opts.as_deref(), Some("authSource=db&replicaSet=rs"));
+        assert_eq!(
+            rr.txt_record_opts.as_deref(),
+            Some("authSource=db&replicaSet=rs")
+        );
         let uri = Uri::parse("mongodb+srv://test1.test.build.10gen.cc/").unwrap();
         assert!(validate(&uri, "localhost.test.build.10gen.cc").is_ok());
         assert!(validate(&uri, "localhost.build.10gen.cc").is_err());
@@ -322,17 +416,44 @@ mod tests {
     fn windows_dnsapi() {
         let cfg = dns::Config::default();
         let mut rr = RrData::default();
-        get_rr(&cfg, "_mongodb._tcp.test1.test.build.10gen.cc", true, &mut rr).unwrap();
+        get_rr(
+            &cfg,
+            "_mongodb._tcp.test1.test.build.10gen.cc",
+            true,
+            &mut rr,
+        )
+        .unwrap();
         let mut hosts: Vec<_> = rr.hosts.iter().map(|h| h.host_and_port.clone()).collect();
         hosts.sort();
-        assert_eq!(hosts, ["localhost.test.build.10gen.cc:27017", "localhost.test.build.10gen.cc:27018"]);
+        assert_eq!(
+            hosts,
+            [
+                "localhost.test.build.10gen.cc:27017",
+                "localhost.test.build.10gen.cc:27018"
+            ]
+        );
         let mut rr = RrData::default();
         get_rr(&cfg, "test5.test.build.10gen.cc", false, &mut rr).unwrap();
-        assert_eq!(rr.txt_record_opts.as_deref(), Some("replicaSet=repl0&authSource=thisDB"));
+        assert_eq!(
+            rr.txt_record_opts.as_deref(),
+            Some("replicaSet=repl0&authSource=thisDB")
+        );
         // libmongoc's message, with the system's text of the DNS status
-        let e = get_rr(&cfg, "_mongodb._tcp.nonexistent.test.build.10gen.cc", true, &mut RrData::default()).unwrap_err();
+        let e = get_rr(
+            &cfg,
+            "_mongodb._tcp.nonexistent.test.build.10gen.cc",
+            true,
+            &mut RrData::default(),
+        )
+        .unwrap_err();
         assert!(e.message.starts_with("Failed to look up SRV record \"_mongodb._tcp.nonexistent.test.build.10gen.cc\": (0x0000"), "{}", e.message);
         // a failed TXT lookup is no error
-        get_rr(&cfg, "nonexistent.test.build.10gen.cc", false, &mut RrData::default()).unwrap();
+        get_rr(
+            &cfg,
+            "nonexistent.test.build.10gen.cc",
+            false,
+            &mut RrData::default(),
+        )
+        .unwrap();
     }
 }

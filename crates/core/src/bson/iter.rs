@@ -41,7 +41,10 @@ pub fn rd_i64(b: &[u8], o: usize) -> i64 {
 /// `bson_init_static` validity: length >= 5, header == length, trailing NUL.
 #[inline]
 pub fn is_valid_static(data: &[u8]) -> bool {
-    data.len() >= 5 && data.len() <= MAX_SIZE && rd_u32(data, 0) as usize == data.len() && data[data.len() - 1] == 0
+    data.len() >= 5
+        && data.len() <= MAX_SIZE
+        && rd_u32(data, 0) as usize == data.len()
+        && data[data.len() - 1] == 0
 }
 
 /// `bson_empty`: a 5-byte document.
@@ -146,7 +149,20 @@ impl<'a> Iter<'a> {
         if raw.len() < 5 {
             return None;
         }
-        Some(Iter { raw, live: true, off: 0, key: 0, keylen: 0, d1: 0, d2: 0, d3: 0, d4: 0, next_off: 4, err_off: 0, unsupported: false })
+        Some(Iter {
+            raw,
+            live: true,
+            off: 0,
+            key: 0,
+            keylen: 0,
+            d1: 0,
+            d2: 0,
+            d3: 0,
+            d4: 0,
+            next_off: 4,
+            err_off: 0,
+            unsupported: false,
+        })
     }
 
     pub fn raw(&self) -> &'a [u8] {
@@ -161,7 +177,10 @@ impl<'a> Iter<'a> {
     }
 
     /// `_bson_iter_next_internal`: advances; false at the end or on corruption (err_off != 0).
-    #[allow(clippy::should_implement_trait, reason = "bson_iter_next: a cursor step (the element is read through the iterator), not an Iterator")]
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "bson_iter_next: a cursor step (the element is read through the iterator), not an Iterator"
+    )]
     pub fn next(&mut self) -> bool {
         self.unsupported = false;
         if !self.live {
@@ -397,7 +416,10 @@ impl<'a> Iter<'a> {
             T_REGEX => Value::Regex(cstr_at(r, d1), cstr_at(r, self.d2)),
             T_DBPOINTER => {
                 let l = (rd_u32(r, d1) as usize).saturating_sub(1);
-                Value::DbPointer(&r[self.d2..self.d2 + l], r[self.d3..self.d3 + 12].try_into().unwrap())
+                Value::DbPointer(
+                    &r[self.d2..self.d2 + l],
+                    r[self.d3..self.d3 + 12].try_into().unwrap(),
+                )
             }
             T_CODEWSCOPE => {
                 let l = rd_u32(r, self.d2) as usize - 1;
@@ -407,7 +429,9 @@ impl<'a> Iter<'a> {
             T_INT32 => Value::Int32(rd_u32(r, d1) as i32),
             T_TIMESTAMP => Value::Timestamp(rd_u32(r, d1 + 4), rd_u32(r, d1)),
             T_INT64 => Value::Int64(rd_i64(r, d1)),
-            T_DECIMAL128 => Value::Decimal128(Decimal128::from_le_bytes(r[d1..d1 + 16].try_into().unwrap())),
+            T_DECIMAL128 => Value::Decimal128(Decimal128::from_le_bytes(
+                r[d1..d1 + 16].try_into().unwrap(),
+            )),
             T_MAXKEY => Value::MaxKey,
             _ => Value::MinKey,
         }
@@ -423,7 +447,20 @@ impl<'a> Iter<'a> {
         if !matches!(t, T_DOUBLE..=T_DECIMAL128 | T_MAXKEY | T_MINKEY) || raw.len() < 16 {
             return Err(t);
         }
-        let it = Iter { raw, live: true, off: 0, key: 0, keylen: 0, d1: 0, d2: 0, d3: 0, d4: 0, next_off: 4, err_off: 0, unsupported: false };
+        let it = Iter {
+            raw,
+            live: true,
+            off: 0,
+            key: 0,
+            keylen: 0,
+            d1: 0,
+            d2: 0,
+            d3: 0,
+            d4: 0,
+            next_off: 4,
+            err_off: 0,
+            unsupported: false,
+        };
         Ok(it.value())
     }
 
@@ -453,7 +490,9 @@ impl<'a> Iter<'a> {
 /// included), or None.
 pub fn find_many<'a, const N: usize>(doc: &'a [u8], keys: [&[u8]; N]) -> [Option<Value<'a>>; N] {
     let mut out = [None; N];
-    let Some(mut it) = Iter::new(doc) else { return out };
+    let Some(mut it) = Iter::new(doc) else {
+        return out;
+    };
     let mut left = N;
     while left > 0 && it.next() {
         let k = it.key();

@@ -100,12 +100,19 @@ mod tests {
     #[test]
     fn fast_path_matches_bytewise() {
         let interesting: Vec<u8> = vec![
-            0x00, 0x01, 0x41, 0x7f, 0x80, 0x81, 0x8f, 0x90, 0x9f, 0xa0, 0xbf, 0xc0, 0xc1, 0xc2, 0xdf, 0xe0, 0xe1,
-            0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf3, 0xf4, 0xf5, 0xf7, 0xf8, 0xfb, 0xfc, 0xfe, 0xff,
+            0x00, 0x01, 0x41, 0x7f, 0x80, 0x81, 0x8f, 0x90, 0x9f, 0xa0, 0xbf, 0xc0, 0xc1, 0xc2,
+            0xdf, 0xe0, 0xe1, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf3, 0xf4, 0xf5, 0xf7, 0xf8,
+            0xfb, 0xfc, 0xfe, 0xff,
         ];
         let check = |b: &[u8]| {
             for allow in [false, true] {
-                assert_eq!(validate(b, allow), validate_bytewise(b, allow), "{:02x?} allow_null={}", b, allow);
+                assert_eq!(
+                    validate(b, allow),
+                    validate_bytewise(b, allow),
+                    "{:02x?} allow_null={}",
+                    b,
+                    allow
+                );
             }
         };
         check(&[]);
@@ -128,8 +135,17 @@ mod tests {
             let mut b = Vec::with_capacity(n);
             let mut y = x;
             for _ in 0..n {
-                y = y.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                b.push(interesting[(y >> 59) as usize % interesting.len()] ^ if y & 1 == 0 { 0 } else { (y >> 40) as u8 & 0x0f });
+                y = y
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                b.push(
+                    interesting[(y >> 59) as usize % interesting.len()]
+                        ^ if y & 1 == 0 {
+                            0
+                        } else {
+                            (y >> 40) as u8 & 0x0f
+                        },
+                );
             }
             check(&b);
         }

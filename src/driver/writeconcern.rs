@@ -1,8 +1,8 @@
 //! MongoDB\Driver\WriteConcern (src/MongoDB/WriteConcern.c over mongoc_write_concern_t).
 
-use crate::bson::{throw, E};
+use crate::bson::{E, throw};
 use crate::zend::call::{self, Ex};
-use crate::zend::{class, hash, obj, sys, zval, ClassEntry, EngineCell};
+use crate::zend::{ClassEntry, EngineCell, class, hash, obj, sys, zval};
 use mongo_core::uri::{W_DEFAULT, W_MAJORITY, W_UNACKNOWLEDGED};
 use std::ptr::null_mut;
 
@@ -63,7 +63,14 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___construct(ex: Ex, _rv
     let mut w: *mut sys::zval = null_mut();
     let mut wtimeout: i64 = 0;
     let mut journal: *mut sys::zval = null_mut();
-    if sys::zend_parse_parameters(call::num_args(ex), c"z|lz".as_ptr(), &mut w, &mut wtimeout, &mut journal) != 0 {
+    if sys::zend_parse_parameters(
+        call::num_args(ex),
+        c"z|lz".as_ptr(),
+        &mut w,
+        &mut wtimeout,
+        &mut journal,
+    ) != 0
+    {
         return;
     }
     let o = call::this(ex);
@@ -72,7 +79,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___construct(ex: Ex, _rv
     if zval::is(w, sys::IS_LONG) {
         let v = (*w).value.lval;
         if v < -3 {
-            throw(E::InvalidArgument, format!("Expected w to be >= -3, {v} given"));
+            throw(
+                E::InvalidArgument,
+                format!("Expected w to be >= -3, {v} given"),
+            );
             return;
         }
         wc.set_w(v as i32);
@@ -84,21 +94,33 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___construct(ex: Ex, _rv
             wc.set_wtag(s);
         }
     } else {
-        throw(E::InvalidArgument, format!("Expected w to be integer or string, {} given", zval::type_name(w)));
+        throw(
+            E::InvalidArgument,
+            format!(
+                "Expected w to be integer or string, {} given",
+                zval::type_name(w)
+            ),
+        );
         return;
     }
     let n = call::num_args(ex);
     if n >= 3 && !journal.is_null() && !zval::is(journal, sys::IS_NULL) {
         let j = zval::is_true(journal);
         if j && wc.w == W_UNACKNOWLEDGED {
-            throw(E::InvalidArgument, "Cannot enable journaling when using w = 0");
+            throw(
+                E::InvalidArgument,
+                "Cannot enable journaling when using w = 0",
+            );
             return;
         }
         wc.set_journal(j);
     }
     if n >= 2 {
         if wtimeout < 0 {
-            throw(E::InvalidArgument, format!("Expected wtimeout to be >= 0, {wtimeout} given"));
+            throw(
+                E::InvalidArgument,
+                format!("Expected wtimeout to be >= 0, {wtimeout} given"),
+            );
             return;
         }
         wc.set_wtimeout(wtimeout);
@@ -122,7 +144,10 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
     if let Some(w) = hash::find(props, b"w") {
         if zval::is(w, sys::IS_LONG) {
             if (*w).value.lval < -3 {
-                throw(E::InvalidArgument, format!("{name} initialization requires \"w\" integer field to be >= -3"));
+                throw(
+                    E::InvalidArgument,
+                    format!("{name} initialization requires \"w\" integer field to be >= -3"),
+                );
                 return false;
             }
             wc.set_w((*w).value.lval as i32);
@@ -134,14 +159,20 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
                 wc.set_wtag(s);
             }
         } else if !zval::is(w, sys::IS_NULL) {
-            throw(E::InvalidArgument, format!("{name} initialization requires \"w\" field to be integer or string"));
+            throw(
+                E::InvalidArgument,
+                format!("{name} initialization requires \"w\" field to be integer or string"),
+            );
             return false;
         }
     }
     if let Some(t) = hash::find(props, b"wtimeout") {
         if zval::is(t, sys::IS_LONG) {
             if (*t).value.lval < 0 {
-                throw(E::InvalidArgument, format!("{name} initialization requires \"wtimeout\" integer field to be >= 0"));
+                throw(
+                    E::InvalidArgument,
+                    format!("{name} initialization requires \"wtimeout\" integer field to be >= 0"),
+                );
                 return false;
             }
             wc.set_wtimeout((*t).value.lval);
@@ -149,12 +180,23 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
             match parse_int64(zval::str_bytes(t)) {
                 Some(v) => wc.set_wtimeout(v),
                 None => {
-                    throw(E::InvalidArgument, format!("Error parsing \"{}\" as 64-bit value for {name} initialization", crate::bson::cstr_lossy(zval::str_bytes(t))));
+                    throw(
+                        E::InvalidArgument,
+                        format!(
+                            "Error parsing \"{}\" as 64-bit value for {name} initialization",
+                            crate::bson::cstr_lossy(zval::str_bytes(t))
+                        ),
+                    );
                     return false;
                 }
             }
         } else if !zval::is(t, sys::IS_NULL) {
-            throw(E::InvalidArgument, format!("{name} initialization requires \"wtimeout\" field to be integer or string"));
+            throw(
+                E::InvalidArgument,
+                format!(
+                    "{name} initialization requires \"wtimeout\" field to be integer or string"
+                ),
+            );
             return false;
         }
     }
@@ -162,12 +204,18 @@ unsafe fn init_from_hash(o: *mut sys::zend_object, props: *mut sys::HashTable) -
         if zval::is(j, sys::IS_TRUE) || zval::is(j, sys::IS_FALSE) {
             let jv = zval::is(j, sys::IS_TRUE);
             if jv && wc.w == W_UNACKNOWLEDGED {
-                throw(E::InvalidArgument, "Cannot enable journaling when using w = 0");
+                throw(
+                    E::InvalidArgument,
+                    "Cannot enable journaling when using w = 0",
+                );
                 return false;
             }
             wc.set_journal(jv);
         } else if !zval::is(j, sys::IS_NULL) {
-            throw(E::InvalidArgument, format!("{name} initialization requires \"j\" field to be boolean"));
+            throw(
+                E::InvalidArgument,
+                format!("{name} initialization requires \"j\" field to be boolean"),
+            );
             return false;
         }
     }
@@ -189,7 +237,10 @@ pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___set_state(ex: Ex, rv:
     zval::write(rv, z);
 }
 
-pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___unserialize(ex: Ex, _rv: *mut sys::zval) {
+pub unsafe extern "C" fn zim_MongoDB_Driver_WriteConcern___unserialize(
+    ex: Ex,
+    _rv: *mut sys::zval,
+) {
     let mut a: *mut sys::zval = null_mut();
     if sys::zend_parse_parameters(call::num_args(ex), c"a".as_ptr(), &mut a) != 0 {
         return;
